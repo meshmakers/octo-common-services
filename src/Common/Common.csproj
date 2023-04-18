@@ -1,0 +1,54 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+
+    <PropertyGroup>
+        <AssemblyName>Meshmakers.Octo.Services.Common</AssemblyName>
+        <Description>Shared Middleware implementations for ASP.NET web API</Description>
+        <GeneratePackageOnBuild>true</GeneratePackageOnBuild>
+        <PackageIcon>meshmakers64.png</PackageIcon>
+        <PackageId>Meshmakers.Octo.Services.Common</PackageId>
+        <PackageLicenseFile>LICENSE</PackageLicenseFile>
+        <PackageProjectUrl>https://www.meshmakers.io</PackageProjectUrl>
+        <RepositoryUrl>https://github.com/meshmakers/octomesh</RepositoryUrl>
+        <RootNamespace>Meshmakers.Octo.Services.Common</RootNamespace>
+        <TargetFramework>net7.0</TargetFramework>
+    </PropertyGroup>
+
+    <PropertyGroup Condition=" '$(Configuration)' == 'Debug' ">
+        <OutputPath>..\..\bin\Debug\Services\Common</OutputPath>
+        <DocumentationFile>..\..\bin\Debug\Services\Common\Common.xml</DocumentationFile>
+    </PropertyGroup>
+
+    <PropertyGroup Condition=" '$(Configuration)' == 'Release' ">
+        <OutputPath>..\..\bin\Release\Services\Common</OutputPath>
+        <DocumentationFile>..\..\bin\Release\Services\Common\Common.xml</DocumentationFile>
+    </PropertyGroup>
+
+    <ItemGroup>
+        <PackageReference Include="IdentityModel" Version="6.0.0" />
+        <PackageReference Include="Microsoft.AspNetCore.Mvc.Cors" Version="2.2.0" />
+        <PackageReference Include="Newtonsoft.Json" Version="13.0.2" />
+        <PackageReference Include="NLog" Version="5.1.1" />
+    </ItemGroup>
+
+    <ItemGroup>
+        <ProjectReference Include="..\octo-core\src\Common\Shared\Shared.csproj" />
+        <ProjectReference Include="..\octo-core\src\SystematizedData\Persistence\Persistence.csproj" />
+    </ItemGroup>
+
+    <ItemGroup>
+        <None Include="..\..\assets\meshmakers64.png">
+            <Pack>True</Pack>
+            <PackagePath />
+            <Link>meshmakers64.png</Link>
+        </None>
+    </ItemGroup>
+
+    <ItemGroup>
+        <None Include="..\..\LICENSE">
+            <Pack>True</Pack>
+            <PackagePath />
+            <Link>LICENSE</Link>
+        </None>
+    </ItemGroup>
+
+</Project>

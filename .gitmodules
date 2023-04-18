@@ -1,0 +1,3 @@
+[submodule "src/octo-core"]
+	path = src/octo-core
+	url = https://github.com/meshmakers/octo-core.git
