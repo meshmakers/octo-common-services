@@ -16,7 +16,7 @@
     </ItemGroup>
 
     <ItemGroup>
-        <None Include="..\..\..\assets\meshmakers64.png">
+        <None Include="..\..\assets\meshmakers64.png">
             <Pack>True</Pack>
             <PackagePath />
             <Link>meshmakers64.png</Link>
@@ -24,6 +24,7 @@
     </ItemGroup>
 
     <ItemGroup>
-      <ProjectReference Include="..\..\octo-core\src\Common\Shared\Shared.csproj" />
+      <ProjectReference Condition="Exists('..\..\octo-core\src\Common\Shared\Shared.csproj')" Include="..\..\octo-core\src\Common\Shared\Shared.csproj" />
+      <ProjectReference Condition="Exists('..\..\..\octo-core\src\Common\Shared\Shared.csproj')" Include="..\..\..\octo-core\src\Common\Shared\Shared.csproj" />
     </ItemGroup>
 </Project>
