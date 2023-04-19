@@ -29,7 +29,6 @@
     </ItemGroup>
 
     <ItemGroup>
-      <ProjectReference Condition="Exists('..\octo-core\src\Common\Shared\Shared.csproj')" Include="..\octo-core\src\Common\Shared\Shared.csproj" />
-      <ProjectReference Condition="Exists('..\..\..\central.repo')" Include="..\..\..\octo-core\src\Common\Shared\Shared.csproj" />
+      <ProjectReference Include="$(OctoCorePath)src\Common\Shared\Shared.csproj" />
     </ItemGroup>
 </Project>
