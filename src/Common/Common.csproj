@@ -32,9 +32,9 @@
 
     <ItemGroup>
         <ProjectReference Condition="Exists('..\octo-core\src\Common\Shared\Shared.csproj')" Include="..\octo-core\src\Common\Shared\Shared.csproj" />
-        <ProjectReference Condition="Exists('..\..\..\octo-core\src\Common\Shared\Shared.csproj')" Include="..\..\..\octo-core\src\Common\Shared\Shared.csproj" />
+        <ProjectReference Condition="Exists('..\..\..\central.repo')" Include="..\..\..\octo-core\src\Common\Shared\Shared.csproj" />
         <ProjectReference Condition="Exists('..\octo-core\src\SystematizedData\Persistence\Persistence.csproj')" Include="..\octo-core\src\SystematizedData\Persistence\Persistence.csproj" />
-        <ProjectReference Condition="Exists('..\..\..\octo-core\src\SystematizedData\Persistence\Persistence.csproj')" Include="..\..\..\octo-core\src\SystematizedData\Persistence\Persistence.csproj" />
+        <ProjectReference Condition="Exists('..\..\..\central.repo')" Include="..\..\..\octo-core\src\SystematizedData\Persistence\Persistence.csproj" />
     </ItemGroup>
 
     <ItemGroup>
