@@ -12,6 +12,10 @@ Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "DistributedCache", "src\oct
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Internationalization", "src\octo-core\src\Common\Internationalization\Internationalization.csproj", "{14E54A7F-DA76-4D49-8227-B80580DA2F14}"
 EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Infrastructure", "src\Infrastructure\Infrastructure.csproj", "{2A4FC246-2771-4D11-B00F-1E796B1789CE}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Swagger", "src\Swagger\Swagger.csproj", "{8DD675F2-788C-4F13-8DE1-65BA308F788A}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -38,6 +42,14 @@ Global
 		{14E54A7F-DA76-4D49-8227-B80580DA2F14}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{14E54A7F-DA76-4D49-8227-B80580DA2F14}.Release|Any CPU.ActiveCfg = Release|Any CPU
 		{14E54A7F-DA76-4D49-8227-B80580DA2F14}.Release|Any CPU.Build.0 = Release|Any CPU
+		{2A4FC246-2771-4D11-B00F-1E796B1789CE}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{2A4FC246-2771-4D11-B00F-1E796B1789CE}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{2A4FC246-2771-4D11-B00F-1E796B1789CE}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{2A4FC246-2771-4D11-B00F-1E796B1789CE}.Release|Any CPU.Build.0 = Release|Any CPU
+		{8DD675F2-788C-4F13-8DE1-65BA308F788A}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{8DD675F2-788C-4F13-8DE1-65BA308F788A}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{8DD675F2-788C-4F13-8DE1-65BA308F788A}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{8DD675F2-788C-4F13-8DE1-65BA308F788A}.Release|Any CPU.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(NestedProjects) = preSolution
 		{2F0E1A7A-049B-44EF-BA75-A12CEC2163B3} = {2D617765-0C24-4696-827E-51AB15E7C834}

@@ -9,9 +9,11 @@
         <RepositoryUrl>https://github.com/meshmakers/octomesh</RepositoryUrl>
         <RootNamespace>Meshmakers.Octo.Backend.Swagger</RootNamespace>
         <TargetFramework>net7.0</TargetFramework>
+        <Nullable>enable</Nullable>
     </PropertyGroup>
 
     <ItemGroup>
+        <PackageReference Include="Meshmakers.Common.Shared" Version="4.0.2302.10004" />
         <PackageReference Include="Microsoft.AspNetCore.Mvc.Versioning.ApiExplorer" Version="5.0.0" />
         <PackageReference Include="Swashbuckle.AspNetCore.SwaggerGen" Version="6.5.0" />
         <PackageReference Include="Swashbuckle.AspNetCore" Version="6.5.0" />
@@ -27,7 +29,7 @@
     </ItemGroup>
 
     <ItemGroup>
-      <ProjectReference Condition="Exists('..\..\octo-core\src\Common\Shared\Shared.csproj')" Include="..\..\octo-core\src\Common\Shared\Shared.csproj" />
+      <ProjectReference Condition="Exists('..\octo-core\src\Common\Shared\Shared.csproj')" Include="..\octo-core\src\Common\Shared\Shared.csproj" />
       <ProjectReference Condition="Exists('..\..\..\central.repo')" Include="..\..\..\octo-core\src\Common\Shared\Shared.csproj" />
     </ItemGroup>
 </Project>
