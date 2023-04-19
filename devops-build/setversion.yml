@@ -38,8 +38,4 @@ steps:
     FileVersionNumber: $(Build.BuildNumber)
     InformationalVersion: $(Build.BuildNumber)
     PackageVersion: $(Build.BuildNumber)    
-- task: VersionJSONFile@2
-  displayName: Set Version package.json
-  inputs:
-    versionForJSONFileFormat: '{1}.{2}.{3}-{4}'
-    FilenamePattern: ^package.json
+
