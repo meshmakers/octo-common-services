@@ -4,9 +4,9 @@ trigger:
   batch: true
   branches:
     include:
-      - master
+      - main
       - release-1.0
-      - release-2.
+      - release-2.0
   
 variables:
   buildConfiguration: 'Release'
