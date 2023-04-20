@@ -16,6 +16,8 @@ Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Infrastructure", "src\Infra
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Swagger", "src\Swagger\Swagger.csproj", "{8DD675F2-788C-4F13-8DE1-65BA308F788A}"
 EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Jobs", "src\Jobs\Jobs.csproj", "{8B768B2F-9262-4135-9F37-895D4C42B361}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -50,6 +52,10 @@ Global
 		{8DD675F2-788C-4F13-8DE1-65BA308F788A}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{8DD675F2-788C-4F13-8DE1-65BA308F788A}.Release|Any CPU.ActiveCfg = Release|Any CPU
 		{8DD675F2-788C-4F13-8DE1-65BA308F788A}.Release|Any CPU.Build.0 = Release|Any CPU
+		{8B768B2F-9262-4135-9F37-895D4C42B361}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{8B768B2F-9262-4135-9F37-895D4C42B361}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{8B768B2F-9262-4135-9F37-895D4C42B361}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{8B768B2F-9262-4135-9F37-895D4C42B361}.Release|Any CPU.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(NestedProjects) = preSolution
 		{2F0E1A7A-049B-44EF-BA75-A12CEC2163B3} = {2D617765-0C24-4696-827E-51AB15E7C834}
