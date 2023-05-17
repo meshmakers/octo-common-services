@@ -13,8 +13,7 @@ public static class ServiceCollectionExtensions
 {
     public static IServiceCollection AddOctoApiVersioningAndDocumentation(
         this IServiceCollection services,
-        Action<OctoSwaggerOptions>? setupOctoSwaggerOptionsAction = null,
-        Action<IdentityOptions>? setupAction = null)
+        Action<OctoSwaggerOptions>? setupOctoSwaggerOptionsAction = null)
     {
         if (setupOctoSwaggerOptionsAction != null)
         {
