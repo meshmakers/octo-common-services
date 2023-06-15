@@ -26,8 +26,8 @@
     </PropertyGroup>
 
     <ItemGroup>
-        <PackageReference Include="Hangfire.Core" Version="1.8.0" />
-        <PackageReference Include="NLog" Version="5.1.4" />
+        <PackageReference Include="Hangfire.Core" Version="1.8.2" />
+        <PackageReference Include="NLog" Version="5.2.0" />
     </ItemGroup>
 
     <ItemGroup>

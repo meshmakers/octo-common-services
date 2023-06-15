@@ -29,7 +29,7 @@
         <PackageReference Include="Meshmakers.Common.Shared" Version="4.0.2305.5002" />
         <PackageReference Include="Microsoft.AspNetCore.Mvc.Cors" Version="2.2.0" />
         <PackageReference Include="Newtonsoft.Json" Version="13.0.3" />
-        <PackageReference Include="NLog" Version="5.1.4" />
+        <PackageReference Include="NLog" Version="5.2.0" />
     </ItemGroup>
 
     <ItemGroup>
