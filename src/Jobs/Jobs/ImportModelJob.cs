@@ -4,7 +4,7 @@ using System.IO;
 using System.Threading.Tasks;
 using Hangfire;
 using Meshmakers.Common.Shared;
-using Meshmakers.Octo.Backend.DistributedCache;
+using Meshmakers.Octo.Common.DistributedCache;
 using Meshmakers.Octo.Common.Shared.DataTransferObjects;
 using Meshmakers.Octo.SystematizedData.Persistence;
 using Meshmakers.Octo.SystematizedData.Persistence.DatabaseEntities;
@@ -112,22 +112,21 @@ public class ImportModelJob
 
     private async Task<string> GetTempFile(string key)
     {
-        var contentType = (string?)await _distributedCache.Database.StringGetAsync(key + "contentType");
-        var fileArray = (byte[]?)await _distributedCache.Database.StringGetAsync(key + "value");
-        if (string.IsNullOrWhiteSpace(contentType) || fileArray == null || fileArray.Length == 0)
+        CacheStream? cacheStream = await _distributedCache.GetCacheStreamAsync(key);
+        if (cacheStream == null)
         {
             throw new JobFailedException("No value in distribute cache found.");
         }
 
         var tempFile = Path.GetTempFileName();
 
-        using (var memoryStream = new MemoryStream(fileArray))
+        using (var memoryStream = new MemoryStream(cacheStream.Stream))
         {
-            if (contentType.ToLower() == "application/zip")
+            if (cacheStream.ContentType.ToLower() == "application/zip")
             {
-                await memoryStream.ExtractFileFromZipAsync(contentType, ".json", tempFile);
+                await memoryStream.ExtractFileFromZipAsync(cacheStream.ContentType, ".json", tempFile);
             }
-            else if (contentType.ToLower() == "application/json")
+            else if (cacheStream.ContentType.ToLower() == "application/json")
             {
                 await using (var streamWriter = new StreamWriter(tempFile))
                 {
@@ -145,7 +144,6 @@ public class ImportModelJob
 
     private async Task ClearCache(string key)
     {
-        await _distributedCache.Database.KeyDeleteAsync(key + "contentType");
-        await _distributedCache.Database.KeyDeleteAsync(key + "value");
+        await _distributedCache.DeleteCacheStreamAsync(key);
     }
 }

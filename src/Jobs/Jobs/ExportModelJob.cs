@@ -4,7 +4,7 @@ using System.IO;
 using System.Threading.Tasks;
 using Hangfire;
 using Meshmakers.Common.Shared;
-using Meshmakers.Octo.Backend.DistributedCache;
+using Meshmakers.Octo.Common.DistributedCache;
 using Meshmakers.Octo.Common.Shared;
 using Meshmakers.Octo.SystematizedData.Persistence;
 using NLog;
@@ -79,10 +79,7 @@ public class ExportModelJob
             await using (var memoryStream = new MemoryStream())
             {
                 await streamReader.BaseStream.PackFileToZipAsync("RtEntities.json", memoryStream);
-                await _distributedCache.Database.StringSetAsync(key + "value", memoryStream.ToArray());
-                await _distributedCache.Database.StringSetAsync(key + "contentType", "application/zip");
-                await _distributedCache.Database.KeyExpireAsync(key + "contentType", DateTime.Now.AddHours(1));
-                await _distributedCache.Database.KeyExpireAsync(key + "value", DateTime.Now.AddHours(1));
+                await _distributedCache.CacheStreamAsync(key, memoryStream.ToArray(), "application/zip", TimeSpan.FromHours(1));
             }
         }
     }
