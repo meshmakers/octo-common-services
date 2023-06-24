@@ -1,12 +1,12 @@
 ﻿using System.Linq;
 using System.Threading.Tasks;
-using Meshmakers.Octo.Backend.DistributedCache;
+using Meshmakers.Octo.Common.DistributedCache;
 using Meshmakers.Octo.SystematizedData.Persistence.SystemStores;
 using Microsoft.AspNetCore.Cors.Infrastructure;
 using Microsoft.AspNetCore.Http;
 using NLog;
 
-namespace Meshmakers.Octo.Backend.Common.Cors;
+namespace Meshmakers.Octo.Services.Common.Cors;
 
 /// <summary>
 ///     Implements a CORS policy provider that allows all known clients stored in Octo database
@@ -38,7 +38,7 @@ public class CorsPolicyProvider : ICorsPolicyProvider
         if (_corsPolicy == null)
         {
             var clients = await _clientStore.GetClients();
-            var origins = clients.Where(x => x.AllowedCorsOrigins != null).SelectMany(x => x.AllowedCorsOrigins)
+            var origins = clients.SelectMany(x => x.AllowedCorsOrigins)
                 .ToArray();
 
             Logger.Info($"Creating CORS policy from cache: {string.Join(", ", origins)}");
@@ -53,7 +53,7 @@ public class CorsPolicyProvider : ICorsPolicyProvider
         return _corsPolicy;
     }
 
-    private Task OnInvalidateData(ChannelMessage<string> arg)
+    private Task OnInvalidateData(IChannelMessage<string> arg)
     {
         _corsPolicy = null;
         return Task.CompletedTask;
