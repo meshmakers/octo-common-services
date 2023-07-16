@@ -35,7 +35,6 @@
     <ItemGroup>
         <ProjectReference Include="$(OctoCorePath)src\Common\DistributedCache\DistributedCache.csproj" />
         <ProjectReference Include="$(OctoCorePath)src\Common\Shared\Shared.csproj" />
-        <ProjectReference Include="$(OctoCorePath)src\SystematizedData\Persistence\Persistence.csproj" />
     </ItemGroup>
 
     <ItemGroup>

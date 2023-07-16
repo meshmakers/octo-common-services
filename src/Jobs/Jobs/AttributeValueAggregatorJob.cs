@@ -4,6 +4,7 @@ using System.Linq;
 using System.Threading.Tasks;
 using Hangfire;
 using Meshmakers.Octo.Common.DistributedCache;
+using Meshmakers.Octo.Common.Shared.DistributedCache;
 using Meshmakers.Octo.SystematizedData.Persistence;
 using NLog;
 

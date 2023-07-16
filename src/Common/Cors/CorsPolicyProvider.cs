@@ -1,7 +1,8 @@
 ﻿using System.Linq;
 using System.Threading.Tasks;
 using Meshmakers.Octo.Common.DistributedCache;
-using Meshmakers.Octo.SystematizedData.Persistence.SystemStores;
+using Meshmakers.Octo.Common.Shared;
+using Meshmakers.Octo.Common.Shared.DistributedCache;
 using Microsoft.AspNetCore.Cors.Infrastructure;
 using Microsoft.AspNetCore.Http;
 using NLog;
@@ -17,17 +18,17 @@ public class CorsPolicyProvider : ICorsPolicyProvider
 
     // ReSharper disable once PrivateFieldCanBeConvertedToLocalVariable
     private readonly IChannel<string> _channel;
-    private readonly IOctoClientStore _clientStore;
+    private readonly IKnownOriginsProvider _knownOriginsProvider;
     private CorsPolicy? _corsPolicy;
 
     /// <summary>
     ///     Constructor
     /// </summary>
-    /// <param name="clientStore">Client store object to access all available clients.</param>
+    /// <param name="knownOriginsProvider">Client store object to access all available clients.</param>
     /// <param name="distributedCache">Instance of distributed cache</param>
-    public CorsPolicyProvider(IOctoClientStore clientStore, IDistributedWithPubSubCache distributedCache)
+    public CorsPolicyProvider(IKnownOriginsProvider knownOriginsProvider, IDistributedWithPubSubCache distributedCache)
     {
-        _clientStore = clientStore;
+        _knownOriginsProvider = knownOriginsProvider;
         _channel = distributedCache.Subscribe<string>(CacheCommon.KeyCorsClients);
         _channel.OnMessage(OnInvalidateData);
     }
@@ -37,14 +38,12 @@ public class CorsPolicyProvider : ICorsPolicyProvider
     {
         if (_corsPolicy == null)
         {
-            var clients = await _clientStore.GetClients();
-            var origins = clients.SelectMany(x => x.AllowedCorsOrigins)
-                .ToArray();
+            var origins = await _knownOriginsProvider.GetKnownOriginsAsync();
 
             Logger.Info($"Creating CORS policy from cache: {string.Join(", ", origins)}");
 
             var policyBuilder = new CorsPolicyBuilder()
-                .WithOrigins(origins)
+                .WithOrigins(origins.ToArray())
                 .AllowAnyHeader()
                 .AllowAnyMethod();
             _corsPolicy = policyBuilder.Build();

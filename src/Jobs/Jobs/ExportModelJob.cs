@@ -6,6 +6,7 @@ using Hangfire;
 using Meshmakers.Common.Shared;
 using Meshmakers.Octo.Common.DistributedCache;
 using Meshmakers.Octo.Common.Shared;
+using Meshmakers.Octo.Common.Shared.DistributedCache;
 using Meshmakers.Octo.SystematizedData.Persistence;
 using NLog;
 
