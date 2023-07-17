@@ -27,14 +27,10 @@
     <ItemGroup>
         <PackageReference Include="IdentityModel" Version="6.1.0" />
         <PackageReference Include="Meshmakers.Common.Shared" Version="4.0.2307.7001" />
+        <PackageReference Include="Meshmakers.Octo.Common.Shared" Version="0.0.2307.17009" />
         <PackageReference Include="Microsoft.AspNetCore.Mvc.Cors" Version="2.2.0" />
         <PackageReference Include="Newtonsoft.Json" Version="13.0.3" />
-        <PackageReference Include="NLog" Version="5.2.0" />
-    </ItemGroup>
-
-    <ItemGroup>
-        <ProjectReference Include="$(OctoCorePath)src\Common\DistributedCache\DistributedCache.csproj" />
-        <ProjectReference Include="$(OctoCorePath)src\Common\Shared\Shared.csproj" />
+        <PackageReference Include="NLog" Version="5.2.2" />
     </ItemGroup>
 
     <ItemGroup>

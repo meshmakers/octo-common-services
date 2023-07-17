@@ -24,8 +24,4 @@
             <Link>meshmakers64.png</Link>
         </None>
     </ItemGroup>
-
-    <ItemGroup>
-      <ProjectReference Include="$(OctoCorePath)src\Common\Shared\Shared.csproj" />
-    </ItemGroup>
 </Project>

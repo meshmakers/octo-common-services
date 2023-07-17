@@ -1,6 +1,5 @@
 ﻿using System.Linq;
 using System.Threading.Tasks;
-using Meshmakers.Octo.Common.DistributedCache;
 using Meshmakers.Octo.Common.Shared;
 using Meshmakers.Octo.Common.Shared.DistributedCache;
 using Microsoft.AspNetCore.Cors.Infrastructure;
