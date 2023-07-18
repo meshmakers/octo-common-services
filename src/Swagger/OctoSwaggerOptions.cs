@@ -32,7 +32,7 @@ public class OctoSwaggerOptions
 
     private static string GetAssemblyPath<T>()
     {
-        var codeBase = typeof(T).GetTypeInfo().Assembly.GetName().CodeBase;
+        var codeBase = typeof(T).Assembly.Location;
         if (!string.IsNullOrWhiteSpace(codeBase))
         {
             return Path.ChangeExtension(new Uri(codeBase).LocalPath, ".xml");
