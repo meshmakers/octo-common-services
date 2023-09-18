@@ -13,8 +13,8 @@
     </PropertyGroup>
 
     <ItemGroup>
-        <PackageReference Include="Meshmakers.Common.Shared" Version="4.0.2307.7001" />
-        <PackageReference Include="Meshmakers.Octo.Common.Shared" Version="0.0.2307.17009" />
+        <PackageReference Include="Meshmakers.Common.Shared" Version="4.0.2309.9001" />
+        <PackageReference Include="Meshmakers.Octo.Common.Shared" Version="0.0.2309.4002" />
         <PackageReference Include="Microsoft.AspNetCore.Mvc.Versioning.ApiExplorer" Version="5.1.0" />
         <PackageReference Include="Swashbuckle.AspNetCore.SwaggerGen" Version="6.5.0" />
         <PackageReference Include="Swashbuckle.AspNetCore" Version="6.5.0" />
