@@ -40,9 +40,14 @@ public class ConfigureSwaggerOptions : IConfigureOptions<SwaggerGenOptions>
         // add a swagger document for each discovered API version
         // note: you might choose to skip or document deprecated API versions differently
         foreach (var description in _provider.ApiVersionDescriptions)
+        {
             options.SwaggerDoc(description.GroupName, CreateInfoForApiVersion(description));
+        }
 
-        foreach (var xmlPath in _options.Value.XmlDocAssemblies) options.IncludeXmlComments(xmlPath);
+        foreach (var xmlPath in _options.Value.XmlDocAssemblies)
+        {
+            options.IncludeXmlComments(xmlPath);
+        }
 
         options.AddSecurityRequirement(new OpenApiSecurityRequirement
         {

@@ -28,7 +28,10 @@ public class OctoSwaggerOptions
     private static string GetAssemblyPath<T>()
     {
         var codeBase = typeof(T).Assembly.Location;
-        if (!string.IsNullOrWhiteSpace(codeBase)) return Path.ChangeExtension(new Uri(codeBase).LocalPath, ".xml");
+        if (!string.IsNullOrWhiteSpace(codeBase))
+        {
+            return Path.ChangeExtension(new Uri(codeBase).LocalPath, ".xml");
+        }
 
         throw new InvalidOperationException($"Assembly path of type '{typeof(T)}' not found.");
     }
