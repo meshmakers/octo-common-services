@@ -3,7 +3,8 @@ using Meshmakers.Octo.Common.DistributionEventHub.Configuration;
 using Meshmakers.Octo.Services.Common.DistributionEventHub.Messages;
 using Microsoft.Extensions.DependencyInjection;
 
-namespace Meshmakers.Octo.Backend.Infrastructure.Configuration.DependencyInjection;
+// ReSharper disable once CheckNamespace
+namespace Microsoft.Extensions.DependencyInjection;
 
 /// <summary>
 /// Extensions for dependency injection's service collection

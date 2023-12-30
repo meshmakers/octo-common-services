@@ -21,7 +21,7 @@
     <ItemGroup>
         <PackageReference Include="IdentityModel" Version="6.2.0"/>
         <PackageReference Include="Meshmakers.Octo.Common.DistributionEventHub" Version="3.0.1" />
-        <PackageReference Include="Meshmakers.Octo.Sdk.ServiceClient" Version="3.0.3" />
+        <PackageReference Include="Meshmakers.Octo.Sdk.ServiceClient" Version="3.0.4" />
         <PackageReference Include="Microsoft.AspNetCore.Mvc.Cors" Version="2.2.0"/>
         <PackageReference Include="Newtonsoft.Json" Version="13.0.3"/>
         <PackageReference Include="NLog" Version="5.2.8" />

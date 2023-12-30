@@ -23,4 +23,9 @@
       <ProjectReference Include="..\Common\Common.csproj" />
       <ProjectReference Include="$(OctoCorePath)src\MongoDb\Runtime.Contracts.MongoDb\Runtime.Contracts.MongoDb.csproj" />
     </ItemGroup>
+
+    <ItemGroup>
+      <None Remove="Assets\materialize.min.css" />
+      <EmbeddedResource Include="Assets\materialize.min.css" />
+    </ItemGroup>
 </Project>
