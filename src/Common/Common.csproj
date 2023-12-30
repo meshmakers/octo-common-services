@@ -19,18 +19,18 @@
     </PropertyGroup>
 
     <ItemGroup>
-        <PackageReference Include="IdentityModel" Version="6.2.0"/>
-        <PackageReference Include="Meshmakers.Octo.Common.DistributionEventHub" Version="3.0.1" />
-        <PackageReference Include="Meshmakers.Octo.Sdk.ServiceClient" Version="3.0.4" />
-        <PackageReference Include="Microsoft.AspNetCore.Mvc.Cors" Version="2.2.0"/>
-        <PackageReference Include="Newtonsoft.Json" Version="13.0.3"/>
+        <PackageReference Include="IdentityModel" Version="6.2.0" />
+        <PackageReference Include="Meshmakers.Octo.Common.DistributionEventHub" Version="3.0.5" />
+        <PackageReference Include="Meshmakers.Octo.Sdk.ServiceClient" Version="3.0.6" />
+        <PackageReference Include="Microsoft.AspNetCore.Mvc.Cors" Version="2.2.0" />
+        <PackageReference Include="Newtonsoft.Json" Version="13.0.3" />
         <PackageReference Include="NLog" Version="5.2.8" />
     </ItemGroup>
 
     <ItemGroup>
         <None Include="..\..\assets\meshmakers64.png">
             <Pack>True</Pack>
-            <PackagePath/>
+            <PackagePath />
             <Link>meshmakers64.png</Link>
         </None>
     </ItemGroup>
@@ -38,13 +38,8 @@
     <ItemGroup>
         <None Include="..\..\LICENSE">
             <Pack>True</Pack>
-            <PackagePath/>
+            <PackagePath />
             <Link>LICENSE</Link>
         </None>
     </ItemGroup>
-
-    <ItemGroup>
-        <ProjectReference Include="$(OctoCorePath)src\Common\Shared\Shared.csproj"/>
-    </ItemGroup>
-
 </Project>

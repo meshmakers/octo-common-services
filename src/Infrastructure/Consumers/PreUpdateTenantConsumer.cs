@@ -1,5 +1,5 @@
+using Meshmakers.Common.Shared;
 using Meshmakers.Octo.Common.DistributionEventHub.Consumers;
-using Meshmakers.Octo.Common.Shared;
 using Meshmakers.Octo.ConstructionKit.Contracts.Services;
 using Microsoft.Extensions.Logging;
 using PreUpdateTenant = Meshmakers.Octo.Services.Common.DistributionEventHub.Messages.PreUpdateTenant;
@@ -29,7 +29,7 @@ internal class PreUpdateTenantConsumer : IDistributedConsumer<PreUpdateTenant>
     {
         _logger.LogInformation("Pre update tenant received: {Text}", context.Message.TenantId);
         
-        var key = context.Message.TenantId.MakeKey();
+        var key = context.Message.TenantId.NormalizeString();
 
         if (_ckCacheService.IsTenantLoaded(key))
         {
