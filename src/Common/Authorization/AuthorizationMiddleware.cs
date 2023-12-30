@@ -1,10 +1,9 @@
-using System.Threading.Tasks;
 using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Http;
 using NLog;
 
-namespace Meshmakers.Octo.Backend.Common.Authorization;
+namespace Meshmakers.Octo.Services.Common.Authorization;
 
 /// <summary>
 ///     Middleware for authorization in case not MVC is used (for hangfire and GraphQL web tools)
@@ -41,10 +40,7 @@ public class AuthorizationMiddleware
         if (!authorizationResult.Succeeded)
         {
             Logger.Warn("User autorization failed.");
-            foreach (var userClaim in httpContext.User.Claims)
-            {
-                Logger.Warn($"{userClaim.Type}={userClaim.Value}");
-            }
+            foreach (var userClaim in httpContext.User.Claims) Logger.Warn($"{userClaim.Type}={userClaim.Value}");
 
             if (httpContext.User.Identity != null && httpContext.User.Identity.IsAuthenticated)
             {

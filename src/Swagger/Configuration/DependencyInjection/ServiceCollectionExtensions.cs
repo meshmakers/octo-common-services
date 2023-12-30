@@ -1,10 +1,7 @@
-using System;
 using Meshmakers.Octo.Backend.Swagger;
 using Meshmakers.Octo.Backend.Swagger.Configuration;
-using Microsoft.AspNetCore.Identity;
 using Microsoft.Extensions.Options;
 using Swashbuckle.AspNetCore.SwaggerGen;
-using IdentityServiceCollectionExtensions = Microsoft.AspNetCore.Identity.IdentityBuilderExtensions;
 
 // ReSharper disable once CheckNamespace
 namespace Microsoft.Extensions.DependencyInjection;
@@ -15,10 +12,7 @@ public static class ServiceCollectionExtensions
         this IServiceCollection services,
         Action<OctoSwaggerOptions>? setupOctoSwaggerOptionsAction = null)
     {
-        if (setupOctoSwaggerOptionsAction != null)
-        {
-            services.Configure(setupOctoSwaggerOptionsAction);
-        }
+        if (setupOctoSwaggerOptionsAction != null) services.Configure(setupOctoSwaggerOptionsAction);
 
         services.AddApiVersioning(options => options.ReportApiVersions = true);
         services.AddVersionedApiExplorer();

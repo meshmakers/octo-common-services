@@ -1,4 +1,4 @@
-namespace Meshmakers.Octo.Backend.Common;
+namespace Meshmakers.Octo.Services.Common;
 
 /// <summary>
 ///     Backend common constants
@@ -14,4 +14,15 @@ public static class BackendCommon
     ///     Scopes
     /// </summary>
     public const string ClaimScope = "scope";
+
+    /// <summary>
+    /// Returns the tenant id route name 
+    /// </summary>
+    public const string TenantIdRoute = "tenantId";
+
+    /// <summary>
+    /// Returns the tenant repository name 
+    /// </summary>
+    public const string TenantRepositoryName = "tenantRepository";
+
 }

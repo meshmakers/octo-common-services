@@ -1,6 +1,6 @@
 ﻿using System.Net;
 
-namespace Meshmakers.Octo.Backend.Common.ApiErrors;
+namespace Meshmakers.Octo.Services.Common.ApiErrors;
 
 /// <summary>
 ///     Represents a not found error data transfer object

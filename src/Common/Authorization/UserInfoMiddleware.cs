@@ -1,18 +1,17 @@
 using System.Security.Claims;
-using System.Threading.Tasks;
-using Meshmakers.Octo.Common.Shared.Authorization;
+using Meshmakers.Octo.Sdk.ServiceClient.Authorization;
 using Microsoft.AspNetCore.Http;
 
-namespace Meshmakers.Octo.Backend.Common.Authorization;
+namespace Meshmakers.Octo.Services.Common.Authorization;
 
 /// <summary>
-/// Middleware to add information of the user info endpoint to HttpContext.User to add
-/// user name and roles
+///     Middleware to add information of the user info endpoint to HttpContext.User to add
+///     user name and roles
 /// </summary>
 public class UserInfoMiddleware
 {
-    private readonly RequestDelegate _next;
     private readonly IAuthorizationClient _authorizationClient;
+    private readonly RequestDelegate _next;
 
     /// <summary>
     ///     Constructor
@@ -32,7 +31,7 @@ public class UserInfoMiddleware
     /// <returns></returns>
     public async Task Invoke(HttpContext httpContext)
     {
-        if (httpContext.TryGetBearerAccessToken(out string? bearerToken) && !string.IsNullOrWhiteSpace(bearerToken))
+        if (httpContext.TryGetBearerAccessToken(out var bearerToken) && !string.IsNullOrWhiteSpace(bearerToken))
         {
             var userInfoData = await _authorizationClient.GetUserInfoAsync(bearerToken);
             if (userInfoData.IsAuthenticated && userInfoData.Claims != null)

@@ -1,6 +1,4 @@
-﻿using System;
-using System.Linq;
-using Meshmakers.Common.Shared;
+﻿using Meshmakers.Common.Shared;
 
 namespace Meshmakers.Octo.Backend.Infrastructure.CredentialGenerator;
 
@@ -55,27 +53,16 @@ public class CredentialGenerator : ICredentialGenerator
     /// <returns></returns>
     public bool CheckPassword(string password)
     {
-        if (password == null)
-        {
-            throw new ArgumentNullException(nameof(password));
-        }
+        if (password == null) throw new ArgumentNullException(nameof(password));
 
-        if (password.Length < MinLength)
-        {
-            return false;
-        }
+        if (password.Length < MinLength) return false;
 
         if (!(password.Any(char.IsUpper) &&
               password.Any(char.IsLower) &&
               password.Any(char.IsDigit)))
-        {
             return false;
-        }
 
-        if (password.IndexOfAny(SpecialCharsUser.ToCharArray()) < 0)
-        {
-            return false;
-        }
+        if (password.IndexOfAny(SpecialCharsUser.ToCharArray()) < 0) return false;
 
         return true;
     }
@@ -84,20 +71,11 @@ public class CredentialGenerator : ICredentialGenerator
     {
         if (passwordLength.HasValue)
         {
-            if (passwordLength.Value < MinLength)
-            {
-                return MinLength;
-            }
+            if (passwordLength.Value < MinLength) return MinLength;
 
-            if (passwordLength.Value >= MinLength && passwordLength.Value <= MaxLength)
-            {
-                return passwordLength.Value;
-            }
+            if (passwordLength.Value >= MinLength && passwordLength.Value <= MaxLength) return passwordLength.Value;
 
-            if (passwordLength.Value > MaxLength)
-            {
-                return MaxLength;
-            }
+            if (passwordLength.Value > MaxLength) return MaxLength;
         }
 
         // Get random password length
@@ -121,10 +99,7 @@ public class CredentialGenerator : ICredentialGenerator
 
         // Generate other letter randomly
         var source = Alphabetic.ToUpper() + Alphabetic.ToLower() + Digits + SpecialCharsGenerator;
-        for (var i = 4; i < arrayLength; i++)
-        {
-            result[i] = GetRandomChar(source);
-        }
+        for (var i = 4; i < arrayLength; i++) result[i] = GetRandomChar(source);
 
         // Shuffle letters before return
         return new string(result.OrderBy(_ => RandomGenerator.NextRandom(0, source.Length - 1)).ToArray());

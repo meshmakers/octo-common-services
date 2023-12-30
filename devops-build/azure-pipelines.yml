@@ -2,10 +2,13 @@ name: $(MajorVersion).$(MinorVersion).$(date:yyMM).$(DayOfMonth)$(rev:rrr)
 
 trigger:
   batch: true
+  tags:
+    include:
+      - 'r*'
   branches:
     include:
+      - dev/*
       - main
-      - releases/2.0
   
 variables:
   buildConfiguration: 'Release'
@@ -13,6 +16,9 @@ variables:
   solutionFile: "Octo.Common.Services.sln"
   Company: "meshmakers GmbH"
   Copyright: "(c) 2022-2023 meshmakers GmbH"
+  isRelease: true #$[startsWith(variables['Build.SourceBranch'], 'refs/tags/r')]
+  MajorVersion: 0
+  MinorVersion: 0
 
 stages:
  - stage: Build
@@ -25,6 +31,12 @@ stages:
       - checkout: self
         clean: true
         submodules: true
+      - task: InstallSSHKey@0
+        inputs:
+          knownHostsEntry: '$(SSHKnownHosts)'
+          sshPublicKey: '$(SSHPublicKey)'
+          sshPassphrase: '$(SSHPassphrase)'
+          sshKeySecureFile: '$(SSHPrivateKeyFile)'
       - template: setversion.yml
       - task: DotNetCoreCLI@2
         displayName: 'Build'

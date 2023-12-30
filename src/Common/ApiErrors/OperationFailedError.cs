@@ -1,7 +1,6 @@
-using System.Collections.Generic;
 using System.Net;
 
-namespace Meshmakers.Octo.Backend.Common.ApiErrors;
+namespace Meshmakers.Octo.Services.Common.ApiErrors;
 
 /// <summary>
 ///     Represents an internal server error data transfer object

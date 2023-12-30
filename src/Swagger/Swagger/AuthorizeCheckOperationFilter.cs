@@ -1,6 +1,4 @@
-using System.Collections.Generic;
-using System.Linq;
-using Meshmakers.Octo.Common.Shared;
+using Meshmakers.Octo.Communication.Contracts;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.OpenApi.Models;
 using Swashbuckle.AspNetCore.SwaggerGen;

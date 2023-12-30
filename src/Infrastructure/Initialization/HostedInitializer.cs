@@ -1,9 +1,4 @@
-﻿using System;
-using System.Collections.Generic;
-using System.Linq;
-using System.Threading;
-using System.Threading.Tasks;
-using Microsoft.Extensions.DependencyInjection;
+﻿using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 
 namespace Meshmakers.Octo.Backend.Infrastructure.Initialization;
@@ -26,7 +21,7 @@ internal class HostedInitializer : IHostedService
         {
             var services = scope.ServiceProvider.GetServices<IAsyncInitializationService>();
 
-            foreach (var asyncInitializationService in services)
+            foreach (var asyncInitializationService in services.OrderBy(s=> s.Order))
             {
                 try
                 {
@@ -38,10 +33,7 @@ internal class HostedInitializer : IHostedService
                 }
             }
 
-            if (errors.Any())
-            {
-                throw new AggregateException(errors);
-            }
+            if (errors.Any()) throw new AggregateException(errors);
         }
     }
 

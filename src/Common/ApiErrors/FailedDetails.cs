@@ -1,4 +1,4 @@
-namespace Meshmakers.Octo.Backend.Common.ApiErrors;
+namespace Meshmakers.Octo.Services.Common.ApiErrors;
 
 /// <summary>
 ///     Implements optional details to the failed operation

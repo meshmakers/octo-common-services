@@ -1,5 +1,3 @@
-using System;
-using System.Collections.Generic;
 using Meshmakers.Common.Shared;
 using Meshmakers.Octo.Backend.Swagger.Swagger;
 using Microsoft.AspNetCore.Mvc.ApiExplorer;
@@ -42,14 +40,9 @@ public class ConfigureSwaggerOptions : IConfigureOptions<SwaggerGenOptions>
         // add a swagger document for each discovered API version
         // note: you might choose to skip or document deprecated API versions differently
         foreach (var description in _provider.ApiVersionDescriptions)
-        {
             options.SwaggerDoc(description.GroupName, CreateInfoForApiVersion(description));
-        }
 
-        foreach (var xmlPath in _options.Value.XmlDocAssemblies)
-        {
-            options.IncludeXmlComments(xmlPath);
-        }
+        foreach (var xmlPath in _options.Value.XmlDocAssemblies) options.IncludeXmlComments(xmlPath);
 
         options.AddSecurityRequirement(new OpenApiSecurityRequirement
         {
@@ -66,7 +59,6 @@ public class ConfigureSwaggerOptions : IConfigureOptions<SwaggerGenOptions>
         });
 
         if (_options.Value.AuthorityUrl != null)
-        {
             options.AddSecurityDefinition("oauth2", new OpenApiSecurityScheme
             {
                 Type = SecuritySchemeType.OAuth2,
@@ -81,7 +73,6 @@ public class ConfigureSwaggerOptions : IConfigureOptions<SwaggerGenOptions>
                     }
                 }
             });
-        }
 
         options.OperationFilter<AuthorizeCheckOperationFilter>();
     }
@@ -98,10 +89,7 @@ public class ConfigureSwaggerOptions : IConfigureOptions<SwaggerGenOptions>
             License = new OpenApiLicense { Name = "MIT", Url = new Uri("https://opensource.org/licenses/MIT") }
         };
 
-        if (description.IsDeprecated)
-        {
-            info.Description += " This API version has been deprecated.";
-        }
+        if (description.IsDeprecated) info.Description += " This API version has been deprecated.";
 
         return info;
     }

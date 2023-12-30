@@ -1,7 +1,7 @@
 using Meshmakers.Common.Shared;
 using Microsoft.AspNetCore.Builder;
 
-namespace Meshmakers.Octo.Backend.Common.Authorization;
+namespace Meshmakers.Octo.Services.Common.Authorization;
 
 /// <summary>
 ///     Extensions of Application Builder for non-mvc based authorization
@@ -24,7 +24,7 @@ public static class AuthorizationApplicationBuilderExtensions
     }
 
     /// <summary>
-    /// Adds authorization by calling the user info endpoint and add claims to HttpContext.User
+    ///     Adds authorization by calling the user info endpoint and add claims to HttpContext.User
     /// </summary>
     /// <param name="app"></param>
     /// <returns></returns>

@@ -4,14 +4,8 @@
         <AssemblyName>Meshmakers.Octo.Services.Common</AssemblyName>
         <Description>Shared Middleware implementations for ASP.NET web API</Description>
         <GeneratePackageOnBuild>true</GeneratePackageOnBuild>
-        <PackageIcon>meshmakers64.png</PackageIcon>
         <PackageId>Meshmakers.Octo.Services.Common</PackageId>
-        <PackageLicenseFile>LICENSE</PackageLicenseFile>
-        <PackageProjectUrl>https://www.meshmakers.io</PackageProjectUrl>
-        <RepositoryUrl>https://github.com/meshmakers/octomesh</RepositoryUrl>
         <RootNamespace>Meshmakers.Octo.Services.Common</RootNamespace>
-        <TargetFramework>net7.0</TargetFramework>
-        <Nullable>enable</Nullable>
     </PropertyGroup>
 
     <PropertyGroup Condition=" '$(Configuration)' == 'Debug' ">
@@ -25,17 +19,18 @@
     </PropertyGroup>
 
     <ItemGroup>
-        <PackageReference Include="IdentityModel" Version="6.1.0" />
-        <PackageReference Include="Meshmakers.Common.Shared" Version="4.0.2309.9001" />
-        <PackageReference Include="Microsoft.AspNetCore.Mvc.Cors" Version="2.2.0" />
-        <PackageReference Include="Newtonsoft.Json" Version="13.0.3" />
-        <PackageReference Include="NLog" Version="5.2.4" />
+        <PackageReference Include="IdentityModel" Version="6.2.0"/>
+        <PackageReference Include="Meshmakers.Octo.Common.DistributionEventHub" Version="3.0.1" />
+        <PackageReference Include="Meshmakers.Octo.Sdk.ServiceClient" Version="3.0.3" />
+        <PackageReference Include="Microsoft.AspNetCore.Mvc.Cors" Version="2.2.0"/>
+        <PackageReference Include="Newtonsoft.Json" Version="13.0.3"/>
+        <PackageReference Include="NLog" Version="5.2.8" />
     </ItemGroup>
 
     <ItemGroup>
         <None Include="..\..\assets\meshmakers64.png">
             <Pack>True</Pack>
-            <PackagePath />
+            <PackagePath/>
             <Link>meshmakers64.png</Link>
         </None>
     </ItemGroup>
@@ -43,9 +38,13 @@
     <ItemGroup>
         <None Include="..\..\LICENSE">
             <Pack>True</Pack>
-            <PackagePath />
+            <PackagePath/>
             <Link>LICENSE</Link>
         </None>
+    </ItemGroup>
+
+    <ItemGroup>
+        <ProjectReference Include="$(OctoCorePath)src\Common\Shared\Shared.csproj"/>
     </ItemGroup>
 
 </Project>

@@ -1,14 +1,15 @@
 using Microsoft.AspNetCore.Http;
+using Microsoft.AspNetCore.Routing;
 
-namespace Meshmakers.Octo.Backend.Common;
+namespace Meshmakers.Octo.Services.Common;
 
 /// <summary>
-/// Helper functions for http contexts
+///     Helper functions for http contexts
 /// </summary>
 public static class HttpContextExtensions
 {
     /// <summary>
-    /// Get the bearer access token if exists
+    ///     Get the bearer access token if exists
     /// </summary>
     /// <param name="httpContext"></param>
     /// <param name="bearerToken"></param>
@@ -17,17 +18,23 @@ public static class HttpContextExtensions
     {
         bearerToken = null;
         string? authHeader = httpContext.Request.Headers["Authorization"];
-        if (string.IsNullOrWhiteSpace(authHeader))
-        {
-            return false;
-        }
+        if (string.IsNullOrWhiteSpace(authHeader)) return false;
 
-        if (!authHeader.ToLower().StartsWith("bearer"))
-        {
-            return false;
-        }
-            
+        if (!authHeader.ToLower().StartsWith("bearer")) return false;
+
         bearerToken = authHeader.Substring("Bearer ".Length).Trim();
         return true;
+    }
+
+    /// <summary>
+    /// Returns the route value of the tenant id
+    /// </summary>
+    /// <param name="httpContext"></param>
+    /// <returns></returns>
+    public static string? GetTenantId(this HttpContext httpContext)
+    {
+        var tenantId = (string?)httpContext.GetRouteValue(BackendCommon.TenantIdRoute);
+
+        return tenantId;
     }
 }

@@ -1,9 +1,7 @@
-﻿using System.Linq;
-using System.Threading.Tasks;
-using Meshmakers.Octo.Common.Shared;
-using Meshmakers.Octo.Common.Shared.DistributedCache;
+﻿using System.Collections.Concurrent;
 using Microsoft.AspNetCore.Cors.Infrastructure;
 using Microsoft.AspNetCore.Http;
+using Microsoft.Extensions.DependencyInjection;
 using NLog;
 
 namespace Meshmakers.Octo.Services.Common.Cors;
@@ -16,44 +14,51 @@ public class CorsPolicyProvider : ICorsPolicyProvider
     private static readonly Logger Logger = LogManager.GetCurrentClassLogger();
 
     // ReSharper disable once PrivateFieldCanBeConvertedToLocalVariable
-    private readonly IChannel<string> _channel;
-    private readonly IKnownOriginsProvider _knownOriginsProvider;
-    private CorsPolicy? _corsPolicy;
+    private readonly ConcurrentDictionary<string, CorsPolicy> _corsPolicyDictionary;
 
     /// <summary>
     ///     Constructor
     /// </summary>
-    /// <param name="knownOriginsProvider">Client store object to access all available clients.</param>
-    /// <param name="distributedCache">Instance of distributed cache</param>
-    public CorsPolicyProvider(IKnownOriginsProvider knownOriginsProvider, IDistributedWithPubSubCache distributedCache)
+    public CorsPolicyProvider()
     {
-        _knownOriginsProvider = knownOriginsProvider;
-        _channel = distributedCache.Subscribe<string>(CacheCommon.KeyCorsClients);
-        _channel.OnMessage(OnInvalidateData);
+        _corsPolicyDictionary = new ConcurrentDictionary<string, CorsPolicy>();
     }
 
     /// <inheritdoc />
     public async Task<CorsPolicy?> GetPolicyAsync(HttpContext context, string? policyName)
     {
-        if (_corsPolicy == null)
+        string tenantId = context.GetTenantId() ?? "";
+
+        if (_corsPolicyDictionary.TryGetValue(tenantId, out var corsPolicy))
         {
-            var origins = await _knownOriginsProvider.GetKnownOriginsAsync();
+            var knownOriginsProvider = context.RequestServices.GetRequiredService<IKnownOriginsProvider>();
+            var origins = await knownOriginsProvider.GetKnownOriginsAsync();
 
             Logger.Info($"Creating CORS policy from cache: {string.Join(", ", origins)}");
-
+            
             var policyBuilder = new CorsPolicyBuilder()
                 .WithOrigins(origins.ToArray())
                 .AllowAnyHeader()
                 .AllowAnyMethod();
-            _corsPolicy = policyBuilder.Build();
+            corsPolicy = policyBuilder.Build();
+            _corsPolicyDictionary.TryAdd(tenantId, corsPolicy);
         }
-
-        return _corsPolicy;
+        return corsPolicy;
     }
 
-    private Task OnInvalidateData(IChannelMessage<string> arg)
+    /// <summary>
+    /// Invalidates the cached CORS policy for the given tenant.
+    /// </summary>
+    /// <param name="tenantId"></param>
+    /// <returns></returns>
+    public Task InvalidateData(string? tenantId)
     {
-        _corsPolicy = null;
+        if (string.IsNullOrWhiteSpace(tenantId))
+        {
+            return Task.CompletedTask;
+        }
+        
+        _corsPolicyDictionary.TryRemove(tenantId, out _);
         return Task.CompletedTask;
     }
 }

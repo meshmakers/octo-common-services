@@ -1,11 +1,10 @@
-﻿using System.Collections.Generic;
-using System.Net;
+﻿using System.Net;
 using Newtonsoft.Json;
 
 // ReSharper disable MemberCanBePrivate.Global
 // ReSharper disable UnusedAutoPropertyAccessor.Global
 
-namespace Meshmakers.Octo.Backend.Common.ApiErrors;
+namespace Meshmakers.Octo.Services.Common.ApiErrors;
 
 /// <summary>
 ///     Represents an api error

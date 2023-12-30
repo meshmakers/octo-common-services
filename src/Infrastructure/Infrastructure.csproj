@@ -2,26 +2,25 @@
 
     <PropertyGroup>
         <AssemblyName>Meshmakers.Octo.Backend.Infrastructure</AssemblyName>
-        <PackageIcon>meshmakers64.png</PackageIcon>
         <PackageId>Meshmakers.Octo.Backend.Infrastructure</PackageId>
-        <PackageLicenseFile>LICENSE</PackageLicenseFile>
-        <PackageProjectUrl>https://www.meshmakers.io</PackageProjectUrl>
-        <RepositoryUrl>https://github.com/meshmakers/octomesh</RepositoryUrl>
         <RootNamespace>Meshmakers.Octo.Backend.Infrastructure</RootNamespace>
-        <TargetFramework>net7.0</TargetFramework>
-        <Nullable>enable</Nullable>
     </PropertyGroup>
 
     <ItemGroup>
-        <PackageReference Include="Meshmakers.Common.Shared" Version="4.0.2309.9001" />
-        <PackageReference Include="Microsoft.Extensions.Hosting.Abstractions" Version="7.0.0" />
+        <PackageReference Include="Microsoft.AspNetCore.Http.Abstractions" Version="2.2.0" />
+        <PackageReference Include="Microsoft.Extensions.Hosting.Abstractions" Version="8.0.0" />
     </ItemGroup>
 
     <ItemGroup>
         <None Include="..\..\assets\meshmakers64.png">
             <Pack>True</Pack>
-            <PackagePath />
+            <PackagePath/>
             <Link>meshmakers64.png</Link>
         </None>
+    </ItemGroup>
+
+    <ItemGroup>
+      <ProjectReference Include="..\Common\Common.csproj" />
+      <ProjectReference Include="$(OctoCorePath)src\MongoDb\Runtime.Contracts.MongoDb\Runtime.Contracts.MongoDb.csproj" />
     </ItemGroup>
 </Project>
