@@ -4,10 +4,19 @@
         <AssemblyName>Meshmakers.Octo.Services.Swagger</AssemblyName>
         <PackageId>Meshmakers.Octo.Services.Swagger</PackageId>
         <RootNamespace>Meshmakers.Octo.Services.Swagger</RootNamespace>
+        <Configurations>Debug;Release;DebugL</Configurations>
+        <Platforms>AnyCPU</Platforms>
     </PropertyGroup>
 
-    <ItemGroup>
+    <ItemGroup Condition="'$(Configuration)'!='DebugL'">
         <PackageReference Include="Meshmakers.Octo.Communication.Contracts" Version="3.0.7" />
+    </ItemGroup>
+
+    <ItemGroup Condition="'$(Configuration)'=='DebugL'">
+        <PackageReference Include="Meshmakers.Octo.Communication.Contracts" Version="999.0.0" />
+    </ItemGroup>
+
+    <ItemGroup>
         <PackageReference Include="Microsoft.AspNetCore.Mvc.Versioning.ApiExplorer" Version="5.1.0" />
         <PackageReference Include="Swashbuckle.AspNetCore.SwaggerGen" Version="6.5.0" />
         <PackageReference Include="Swashbuckle.AspNetCore" Version="6.5.0" />

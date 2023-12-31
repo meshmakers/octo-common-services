@@ -4,6 +4,8 @@
         <AssemblyName>Meshmakers.Octo.Services.Infrastructure</AssemblyName>
         <PackageId>Meshmakers.Octo.Services.Infrastructure</PackageId>
         <RootNamespace>Meshmakers.Octo.Services.Infrastructure</RootNamespace>
+        <Configurations>Debug;Release;DebugL</Configurations>
+        <Platforms>AnyCPU</Platforms>
     </PropertyGroup>
 
     <ItemGroup>

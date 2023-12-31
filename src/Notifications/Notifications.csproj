@@ -4,6 +4,8 @@
         <AssemblyName>Meshmakers.Octo.Services.Notifications</AssemblyName>
         <RootNamespace>Meshmakers.Octo.Services.Notifications</RootNamespace>
         <OctoSkipCkCompile Condition="'$(Configuration)'=='Release'">true</OctoSkipCkCompile>
+        <Configurations>Debug;Release;DebugL</Configurations>
+        <Platforms>AnyCPU</Platforms>
     </PropertyGroup>
 
     <ItemGroup>
@@ -11,9 +13,14 @@
         <ProjectReference Include="$(OctoCorePath)src\Common\Persistence.SystemCkModel\Persistence.SystemCkModel.csproj" />
     </ItemGroup>
 
-    <ItemGroup>
+    <ItemGroup Condition="'$(Configuration)'!='DebugL'">
         <PackageReference Include="Meshmakers.Octo.Communication.Contracts" Version="3.0.7" />
         <PackageReference Include="Meshmakers.Octo.ConstructionKit.SourceGeneration" OutputItemType="Analyzer" ReferenceOutputAssembly="false" Version="3.0.3" PrivateAssets="all" />
+    </ItemGroup>
+
+    <ItemGroup Condition="'$(Configuration)'=='DebugL'">
+        <PackageReference Include="Meshmakers.Octo.Communication.Contracts" Version="999.0.0" />
+        <PackageReference Include="Meshmakers.Octo.ConstructionKit.SourceGeneration" OutputItemType="Analyzer" ReferenceOutputAssembly="false" Version="999.0.0" PrivateAssets="all" />
     </ItemGroup>
 
     <ItemGroup>
