@@ -4,7 +4,7 @@ using Meshmakers.Octo.ConstructionKit.Contracts.Services;
 using Microsoft.Extensions.Logging;
 using PreUpdateTenant = Meshmakers.Octo.Services.Common.DistributionEventHub.Messages.PreUpdateTenant;
 
-namespace Meshmakers.Octo.Backend.Infrastructure.Consumers;
+namespace Meshmakers.Octo.Services.Infrastructure.Consumers;
 
 /// <summary>
 /// Handles the <see cref="PreUpdateTenant"/> message.

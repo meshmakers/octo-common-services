@@ -1,4 +1,4 @@
-﻿using Meshmakers.Octo.Backend.Infrastructure.Initialization;
+﻿using Meshmakers.Octo.Services.Infrastructure.Initialization;
 
 // ReSharper disable once CheckNamespace
 namespace Microsoft.Extensions.DependencyInjection.Extensions;

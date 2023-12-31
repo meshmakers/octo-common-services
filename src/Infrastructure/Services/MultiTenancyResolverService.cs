@@ -3,7 +3,7 @@ using Meshmakers.Octo.Runtime.Contracts.MongoDb.Repository;
 using Meshmakers.Octo.Services.Common;
 using Microsoft.AspNetCore.Http;
 
-namespace Meshmakers.Octo.Backend.Infrastructure.Services;
+namespace Meshmakers.Octo.Services.Infrastructure.Services;
 
 public class MultiTenancyResolverService : IMultiTenancyResolverService
 {

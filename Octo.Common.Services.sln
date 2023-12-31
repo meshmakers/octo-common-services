@@ -14,6 +14,8 @@ Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Runtime.Engine.MongoDb", "s
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Persistence.SystemCkModel", "src\octo-core\src\Common\Persistence.SystemCkModel\Persistence.SystemCkModel.csproj", "{4CD6EF0A-29E3-4387-96B0-840A3C17C9B0}"
 EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Notifications", "src\Notifications\Notifications.csproj", "{07ED01EF-E969-47A8-9525-6D83DFC08F5E}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -44,6 +46,10 @@ Global
 		{4CD6EF0A-29E3-4387-96B0-840A3C17C9B0}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{4CD6EF0A-29E3-4387-96B0-840A3C17C9B0}.Release|Any CPU.ActiveCfg = Release|Any CPU
 		{4CD6EF0A-29E3-4387-96B0-840A3C17C9B0}.Release|Any CPU.Build.0 = Release|Any CPU
+		{07ED01EF-E969-47A8-9525-6D83DFC08F5E}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{07ED01EF-E969-47A8-9525-6D83DFC08F5E}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{07ED01EF-E969-47A8-9525-6D83DFC08F5E}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{07ED01EF-E969-47A8-9525-6D83DFC08F5E}.Release|Any CPU.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(NestedProjects) = preSolution
 		{1465877F-005B-4AE1-9FA3-CA62AFA1CC17} = {6B1B3474-50D5-44B1-B995-0079AC61200F}

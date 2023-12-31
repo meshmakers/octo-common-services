@@ -3,7 +3,7 @@ using Microsoft.AspNetCore.Mvc.ApiExplorer;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Options;
 
-namespace Meshmakers.Octo.Backend.Swagger.Configuration;
+namespace Meshmakers.Octo.Services.Swagger.Configuration;
 
 public static class ApplicationBuilderExtensions
 {

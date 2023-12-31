@@ -1,5 +1,5 @@
-using Meshmakers.Octo.Backend.Swagger;
-using Meshmakers.Octo.Backend.Swagger.Configuration;
+using Meshmakers.Octo.Services.Swagger;
+using Meshmakers.Octo.Services.Swagger.Configuration;
 using Microsoft.Extensions.Options;
 using Swashbuckle.AspNetCore.SwaggerGen;
 

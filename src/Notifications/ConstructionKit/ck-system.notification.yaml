@@ -1,0 +1,88 @@
+$schema: https://schemas.meshmakers.cloud/construction-kit-compiled.schema.json
+types:
+- typeId: NotificationTemplate
+  derivedFromCkTypeId: System/Entity
+  attributes:
+  - id: System.Notification/SubjectTemplate
+    name: SubjectTemplate
+  - id: System.Notification/BodyTemplate
+    name: BodyTemplate
+  - id: System.Notification/Type
+    name: Type
+- typeId: NotificationMessage
+  derivedFromCkTypeId: System/Entity
+  attributes:
+  - id: System.Notification/SubjectText
+    name: SubjectText
+  - id: System.Notification/BodyText
+    name: BodyText
+    isOptional: true
+  - id: System.Notification/RecipientAddress
+    name: RecipientAddress
+  - id: System.Notification/Type
+    name: NotificationType
+  - id: System.Notification/SentDateTime
+    name: SentDateTime
+    isOptional: true
+  - id: System.Notification/LastTryDateTime
+    name: LastTryDateTime
+    isOptional: true
+  - id: System.Notification/Status
+    name: SendStatus
+  - id: System.Notification/ErrorText
+    name: ErrorText
+    isOptional: true
+- typeId: Page
+  derivedFromCkTypeId: System/Entity
+  attributes:
+  - id: System.Notification/Page.Content
+    name: Content
+associationRoles: []
+attributes:
+- id: Page.Content
+  valueType: String
+- id: BodyTemplate
+  valueType: String
+- id: BodyText
+  valueType: String
+- id: SubjectTemplate
+  valueType: String
+- id: SubjectText
+  valueType: String
+- id: SentDateTime
+  valueType: DateTime
+- id: LastTryDateTime
+  valueType: DateTime
+- id: RecipientAddress
+  valueType: String
+- id: ErrorText
+  valueType: String
+- id: Type
+  valueType: Enum
+  valueCkEnumId: System.Notification/NotificationTypes
+- id: Status
+  valueType: Enum
+  valueCkEnumId: System.Notification/NotificationStates
+  defaultValues:
+  - 0
+records: []
+enums:
+- enumId: NotificationTypes
+  useFlags: false
+  values:
+  - key: 1
+    name: EMail
+  - key: 2
+    name: SMS
+- enumId: NotificationStates
+  useFlags: false
+  values:
+  - key: 0
+    name: Pending
+  - key: 1
+    name: Sent
+  - key: 2
+    name: Error
+modelId: System.Notification
+dependencies:
+- System

@@ -1,4 +1,4 @@
-﻿namespace Meshmakers.Octo.Backend.Infrastructure.Initialization;
+﻿namespace Meshmakers.Octo.Services.Infrastructure.Initialization;
 
 /// <summary>
 /// Interface for an initialization service, executed during startup of the application

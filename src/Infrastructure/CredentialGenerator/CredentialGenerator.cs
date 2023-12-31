@@ -1,6 +1,6 @@
 ﻿using Meshmakers.Common.Shared;
 
-namespace Meshmakers.Octo.Backend.Infrastructure.CredentialGenerator;
+namespace Meshmakers.Octo.Services.Infrastructure.CredentialGenerator;
 
 /// <summary>
 ///     Helper class to generation Credentials

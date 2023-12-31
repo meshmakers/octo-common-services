@@ -1,9 +1,9 @@
 <Project Sdk="Microsoft.NET.Sdk">
 
     <PropertyGroup>
-        <AssemblyName>Meshmakers.Octo.Backend.Infrastructure</AssemblyName>
-        <PackageId>Meshmakers.Octo.Backend.Infrastructure</PackageId>
-        <RootNamespace>Meshmakers.Octo.Backend.Infrastructure</RootNamespace>
+        <AssemblyName>Meshmakers.Octo.Services.Infrastructure</AssemblyName>
+        <PackageId>Meshmakers.Octo.Services.Infrastructure</PackageId>
+        <RootNamespace>Meshmakers.Octo.Services.Infrastructure</RootNamespace>
     </PropertyGroup>
 
     <ItemGroup>

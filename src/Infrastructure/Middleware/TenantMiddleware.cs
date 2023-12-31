@@ -2,7 +2,7 @@ using Meshmakers.Octo.Runtime.Contracts.MongoDb;
 using Meshmakers.Octo.Services.Common;
 using Microsoft.AspNetCore.Http;
 
-namespace Meshmakers.Octo.Backend.Infrastructure.Middleware;
+namespace Meshmakers.Octo.Services.Infrastructure.Middleware;
 
 public class TenantMiddleware
 {

@@ -1,4 +1,4 @@
-namespace Meshmakers.Octo.Backend.Infrastructure.Services;
+namespace Meshmakers.Octo.Services.Infrastructure.Services;
 
 /// <summary>
 /// Interface used to creating basic configuration for a tenant

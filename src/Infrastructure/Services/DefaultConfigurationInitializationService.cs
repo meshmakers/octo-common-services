@@ -1,6 +1,6 @@
-﻿using Meshmakers.Octo.Backend.Infrastructure.Initialization;
+﻿using Meshmakers.Octo.Services.Infrastructure.Initialization;
 
-namespace Meshmakers.Octo.Backend.Infrastructure.Services;
+namespace Meshmakers.Octo.Services.Infrastructure.Services;
 
 /// <summary>
 /// Implements an initialization service to create default configuration for tenants 

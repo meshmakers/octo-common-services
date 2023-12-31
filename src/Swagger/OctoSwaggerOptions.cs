@@ -1,4 +1,4 @@
-namespace Meshmakers.Octo.Backend.Swagger;
+namespace Meshmakers.Octo.Services.Swagger;
 
 public class OctoSwaggerOptions
 {

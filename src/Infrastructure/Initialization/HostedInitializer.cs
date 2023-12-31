@@ -1,7 +1,7 @@
 ﻿using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 
-namespace Meshmakers.Octo.Backend.Infrastructure.Initialization;
+namespace Meshmakers.Octo.Services.Infrastructure.Initialization;
 
 internal class HostedInitializer : IHostedService
 {

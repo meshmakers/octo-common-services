@@ -1,4 +1,4 @@
-﻿namespace Meshmakers.Octo.Backend.Infrastructure.CredentialGenerator;
+﻿namespace Meshmakers.Octo.Services.Infrastructure.CredentialGenerator;
 
 public interface ICredentialGenerator
 {

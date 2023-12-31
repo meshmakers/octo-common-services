@@ -1,12 +1,12 @@
 using Meshmakers.Common.Shared;
-using Meshmakers.Octo.Backend.Swagger.Swagger;
+using Meshmakers.Octo.Services.Swagger.Swagger;
 using Microsoft.AspNetCore.Mvc.ApiExplorer;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Options;
 using Microsoft.OpenApi.Models;
 using Swashbuckle.AspNetCore.SwaggerGen;
 
-namespace Meshmakers.Octo.Backend.Swagger.Configuration;
+namespace Meshmakers.Octo.Services.Swagger.Configuration;
 
 /// <summary>
 ///     Configures the Swagger generation options.

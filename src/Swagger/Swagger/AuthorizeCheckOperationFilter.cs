@@ -3,7 +3,7 @@ using Microsoft.AspNetCore.Authorization;
 using Microsoft.OpenApi.Models;
 using Swashbuckle.AspNetCore.SwaggerGen;
 
-namespace Meshmakers.Octo.Backend.Swagger.Swagger;
+namespace Meshmakers.Octo.Services.Swagger.Swagger;
 
 // ReSharper disable once ClassNeverInstantiated.Global
 public class AuthorizeCheckOperationFilter : IOperationFilter

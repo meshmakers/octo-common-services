@@ -4,7 +4,7 @@ using Meshmakers.Octo.Services.Common.Cors;
 using Meshmakers.Octo.Services.Common.DistributionEventHub.Messages;
 using Microsoft.Extensions.Logging;
 
-namespace Meshmakers.Octo.Backend.Infrastructure.Consumers;
+namespace Meshmakers.Octo.Services.Infrastructure.Consumers;
 
 /// <summary>
 /// Consumer for <see cref="CorsClientsUpdate"/> messages.
