@@ -9,8 +9,8 @@
     </PropertyGroup>
 
     <ItemGroup>
-        <ProjectReference Include="$(OctoCorePath)src\MongoDb\Runtime.Contracts.MongoDb\Runtime.Contracts.MongoDb.csproj" />
-        <ProjectReference Include="$(OctoCorePath)src\Common\Persistence.SystemCkModel\Persistence.SystemCkModel.csproj" />
+        <ProjectReference Include="$(OctoConstructionKitPath)src\MongoDb\Runtime.Contracts.MongoDb\Runtime.Contracts.MongoDb.csproj" />
+        <ProjectReference Include="$(OctoConstructionKitPath)src\Common\SystemCkModel\SystemCkModel.csproj" />
     </ItemGroup>
 
     <ItemGroup Condition="'$(Configuration)'!='DebugL'">
