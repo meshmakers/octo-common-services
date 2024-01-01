@@ -14,7 +14,7 @@
     </ItemGroup>
 
     <ItemGroup Condition="'$(Configuration)'!='DebugL'">
-        <PackageReference Include="Meshmakers.Octo.Communication.Contracts" Version="3.0.8" />
+        <PackageReference Include="Meshmakers.Octo.Communication.Contracts" Version="3.0.9" />
         <PackageReference Include="Meshmakers.Octo.ConstructionKit.SourceGeneration" OutputItemType="Analyzer" ReferenceOutputAssembly="false" Version="3.0.3" PrivateAssets="all" />
     </ItemGroup>
 
