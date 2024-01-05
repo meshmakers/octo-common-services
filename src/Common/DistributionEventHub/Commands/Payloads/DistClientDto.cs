@@ -1,7 +1,7 @@
 namespace Meshmakers.Octo.Services.Common.DistributionEventHub.Commands.Payloads;
 
 /// <summary>
-/// Represents a client.
+///     Represents a client.
 /// </summary>
 /// <param name="ClientId">Client id.</param>
 /// <param name="ClientName">Client name.</param>
@@ -9,37 +9,37 @@ namespace Meshmakers.Octo.Services.Common.DistributionEventHub.Commands.Payloads
 public record DistClientDto(string ClientId, string ClientName, string ClientUri)
 {
     /// <summary>
-    /// Gets or sets allowed grant types.
+    ///     Gets or sets allowed grant types.
     /// </summary>
     public string[] AllowedGrantTypes { get; init; } = null!;
 
     /// <summary>
-    /// Gets or sets if a consent is required.
+    ///     Gets or sets if a consent is required.
     /// </summary>
     public bool RequireConsent { get; init; }
 
     /// <summary>
-    /// Gets or sets redirect uris.
+    ///     Gets or sets redirect uris.
     /// </summary>
     public string[] RedirectUris { get; init; } = null!;
 
     /// <summary>
-    /// Gets or sets post logout redirect uris.
+    ///     Gets or sets post logout redirect uris.
     /// </summary>
     public string[] PostLogoutRedirectUris { get; init; } = null!;
 
     /// <summary>
-    /// Gets or sets allowed cors origins.
+    ///     Gets or sets allowed cors origins.
     /// </summary>
     public string[] AllowedCorsOrigins { get; init; } = null!;
 
     /// <summary>
-    /// Gets or sets allowed scopes.
+    ///     Gets or sets allowed scopes.
     /// </summary>
     public string[] AllowedScopes { get; init; } = null!;
 
     /// <summary>
-    /// Gets or sets if offline access is allowed.
+    ///     Gets or sets if offline access is allowed.
     /// </summary>
     public bool AllowOfflineAccess { get; init; }
 }

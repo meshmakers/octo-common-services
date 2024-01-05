@@ -38,10 +38,15 @@ public class PasswordGenerator
         ArgumentValidation.ValidateInt(nameof(length), length, 0);
 
         if (length > int.MaxValue / 8) // 250 million chars ought to be enough for anybody
+        {
             throw new ArgumentException(@"length is too big", nameof(length));
+        }
 
         var characterArray = characterSet.Distinct().ToArray();
-        if (characterArray.Length == 0) throw new ArgumentException(@"characterSet must not be empty", nameof(characterSet));
+        if (characterArray.Length == 0)
+        {
+            throw new ArgumentException(@"characterSet must not be empty", nameof(characterSet));
+        }
 
         var bytes = new byte[length * 8];
         lock (Locker)

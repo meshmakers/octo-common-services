@@ -45,7 +45,10 @@ public class MarkdownRenderService : IMarkdownRenderService
     private static string ExecuteReplaceRules(string markdown, Dictionary<string, Func<string>> replaceRules)
     {
         var temp = markdown;
-        foreach (var replaceRule in replaceRules) temp = temp.Replace(replaceRule.Key, replaceRule.Value());
+        foreach (var replaceRule in replaceRules)
+        {
+            temp = temp.Replace(replaceRule.Key, replaceRule.Value());
+        }
 
         return temp;
     }

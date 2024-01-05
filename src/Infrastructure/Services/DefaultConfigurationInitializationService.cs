@@ -3,14 +3,14 @@
 namespace Meshmakers.Octo.Services.Infrastructure.Services;
 
 /// <summary>
-/// Implements an initialization service to create default configuration for tenants 
+///     Implements an initialization service to create default configuration for tenants
 /// </summary>
 public class DefaultConfigurationInitializationService : IAsyncInitializationService
 {
     private readonly IDefaultConfigurationCreatorService _defaultConfigurationCreatorService;
 
     /// <summary>
-    /// Constructor
+    ///     Constructor
     /// </summary>
     /// <param name="defaultConfigurationCreatorService"></param>
     public DefaultConfigurationInitializationService(IDefaultConfigurationCreatorService defaultConfigurationCreatorService)

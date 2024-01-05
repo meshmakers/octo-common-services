@@ -21,7 +21,7 @@ internal class HostedInitializer : IHostedService
         {
             var services = scope.ServiceProvider.GetServices<IAsyncInitializationService>();
 
-            foreach (var asyncInitializationService in services.OrderBy(s=> s.Order))
+            foreach (var asyncInitializationService in services.OrderBy(s => s.Order))
             {
                 try
                 {
@@ -33,7 +33,10 @@ internal class HostedInitializer : IHostedService
                 }
             }
 
-            if (errors.Any()) throw new AggregateException(errors);
+            if (errors.Any())
+            {
+                throw new AggregateException(errors);
+            }
         }
     }
 

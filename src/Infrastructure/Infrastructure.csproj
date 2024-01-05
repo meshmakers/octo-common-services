@@ -9,9 +9,9 @@
     </PropertyGroup>
 
     <ItemGroup>
-        <PackageReference Include="Markdig" Version="0.34.0" />
-        <PackageReference Include="Microsoft.AspNetCore.Http.Abstractions" Version="2.2.0" />
-        <PackageReference Include="Microsoft.Extensions.Hosting.Abstractions" Version="8.0.0" />
+        <PackageReference Include="Markdig" Version="0.34.0"/>
+        <PackageReference Include="Microsoft.AspNetCore.Http.Abstractions" Version="2.2.0"/>
+        <PackageReference Include="Microsoft.Extensions.Hosting.Abstractions" Version="8.0.0"/>
     </ItemGroup>
 
     <ItemGroup>
@@ -23,12 +23,12 @@
     </ItemGroup>
 
     <ItemGroup>
-      <ProjectReference Include="..\Common\Common.csproj" />
-      <ProjectReference Include="$(OctoConstructionKitPath)src\MongoDb\Runtime.Contracts.MongoDb\Runtime.Contracts.MongoDb.csproj" />
+        <ProjectReference Include="..\Common\Common.csproj"/>
+        <ProjectReference Include="$(OctoConstructionKitPath)src\Runtime.Contracts.MongoDb\Runtime.Contracts.MongoDb.csproj"/>
     </ItemGroup>
 
     <ItemGroup>
-      <None Remove="Assets\materialize.min.css" />
-      <EmbeddedResource Include="Assets\materialize.min.css" />
+        <None Remove="Assets\materialize.min.css"/>
+        <EmbeddedResource Include="Assets\materialize.min.css"/>
     </ItemGroup>
 </Project>

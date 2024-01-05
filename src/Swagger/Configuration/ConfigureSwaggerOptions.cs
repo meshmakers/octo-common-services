@@ -64,6 +64,7 @@ public class ConfigureSwaggerOptions : IConfigureOptions<SwaggerGenOptions>
         });
 
         if (_options.Value.AuthorityUrl != null)
+        {
             options.AddSecurityDefinition("oauth2", new OpenApiSecurityScheme
             {
                 Type = SecuritySchemeType.OAuth2,
@@ -78,6 +79,7 @@ public class ConfigureSwaggerOptions : IConfigureOptions<SwaggerGenOptions>
                     }
                 }
             });
+        }
 
         options.OperationFilter<AuthorizeCheckOperationFilter>();
     }
@@ -94,7 +96,10 @@ public class ConfigureSwaggerOptions : IConfigureOptions<SwaggerGenOptions>
             License = new OpenApiLicense { Name = "MIT", Url = new Uri("https://opensource.org/licenses/MIT") }
         };
 
-        if (description.IsDeprecated) info.Description += " This API version has been deprecated.";
+        if (description.IsDeprecated)
+        {
+            info.Description += " This API version has been deprecated.";
+        }
 
         return info;
     }

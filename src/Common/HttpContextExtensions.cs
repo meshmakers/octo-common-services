@@ -18,16 +18,22 @@ public static class HttpContextExtensions
     {
         bearerToken = null;
         string? authHeader = httpContext.Request.Headers["Authorization"];
-        if (string.IsNullOrWhiteSpace(authHeader)) return false;
+        if (string.IsNullOrWhiteSpace(authHeader))
+        {
+            return false;
+        }
 
-        if (!authHeader.ToLower().StartsWith("bearer")) return false;
+        if (!authHeader.ToLower().StartsWith("bearer"))
+        {
+            return false;
+        }
 
         bearerToken = authHeader.Substring("Bearer ".Length).Trim();
         return true;
     }
 
     /// <summary>
-    /// Returns the route value of the tenant id
+    ///     Returns the route value of the tenant id
     /// </summary>
     /// <param name="httpContext"></param>
     /// <returns></returns>

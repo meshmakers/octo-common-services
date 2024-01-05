@@ -16,13 +16,12 @@ public static class BackendCommon
     public const string ClaimScope = "scope";
 
     /// <summary>
-    /// Returns the tenant id route name 
+    ///     Returns the tenant id route name
     /// </summary>
     public const string TenantIdRoute = "tenantId";
 
     /// <summary>
-    /// Returns the tenant repository name 
+    ///     Returns the tenant repository name
     /// </summary>
     public const string TenantRepositoryName = "tenantRepository";
-
 }

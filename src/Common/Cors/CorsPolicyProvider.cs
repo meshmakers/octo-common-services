@@ -27,7 +27,7 @@ public class CorsPolicyProvider : ICorsPolicyProvider
     /// <inheritdoc />
     public async Task<CorsPolicy?> GetPolicyAsync(HttpContext context, string? policyName)
     {
-        string tenantId = context.GetTenantId() ?? "";
+        var tenantId = context.GetTenantId() ?? "";
 
         if (_corsPolicyDictionary.TryGetValue(tenantId, out var corsPolicy))
         {
@@ -35,7 +35,7 @@ public class CorsPolicyProvider : ICorsPolicyProvider
             var origins = await knownOriginsProvider.GetKnownOriginsAsync();
 
             Logger.Info($"Creating CORS policy from cache: {string.Join(", ", origins)}");
-            
+
             var policyBuilder = new CorsPolicyBuilder()
                 .WithOrigins(origins.ToArray())
                 .AllowAnyHeader()
@@ -43,11 +43,12 @@ public class CorsPolicyProvider : ICorsPolicyProvider
             corsPolicy = policyBuilder.Build();
             _corsPolicyDictionary.TryAdd(tenantId, corsPolicy);
         }
+
         return corsPolicy;
     }
 
     /// <summary>
-    /// Invalidates the cached CORS policy for the given tenant.
+    ///     Invalidates the cached CORS policy for the given tenant.
     /// </summary>
     /// <param name="tenantId"></param>
     /// <returns></returns>
@@ -57,7 +58,7 @@ public class CorsPolicyProvider : ICorsPolicyProvider
         {
             return Task.CompletedTask;
         }
-        
+
         _corsPolicyDictionary.TryRemove(tenantId, out _);
         return Task.CompletedTask;
     }

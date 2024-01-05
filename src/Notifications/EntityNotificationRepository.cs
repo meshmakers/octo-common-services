@@ -2,7 +2,7 @@ using Meshmakers.Common.Shared;
 using Meshmakers.Octo.Communication.Contracts.DataTransferObjects;
 using Meshmakers.Octo.Communication.Contracts.Services;
 using Meshmakers.Octo.ConstructionKit.Contracts;
-using Meshmakers.Octo.ConstructionKit.System.ConstructionKit.Generated.System.v1;
+using Meshmakers.Octo.ConstructionKit.Models.System.ConstructionKit.Generated.System.v1;
 using Meshmakers.Octo.Runtime.Contracts;
 using Meshmakers.Octo.Runtime.Contracts.MongoDb;
 using Meshmakers.Octo.Runtime.Contracts.MongoDb.Repository;
@@ -151,8 +151,10 @@ public class EntityNotificationRepository : INotificationRepository
 
         var associationUpdateInfos = new List<AssociationUpdateInfo>();
         if (targetRtId != null)
+        {
             associationUpdateInfos.Add(new AssociationUpdateInfo(rtEntity.ToRtEntityId(), targetRtId.Value,
                 SystemCkIds.Related, AssociationModOptionsDto.Create));
+        }
 
         var operationResult = new OperationResult();
         await tenantRepository.ApplyChangesAsync(session, new[]
@@ -199,7 +201,9 @@ public class EntityNotificationRepository : INotificationRepository
             await tenantRepository.GetRtEntityByRtIdAsync<RtNotificationMessage>(session,
                 notificationMessageDto.RtId);
         if (rtEntity == null)
+        {
             throw new NotificationSendFailedException($"Notification with id '{notificationMessageDto.RtId}' not found in repository.");
+        }
 
 
         ApplyDtoData(notificationMessageDto, rtEntity);

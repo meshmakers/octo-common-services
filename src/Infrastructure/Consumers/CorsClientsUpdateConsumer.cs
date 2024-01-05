@@ -7,15 +7,15 @@ using Microsoft.Extensions.Logging;
 namespace Meshmakers.Octo.Services.Infrastructure.Consumers;
 
 /// <summary>
-/// Consumer for <see cref="CorsClientsUpdate"/> messages.
+///     Consumer for <see cref="CorsClientsUpdate" /> messages.
 /// </summary>
 public class CorsClientsUpdateConsumer : IDistributedConsumer<CorsClientsUpdate>
 {
-    readonly ILogger<CorsClientsUpdateConsumer> _logger;
     private readonly CorsPolicyProvider _corsPolicyProvider;
+    private readonly ILogger<CorsClientsUpdateConsumer> _logger;
 
     /// <summary>
-    /// Constructor.
+    ///     Constructor.
     /// </summary>
     /// <param name="logger"></param>
     /// <param name="corsPolicyProvider"></param>

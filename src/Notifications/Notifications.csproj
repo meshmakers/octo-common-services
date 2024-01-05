@@ -9,17 +9,18 @@
     </PropertyGroup>
 
     <ItemGroup>
-        <ProjectReference Include="$(OctoConstructionKitPath)src\MongoDb\Runtime.Contracts.MongoDb\Runtime.Contracts.MongoDb.csproj" />
-        <ProjectReference Include="$(OctoConstructionKitPath)src\Common\SystemCkModel\SystemCkModel.csproj" />
+        <ProjectReference Include="$(OctoConstructionKitPath)src\Runtime.Contracts.MongoDb\Runtime.Contracts.MongoDb.csproj" />
     </ItemGroup>
 
     <ItemGroup Condition="'$(Configuration)'!='DebugL'">
         <PackageReference Include="Meshmakers.Octo.Communication.Contracts" Version="3.0.9" />
-        <PackageReference Include="Meshmakers.Octo.ConstructionKit.SourceGeneration" OutputItemType="Analyzer" ReferenceOutputAssembly="false" Version="3.0.3" PrivateAssets="all" />
+        <PackageReference Include="Meshmakers.Octo.ConstructionKit.Models.System" Version="3.0.14" />
+        <PackageReference Include="Meshmakers.Octo.ConstructionKit.SourceGeneration" OutputItemType="Analyzer" ReferenceOutputAssembly="false" Version="3.0.14" PrivateAssets="all" />
     </ItemGroup>
 
     <ItemGroup Condition="'$(Configuration)'=='DebugL'">
         <PackageReference Include="Meshmakers.Octo.Communication.Contracts" Version="999.0.0" />
+        <PackageReference Include="Meshmakers.Octo.ConstructionKit.Models.System" Version="999.0.0" />
         <PackageReference Include="Meshmakers.Octo.ConstructionKit.SourceGeneration" OutputItemType="Analyzer" ReferenceOutputAssembly="false" Version="999.0.0" PrivateAssets="all" />
     </ItemGroup>
 

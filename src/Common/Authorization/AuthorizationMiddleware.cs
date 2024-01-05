@@ -40,7 +40,10 @@ public class AuthorizationMiddleware
         if (!authorizationResult.Succeeded)
         {
             Logger.Warn("User autorization failed.");
-            foreach (var userClaim in httpContext.User.Claims) Logger.Warn($"{userClaim.Type}={userClaim.Value}");
+            foreach (var userClaim in httpContext.User.Claims)
+            {
+                Logger.Warn($"{userClaim.Type}={userClaim.Value}");
+            }
 
             if (httpContext.User.Identity != null && httpContext.User.Identity.IsAuthenticated)
             {

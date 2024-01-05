@@ -7,15 +7,15 @@ using PreUpdateTenant = Meshmakers.Octo.Services.Common.DistributionEventHub.Mes
 namespace Meshmakers.Octo.Services.Infrastructure.Consumers;
 
 /// <summary>
-/// Handles the <see cref="PreUpdateTenant"/> message.
+///     Handles the <see cref="PreUpdateTenant" /> message.
 /// </summary>
 internal class PreUpdateTenantConsumer : IDistributedConsumer<PreUpdateTenant>
 {
-    readonly ILogger<PreUpdateTenantConsumer> _logger;
     private readonly ICkCacheService _ckCacheService;
+    private readonly ILogger<PreUpdateTenantConsumer> _logger;
 
     /// <summary>
-    /// Constructor.
+    ///     Constructor.
     /// </summary>
     /// <param name="logger"></param>
     /// <param name="ckCacheService"></param>
@@ -28,7 +28,7 @@ internal class PreUpdateTenantConsumer : IDistributedConsumer<PreUpdateTenant>
     public Task ConsumeAsync(IDistributedContext<PreUpdateTenant> context)
     {
         _logger.LogInformation("Pre update tenant received: {Text}", context.Message.TenantId);
-        
+
         var key = context.Message.TenantId.NormalizeString();
 
         if (_ckCacheService.IsTenantLoaded(key))

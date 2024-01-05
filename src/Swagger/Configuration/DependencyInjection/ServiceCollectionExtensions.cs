@@ -12,7 +12,10 @@ public static class ServiceCollectionExtensions
         this IServiceCollection services,
         Action<OctoSwaggerOptions>? setupOctoSwaggerOptionsAction = null)
     {
-        if (setupOctoSwaggerOptionsAction != null) services.Configure(setupOctoSwaggerOptionsAction);
+        if (setupOctoSwaggerOptionsAction != null)
+        {
+            services.Configure(setupOctoSwaggerOptionsAction);
+        }
 
         services.AddApiVersioning(options => options.ReportApiVersions = true);
         services.AddVersionedApiExplorer();

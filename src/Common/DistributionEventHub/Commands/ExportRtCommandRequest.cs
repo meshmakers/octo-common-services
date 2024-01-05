@@ -5,23 +5,23 @@ using Meshmakers.Octo.ConstructionKit.Contracts.Serialization;
 namespace Meshmakers.Octo.Services.Common.DistributionEventHub.Commands;
 
 /// <summary>
-/// Export runtime data arguments
+///     Export runtime data arguments
 /// </summary>
 public record ExportRtCommandRequest : CommandBaseRequest
 {
     /// <summary>
-    /// Constructor
+    ///     Constructor
     /// </summary>
     /// <param name="tenantId"></param>
     /// <param name="queryId"></param>
-    public ExportRtCommandRequest(string tenantId, OctoObjectId queryId) 
+    public ExportRtCommandRequest(string tenantId, OctoObjectId queryId)
         : base(tenantId)
     {
         QueryId = queryId;
     }
-    
+
     /// <summary>
-    /// Query id to export
+    ///     Query id to export
     /// </summary>
     [JsonConverter(typeof(OctoObjectIdConverter))]
     public OctoObjectId QueryId { get; set; }

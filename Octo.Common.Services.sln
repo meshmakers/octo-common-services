@@ -10,11 +10,9 @@ Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "octo-construction-kit", "oc
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Notifications", "src\Notifications\Notifications.csproj", "{07ED01EF-E969-47A8-9525-6D83DFC08F5E}"
 EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Runtime.Contracts.MongoDb", "src\octo-construction-kit-engine-mongodb\src\MongoDb\Runtime.Contracts.MongoDb\Runtime.Contracts.MongoDb.csproj", "{625EA1E4-C048-404F-B2A9-6C0D5FD3F77C}"
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Runtime.Contracts.MongoDb", "src\octo-construction-kit-engine-mongodb\src\Runtime.Contracts.MongoDb\Runtime.Contracts.MongoDb.csproj", "{625EA1E4-C048-404F-B2A9-6C0D5FD3F77C}"
 EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Runtime.Engine.MongoDb", "src\octo-construction-kit-engine-mongodb\src\MongoDb\Runtime.Engine.MongoDb\Runtime.Engine.MongoDb.csproj", "{08405DDA-54B6-4F07-B052-DA9E82379597}"
-EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "SystemCkModel", "src\octo-construction-kit-engine-mongodb\src\Common\SystemCkModel\SystemCkModel.csproj", "{F3E05963-09BF-4E2D-8170-444B5865903B}"
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Runtime.Engine.MongoDb", "src\octo-construction-kit-engine-mongodb\src\Runtime.Engine.MongoDb\Runtime.Engine.MongoDb.csproj", "{08405DDA-54B6-4F07-B052-DA9E82379597}"
 EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
@@ -59,16 +57,9 @@ Global
 		{08405DDA-54B6-4F07-B052-DA9E82379597}.Release|Any CPU.Build.0 = Release|Any CPU
 		{08405DDA-54B6-4F07-B052-DA9E82379597}.DebugL|Any CPU.ActiveCfg = DebugL|Any CPU
 		{08405DDA-54B6-4F07-B052-DA9E82379597}.DebugL|Any CPU.Build.0 = DebugL|Any CPU
-		{F3E05963-09BF-4E2D-8170-444B5865903B}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
-		{F3E05963-09BF-4E2D-8170-444B5865903B}.Debug|Any CPU.Build.0 = Debug|Any CPU
-		{F3E05963-09BF-4E2D-8170-444B5865903B}.Release|Any CPU.ActiveCfg = Release|Any CPU
-		{F3E05963-09BF-4E2D-8170-444B5865903B}.Release|Any CPU.Build.0 = Release|Any CPU
-		{F3E05963-09BF-4E2D-8170-444B5865903B}.DebugL|Any CPU.ActiveCfg = DebugL|Any CPU
-		{F3E05963-09BF-4E2D-8170-444B5865903B}.DebugL|Any CPU.Build.0 = DebugL|Any CPU
 	EndGlobalSection
 	GlobalSection(NestedProjects) = preSolution
 		{625EA1E4-C048-404F-B2A9-6C0D5FD3F77C} = {6B1B3474-50D5-44B1-B995-0079AC61200F}
 		{08405DDA-54B6-4F07-B052-DA9E82379597} = {6B1B3474-50D5-44B1-B995-0079AC61200F}
-		{F3E05963-09BF-4E2D-8170-444B5865903B} = {6B1B3474-50D5-44B1-B995-0079AC61200F}
 	EndGlobalSection
 EndGlobal
