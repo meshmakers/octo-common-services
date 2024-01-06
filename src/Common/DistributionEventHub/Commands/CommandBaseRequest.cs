@@ -9,7 +9,7 @@ public abstract record CommandBaseRequest
     ///     Constructor
     /// </summary>
     /// <param name="tenantId">Tenant id if null the system tenant is used.</param>
-    protected CommandBaseRequest(string? tenantId)
+    protected CommandBaseRequest(string tenantId)
     {
         TenantId = tenantId;
     }
@@ -17,5 +17,5 @@ public abstract record CommandBaseRequest
     /// <summary>
     ///     Returns the tenant id
     /// </summary>
-    public string? TenantId { get; }
+    public string TenantId { get; }
 }

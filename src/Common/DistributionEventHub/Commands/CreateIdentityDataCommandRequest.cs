@@ -11,7 +11,7 @@ public record CreateIdentityDataCommandRequest : CommandBaseRequest
     ///     Constructor
     /// </summary>
     /// <param name="tenantId">Tenant id</param>
-    public CreateIdentityDataCommandRequest(string? tenantId)
+    public CreateIdentityDataCommandRequest(string tenantId)
         : base(tenantId)
     {
     }

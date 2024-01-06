@@ -52,7 +52,7 @@ public class CorsPolicyProvider : ICorsPolicyProvider
     /// </summary>
     /// <param name="tenantId"></param>
     /// <returns></returns>
-    public Task InvalidateData(string? tenantId)
+    public Task InvalidateData(string tenantId)
     {
         if (string.IsNullOrWhiteSpace(tenantId))
         {

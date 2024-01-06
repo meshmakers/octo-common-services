@@ -3,6 +3,7 @@ using Meshmakers.Octo.Runtime.Contracts.MongoDb.Services;
 using Meshmakers.Octo.Services.Common.DistributionEventHub.Messages;
 using Meshmakers.Octo.Services.Infrastructure.Consumers;
 using Meshmakers.Octo.Services.Infrastructure.Services;
+using Microsoft.Extensions.DependencyInjection.Extensions;
 
 // ReSharper disable once CheckNamespace
 namespace Microsoft.Extensions.DependencyInjection;
@@ -22,7 +23,7 @@ public static class ServiceCollectionExtensions
         Action<IDistributionEventHubConfiguration>? configureDistributionEventHub = null)
     {
         services.AddSingleton<ITenantNotifications, DistributedTenantNotifications>();
-        
+
         // Adding dependent octo modules
         services.AddDistributionEventHub(c =>
         {
@@ -31,7 +32,11 @@ public static class ServiceCollectionExtensions
             configureDistributionEventHub?.Invoke(c);
 
             c.AddBroadcastEventConsumer<CorsClientsUpdateConsumer, CorsClientsUpdate>();
-            c.AddBroadcastEventConsumer<PreUpdateTenantConsumer, PreUpdateTenant>();
+            c.AddBroadcastEventConsumer<CacheTenantConsumer, PreUpdateTenant>();
+            c.AddBroadcastEventConsumer<CacheTenantConsumer, PreDeleteTenant>();
+            c.AddBroadcastEventConsumer<PosCreateTenantConsumer, PosCreateTenant>();
         });
+        
+        services.AddInitializationService<DefaultConfigurationInitializationService>();
     }
 }

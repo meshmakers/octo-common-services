@@ -10,5 +10,5 @@ public interface IDefaultConfigurationCreatorService
     /// </summary>
     /// <param name="tenantId">The tenant id, if null the system tenant is used.</param>
     /// <returns></returns>
-    Task SetupAsync(string? tenantId);
+    Task SetupAsync(string tenantId);
 }
