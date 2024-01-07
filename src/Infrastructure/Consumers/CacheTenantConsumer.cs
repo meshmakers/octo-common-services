@@ -13,6 +13,7 @@ internal class CacheTenantConsumer
 {
     private readonly ICkCacheService _ckCacheService;
     private readonly ILogger<CacheTenantConsumer> _logger;
+    private static readonly object Lock = new();
 
     /// <summary>
     ///     Constructor.
@@ -31,9 +32,12 @@ internal class CacheTenantConsumer
 
         var key = context.Message.TenantId.NormalizeString();
 
-        if (_ckCacheService.IsTenantLoaded(key))
+        lock (Lock)
         {
-            _ckCacheService.Unload(key);
+            if (_ckCacheService.IsTenantLoaded(key))
+            {
+                _ckCacheService.Unload(key);
+            }
         }
 
         return Task.CompletedTask;
@@ -45,9 +49,12 @@ internal class CacheTenantConsumer
 
         var key = context.Message.TenantId.NormalizeString();
 
-        if (_ckCacheService.IsTenantLoaded(key))
+        lock (Lock)
         {
-            _ckCacheService.Unload(key);
+            if (_ckCacheService.IsTenantLoaded(key))
+            {
+                _ckCacheService.Unload(key);
+            }
         }
 
         return Task.CompletedTask;
