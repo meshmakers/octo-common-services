@@ -1,0 +1,32 @@
+using Meshmakers.Octo.Common.DistributionEventHub.Repository;
+using Meshmakers.Octo.Runtime.Contracts.MongoDb;
+
+namespace Meshmakers.Octo.Services.Infrastructure.DistributionEventHub;
+
+internal class OctoRepositoryClient : IRepositoryClient
+{
+    private readonly ISystemContext _systemContext;
+
+    public OctoRepositoryClient(ISystemContext systemContext)
+    {
+        _systemContext = systemContext;
+    }
+    
+    public async Task<IRepository> GetRepositoryAsync(string repositoryName)
+    {
+        ITenantContext tenantContext = _systemContext;
+        if (repositoryName != _systemContext.TenantId)
+        {
+            tenantContext = await _systemContext.GetChildTenantContextAsync(repositoryName);
+        }
+        
+        return new OctoRepository(tenantContext.GetTenantRepository());
+    }
+
+    public Task<IRepositorySession> StartSessionAsync()
+    {
+        throw new NotImplementedException();
+    }
+
+    public bool IsConnected { get; }
+}
