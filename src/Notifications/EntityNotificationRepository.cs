@@ -88,7 +88,11 @@ public class EntityNotificationRepository : INotificationRepository
     {
         ArgumentValidation.ValidateString(nameof(tenantId), tenantId);
 
-        var tenantContext = await _systemContext.GetChildTenantContextAsync(tenantId);
+        ITenantContext tenantContext = _systemContext;
+        if (tenantId != _systemContext.TenantId)
+        {
+            tenantContext = await _systemContext.GetChildTenantContextAsync(tenantId);
+        }
         var tenantRepository = tenantContext.GetTenantRepository();
         var session = await tenantRepository.GetSessionAsync();
         session.StartTransaction();
