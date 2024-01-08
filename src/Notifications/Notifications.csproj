@@ -13,9 +13,9 @@
     </ItemGroup>
 
     <ItemGroup Condition="'$(Configuration)'!='DebugL'">
-        <PackageReference Include="Meshmakers.Octo.Communication.Contracts" Version="3.0.16" />
-        <PackageReference Include="Meshmakers.Octo.ConstructionKit.Models.System" Version="3.0.16" />
-        <PackageReference Include="Meshmakers.Octo.ConstructionKit.SourceGeneration" OutputItemType="Analyzer" ReferenceOutputAssembly="false" Version="3.0.16" PrivateAssets="all" />
+        <PackageReference Include="Meshmakers.Octo.Communication.Contracts" Version="3.0.19" />
+        <PackageReference Include="Meshmakers.Octo.ConstructionKit.Models.System" Version="3.0.19" />
+        <PackageReference Include="Meshmakers.Octo.ConstructionKit.SourceGeneration" OutputItemType="Analyzer" ReferenceOutputAssembly="false" Version="3.0.19" PrivateAssets="all" />
     </ItemGroup>
 
     <ItemGroup Condition="'$(Configuration)'=='DebugL'">
