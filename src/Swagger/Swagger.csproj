@@ -9,7 +9,7 @@
     </PropertyGroup>
 
     <ItemGroup Condition="'$(Configuration)'!='DebugL'">
-        <PackageReference Include="Meshmakers.Octo.Communication.Contracts" Version="3.0.20" />
+        <PackageReference Include="Meshmakers.Octo.Communication.Contracts" Version="3.0.24" />
     </ItemGroup>
 
     <ItemGroup Condition="'$(Configuration)'=='DebugL'">
