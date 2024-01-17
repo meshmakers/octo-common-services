@@ -30,13 +30,16 @@ public class DefaultConfigurationInitializationService : IAsyncInitializationSer
         await _defaultConfigurationCreatorService.SetupAsync(_systemContext.TenantId);
 
         // Call for all child tenants
-        var systemSession = await _systemContext.GetSystemSessionAsync();
-        systemSession.StartTransaction();
-
-        var tenants = await _systemContext.GetChildTenantsAsync(systemSession);
-        foreach (var tenant in tenants.Items)
+        if (await _systemContext.IsSystemTenantExistingAsync())
         {
-            await _defaultConfigurationCreatorService.SetupAsync(tenant.TenantId);
+            var systemSession = await _systemContext.GetSystemSessionAsync();
+            systemSession.StartTransaction();
+
+            var tenants = await _systemContext.GetChildTenantsAsync(systemSession);
+            foreach (var tenant in tenants.Items)
+            {
+                await _defaultConfigurationCreatorService.SetupAsync(tenant.TenantId);
+            }
         }
     }
 }
