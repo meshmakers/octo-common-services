@@ -10,7 +10,7 @@ internal class PosCreateTenantConsumer: IDistributedConsumer<PosCreateTenant>
 {
     private readonly ILogger<PosCreateTenantConsumer> _logger;
     private readonly IDefaultConfigurationCreatorService _defaultConfigurationCreatorService;
-    private readonly static ConcurrentDictionary<string, bool> _tenantsInHandling = new();
+    private static readonly ConcurrentDictionary<string, bool> TenantsInHandling = new();
 
     public PosCreateTenantConsumer(ILogger<PosCreateTenantConsumer> logger, IDefaultConfigurationCreatorService defaultConfigurationCreatorService)
     {
@@ -22,7 +22,7 @@ internal class PosCreateTenantConsumer: IDistributedConsumer<PosCreateTenant>
     {
         _logger.LogInformation("Pos create tenant received: '{TenantId}'", context.Message.TenantId);
 
-        if (!_tenantsInHandling.TryAdd(context.Message.TenantId, true))
+        if (!TenantsInHandling.TryAdd(context.Message.TenantId, true))
         {
             _logger.LogWarning("Pos create tenant already in work: '{TenantId}'", context.Message.TenantId);
             return;
@@ -34,7 +34,7 @@ internal class PosCreateTenantConsumer: IDistributedConsumer<PosCreateTenant>
         }
         finally
         {
-            _tenantsInHandling.Remove(context.Message.TenantId, out _);
+            TenantsInHandling.Remove(context.Message.TenantId, out _);
             _logger.LogInformation("Pos create tenant handling done: '{TenantId}'", context.Message.TenantId);
         }
     }

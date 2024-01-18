@@ -6,7 +6,7 @@ namespace Meshmakers.Octo.Services.Infrastructure.Services;
 public abstract class DefaultConfigurationCreatorServiceBase: IDefaultConfigurationCreatorService
 {
     private readonly ILogger<DefaultConfigurationCreatorServiceBase> _logger;
-    private readonly ConcurrentDictionary<string, bool> _tenantsInHandling = new();
+    private static readonly ConcurrentDictionary<string, bool> TenantsInHandling = new();
 
     public DefaultConfigurationCreatorServiceBase(ILogger<DefaultConfigurationCreatorServiceBase> logger)
     {
@@ -17,7 +17,7 @@ public abstract class DefaultConfigurationCreatorServiceBase: IDefaultConfigurat
     {
         _logger.LogInformation("Setup tenant: '{TenantId}'", tenantId);
 
-        if (!_tenantsInHandling.TryAdd(tenantId, true))
+        if (!TenantsInHandling.TryAdd(tenantId, true))
         {
             _logger.LogWarning("Setup tenant already in work: '{TenantId}'", tenantId);
             return;
@@ -29,7 +29,7 @@ public abstract class DefaultConfigurationCreatorServiceBase: IDefaultConfigurat
         }
         finally
         {
-            _tenantsInHandling.Remove(tenantId, out _);
+            TenantsInHandling.Remove(tenantId, out _);
             _logger.LogInformation("Setup tenant handling done: '{TenantId}'", tenantId);
         }
     }
