@@ -1,4 +1,5 @@
-﻿using Meshmakers.Octo.Runtime.Contracts.MongoDb;
+﻿using System.Collections.Concurrent;
+using Meshmakers.Octo.Runtime.Contracts.MongoDb;
 using Meshmakers.Octo.Services.Infrastructure.Initialization;
 
 namespace Meshmakers.Octo.Services.Infrastructure.Services;
@@ -27,18 +28,18 @@ public class DefaultConfigurationInitializationService : IAsyncInitializationSer
     public async Task InitializeAsync()
     {
         // Call for system tenant
-        await _defaultConfigurationCreatorService.SetupAsync(_systemContext.TenantId);
+        await _defaultConfigurationCreatorService.SetupAsync(_systemContext.TenantId).ConfigureAwait(false);
 
         // Call for all child tenants
-        if (await _systemContext.IsSystemTenantExistingAsync())
+        if (await _systemContext.IsSystemTenantExistingAsync().ConfigureAwait(false))
         {
-            var systemSession = await _systemContext.GetSystemSessionAsync();
+            var systemSession = await _systemContext.GetSystemSessionAsync().ConfigureAwait(false);
             systemSession.StartTransaction();
 
-            var tenants = await _systemContext.GetChildTenantsAsync(systemSession);
+            var tenants = await _systemContext.GetChildTenantsAsync(systemSession).ConfigureAwait(false);
             foreach (var tenant in tenants.Items)
             {
-                await _defaultConfigurationCreatorService.SetupAsync(tenant.TenantId);
+                await _defaultConfigurationCreatorService.SetupAsync(tenant.TenantId).ConfigureAwait(false);
             }
         }
     }

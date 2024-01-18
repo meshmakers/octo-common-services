@@ -22,13 +22,13 @@ public class EntityNotificationRepository : INotificationRepository
 
     public async Task AddShortMessageAsync(string tenantId, string toPhoneNumber, string message)
     {
-        await AddShortMessageAsync(tenantId, toPhoneNumber, message, null);
+        await AddShortMessageAsync(tenantId, toPhoneNumber, message, null).ConfigureAwait(false);
     }
 
     public async Task AddEMailMessageAsync(string tenantId, string emailAddress, string subject,
         string? htmlMessage)
     {
-        await AddEMailMessageAsync(tenantId, emailAddress, subject, htmlMessage, null);
+        await AddEMailMessageAsync(tenantId, emailAddress, subject, htmlMessage, null).ConfigureAwait(false);
     }
 
     public async Task AddShortMessageAsync(string tenantId, string toPhoneNumber, string message,
@@ -49,7 +49,7 @@ public class EntityNotificationRepository : INotificationRepository
                 LastTryDateTime = DateTime.MinValue
             };
 
-            await AddMessageAsync(tenantId, notificationMessage, associatedRtId);
+            await AddMessageAsync(tenantId, notificationMessage, associatedRtId).ConfigureAwait(false);
         }
         catch (Exception e)
         {
@@ -75,7 +75,7 @@ public class EntityNotificationRepository : INotificationRepository
                 LastTryDateTime = DateTime.MinValue
             };
 
-            await AddMessageAsync(tenantId, notificationMessage, associatedRtId);
+            await AddMessageAsync(tenantId, notificationMessage, associatedRtId).ConfigureAwait(false);
         }
         catch (Exception e)
         {
@@ -88,13 +88,13 @@ public class EntityNotificationRepository : INotificationRepository
     {
         ArgumentValidation.ValidateString(nameof(tenantId), tenantId);
 
-        ITenantContext tenantContext = _systemContext;
-        if (tenantId != _systemContext.TenantId)
+        if (!await _systemContext.IsSystemTenantExistingAsync().ConfigureAwait(false))
         {
-            tenantContext = await _systemContext.GetChildTenantContextAsync(tenantId);
+            return new PagedResult<NotificationMessageDto>(new List<NotificationMessageDto>());
         }
-        var tenantRepository = tenantContext.GetTenantRepository();
-        var session = await tenantRepository.GetSessionAsync();
+
+        var tenantRepository = await _systemContext.FindTenantRepositoryAsync(tenantId).ConfigureAwait(false);
+        var session = await tenantRepository.GetSessionAsync().ConfigureAwait(false);
         session.StartTransaction();
 
         var result = await tenantRepository.GetRtEntitiesByTypeAsync<RtNotificationMessage>(session,
@@ -105,9 +105,9 @@ public class EntityNotificationRepository : INotificationRepository
                     FieldFilterOperator.LessEqualThan, DateTime.UtcNow.AddMinutes(-5))
                 .FieldFilter(nameof(RtNotificationMessage.NotificationType), FieldFilterOperator.Equals,
                     notificationType)
-        );
+        ).ConfigureAwait(false);
 
-        await session.CommitTransactionAsync();
+        await session.CommitTransactionAsync().ConfigureAwait(false);
 
         return new PagedResult<NotificationMessageDto>(result.Items.Select(CreateNotificationMessage), 0, take,
             result.TotalCount);
@@ -118,24 +118,29 @@ public class EntityNotificationRepository : INotificationRepository
     {
         ArgumentValidation.ValidateString(nameof(tenantId), tenantId);
 
+        if (!await _systemContext.IsSystemTenantExistingAsync().ConfigureAwait(false))
+        {
+            throw new NotificationSendFailedException("No system tenant is existing.");
+        }
 
-        var tenantContext = await _systemContext.GetChildTenantContextAsync(tenantId);
-        var tenantRepository = tenantContext.GetTenantRepository();
-        var session = await tenantRepository.GetSessionAsync();
+        var tenantRepository = await _systemContext.FindTenantRepositoryAsync(tenantId).ConfigureAwait(false);
+        
+        var session = await tenantRepository.GetSessionAsync().ConfigureAwait(false);
         session.StartTransaction();
 
         var entityUpdateInfos = new List<EntityUpdateInfo<RtNotificationMessage>>();
         foreach (var notificationMessageDto in notificationMessages)
         {
-            var rtNotificationMessage = await PrepareUpdateRtEntityAsync(session, notificationMessageDto, tenantRepository);
+            var rtNotificationMessage = await PrepareUpdateRtEntityAsync(session, notificationMessageDto, tenantRepository)
+                .ConfigureAwait(false);
             entityUpdateInfos.Add(EntityUpdateInfo<RtNotificationMessage>.CreateUpdate(rtNotificationMessage.ToRtEntityId(),
                 rtNotificationMessage));
         }
 
         var operationResult = new OperationResult();
-        await tenantRepository.ApplyChangesAsync(session, entityUpdateInfos, operationResult);
+        await tenantRepository.ApplyChangesAsync(session, entityUpdateInfos, operationResult).ConfigureAwait(false);
 
-        await session.CommitTransactionAsync();
+        await session.CommitTransactionAsync().ConfigureAwait(false);
 
         return entityUpdateInfos.Select(x => CreateNotificationMessage(x.RtEntity!));
     }
@@ -146,12 +151,16 @@ public class EntityNotificationRepository : INotificationRepository
     {
         ArgumentValidation.ValidateString(nameof(tenantId), tenantId);
 
-        var tenantContext = await _systemContext.GetChildTenantContextAsync(tenantId);
-        var tenantRepository = tenantContext.GetTenantRepository();
-        var session = await tenantRepository.GetSessionAsync();
+        if (!await _systemContext.IsSystemTenantExistingAsync().ConfigureAwait(false))
+        {
+            return;
+        }
+
+        var tenantRepository = await _systemContext.FindTenantRepositoryAsync(tenantId).ConfigureAwait(false);
+        var session = await tenantRepository.GetSessionAsync().ConfigureAwait(false);
         session.StartTransaction();
 
-        var rtEntity = await CreateRtEntityAsync(notificationMessageDto, tenantRepository);
+        var rtEntity = await CreateRtEntityAsync(notificationMessageDto, tenantRepository).ConfigureAwait(false);
 
         var associationUpdateInfos = new List<AssociationUpdateInfo>();
         if (targetRtId != null)
@@ -164,16 +173,16 @@ public class EntityNotificationRepository : INotificationRepository
         await tenantRepository.ApplyChangesAsync(session, new[]
         {
             EntityUpdateInfo<RtNotificationMessage>.CreateInsert(rtEntity)
-        }, associationUpdateInfos, operationResult);
+        }, associationUpdateInfos, operationResult).ConfigureAwait(false);
 
 
-        await session.CommitTransactionAsync();
+        await session.CommitTransactionAsync().ConfigureAwait(false);
     }
 
     private static async Task<RtNotificationMessage> CreateRtEntityAsync(NotificationMessageDto notificationMessageDto,
         ITenantRepository tenantContext)
     {
-        var rtEntity = await tenantContext.CreateTransientRtEntityAsync<RtNotificationMessage>();
+        var rtEntity = await tenantContext.CreateTransientRtEntityAsync<RtNotificationMessage>().ConfigureAwait(false);
 
         ApplyDtoData(notificationMessageDto, rtEntity);
 
@@ -203,7 +212,7 @@ public class EntityNotificationRepository : INotificationRepository
     {
         var rtEntity =
             await tenantRepository.GetRtEntityByRtIdAsync<RtNotificationMessage>(session,
-                notificationMessageDto.RtId);
+                notificationMessageDto.RtId).ConfigureAwait(false);
         if (rtEntity == null)
         {
             throw new NotificationSendFailedException($"Notification with id '{notificationMessageDto.RtId}' not found in repository.");

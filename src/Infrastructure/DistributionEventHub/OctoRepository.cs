@@ -25,24 +25,26 @@ internal class OctoRepository : IRepository
     public async Task<string> UploadBinaryAsync(Stream stream, string contentType, string fileName, DateTime? expiry,
         CancellationToken cancellationToken = new())
     {
-        var id = await _tenantRepository.UploadLargeBinaryAsync(fileName, contentType, stream, cancellationToken);
+        var id = await _tenantRepository.UploadLargeBinaryAsync(fileName, contentType, stream, cancellationToken).ConfigureAwait(false);
         return id.ToString();
     }
 
     public async Task DeleteBinaryAsync(string cacheStreamKey, CancellationToken cancellationToken = new())
     {
-        await _tenantRepository.DeleteLargeBinaryAsync(new OctoObjectId(cacheStreamKey), cancellationToken);
+        await _tenantRepository.DeleteLargeBinaryAsync(new OctoObjectId(cacheStreamKey), cancellationToken).ConfigureAwait(false);
     }
 
     public async Task<IDownloadInfo?> GetBinaryAsync(string cacheStreamKey, CancellationToken cancellationToken = new())
     {
-        var result = await _tenantRepository.GetLargeBinaryAsync(new OctoObjectId(cacheStreamKey), cancellationToken);
+        var result = await _tenantRepository.GetLargeBinaryAsync(new OctoObjectId(cacheStreamKey), cancellationToken)
+            .ConfigureAwait(false);
         return new DownloadInfo(result);
     }
 
     public async Task<IDownloadStreamHandler?> DownloadBinaryAsync(string cacheStreamKey, CancellationToken cancellationToken = new())
     {
-        var result = await _tenantRepository.DownloadLargeBinaryAsync(new OctoObjectId(cacheStreamKey), cancellationToken);
+        var result = await _tenantRepository.DownloadLargeBinaryAsync(new OctoObjectId(cacheStreamKey), cancellationToken)
+            .ConfigureAwait(false);
         return new DownloadStreamHandler(result);
     }
 }

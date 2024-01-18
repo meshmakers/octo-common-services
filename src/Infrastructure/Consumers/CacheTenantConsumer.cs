@@ -28,7 +28,7 @@ internal class CacheTenantConsumer
 
     public Task ConsumeAsync(IDistributedContext<PreUpdateTenant> context)
     {
-        _logger.LogInformation("Pre update tenant received: {Text}", context.Message.TenantId);
+        _logger.LogInformation("Pre update tenant received: '{TenantId}'", context.Message.TenantId);
 
         var key = context.Message.TenantId.NormalizeString();
 
@@ -36,16 +36,17 @@ internal class CacheTenantConsumer
         {
             if (_ckCacheService.IsTenantLoaded(key))
             {
+                _logger.LogInformation("Pre update tenant unloading cache: '{TenantId}'", context.Message.TenantId);
                 _ckCacheService.Unload(key);
             }
         }
-
+        _logger.LogInformation("Pre update tenant handling done: '{TenantId}'", context.Message.TenantId);
         return Task.CompletedTask;
     }
 
     public Task ConsumeAsync(IDistributedContext<PreDeleteTenant> context)
     {
-        _logger.LogInformation("Pre delete tenant received: {Text}", context.Message.TenantId);
+        _logger.LogInformation("Pre delete tenant received: {TenantId}", context.Message.TenantId);
 
         var key = context.Message.TenantId.NormalizeString();
 
@@ -53,10 +54,12 @@ internal class CacheTenantConsumer
         {
             if (_ckCacheService.IsTenantLoaded(key))
             {
+                _logger.LogInformation("Pre delete tenant unloading cache: '{TenantId}'", context.Message.TenantId);
                 _ckCacheService.Unload(key);
             }
         }
 
+        _logger.LogInformation("Pre delete tenant handling done: '{TenantId}'", context.Message.TenantId);
         return Task.CompletedTask;
     }
 }

@@ -17,13 +17,12 @@ public class TenantMiddleware
     {
         // Load tenant repository
         var tenantId = context.GetTenantId();
-        using var systemSession = await systemContext.GetSystemSessionAsync();
+        using var systemSession = await systemContext.GetSystemSessionAsync().ConfigureAwait(false);
         systemSession.StartTransaction();
 
         if (!string.IsNullOrWhiteSpace(tenantId))
         {
-            var tenantContext = await systemContext.GetChildTenantContextAsync(tenantId);
-            var tenantRepository = tenantContext.GetTenantRepository();
+            var tenantRepository = await systemContext.FindTenantRepositoryAsync(tenantId).ConfigureAwait(false);
             context.Items[BackendCommon.TenantRepositoryName] = tenantRepository;
         }
         else
@@ -32,9 +31,9 @@ public class TenantMiddleware
             context.Items[BackendCommon.TenantRepositoryName] = tenantRepository;
         }
 
-        await systemSession.CommitTransactionAsync();
+        await systemSession.CommitTransactionAsync().ConfigureAwait(false);
 
         // Call the next delegate/middleware in the pipeline
-        await _next(context);
+        await _next(context).ConfigureAwait(false);
     }
 }

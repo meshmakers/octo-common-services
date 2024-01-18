@@ -25,7 +25,7 @@ internal class HostedInitializer : IHostedService
             {
                 try
                 {
-                    await asyncInitializationService.InitializeAsync();
+                    await asyncInitializationService.InitializeAsync().ConfigureAwait(false);
                 }
                 catch (Exception ex)
                 {

@@ -14,13 +14,9 @@ internal class OctoRepositoryClient : IRepositoryClient
     
     public async Task<IRepository> GetRepositoryAsync(string repositoryName)
     {
-        ITenantContext tenantContext = _systemContext;
-        if (repositoryName != _systemContext.TenantId)
-        {
-            tenantContext = await _systemContext.GetChildTenantContextAsync(repositoryName);
-        }
+        var tenantRepository = await _systemContext.FindTenantRepositoryAsync(repositoryName).ConfigureAwait(false);
         
-        return new OctoRepository(tenantContext.GetTenantRepository());
+        return new OctoRepository(tenantRepository);
     }
 
     public Task<IRepositorySession> StartSessionAsync()
