@@ -1,6 +1,12 @@
 $schema: https://schemas.meshmakers.cloud/construction-kit-compiled.schema.json
 types:
 - isCollectionRoot: true
+  typeId: Page
+  derivedFromCkTypeId: System/Entity
+  attributes:
+  - id: System.Notification/Page.Content
+    name: Content
+- isCollectionRoot: true
   typeId: NotificationTemplate
   derivedFromCkTypeId: System/Entity
   attributes:
@@ -34,12 +40,6 @@ types:
   - id: System.Notification/ErrorText
     name: ErrorText
     isOptional: true
-- isCollectionRoot: true
-  typeId: Page
-  derivedFromCkTypeId: System/Entity
-  attributes:
-  - id: System.Notification/Page.Content
-    name: Content
 associationRoles: []
 attributes:
 - id: Page.Content
@@ -70,13 +70,6 @@ attributes:
   - 0
 records: []
 enums:
-- enumId: NotificationTypes
-  useFlags: false
-  values:
-  - key: 1
-    name: EMail
-  - key: 2
-    name: SMS
 - enumId: NotificationStates
   useFlags: false
   values:
@@ -86,6 +79,13 @@ enums:
     name: Sent
   - key: 2
     name: Error
+- enumId: NotificationTypes
+  useFlags: false
+  values:
+  - key: 1
+    name: EMail
+  - key: 2
+    name: SMS
 modelId: System.Notification
 dependencies:
 - System

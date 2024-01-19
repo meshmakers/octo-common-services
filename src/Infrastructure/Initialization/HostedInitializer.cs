@@ -17,26 +17,24 @@ internal class HostedInitializer : IHostedService
         var errors = new List<Exception>();
 
         //a scope is required to be able to request scoped services.
-        using (var scope = _serviceProvider.CreateScope())
+        using var scope = _serviceProvider.CreateScope();
+        var services = scope.ServiceProvider.GetServices<IAsyncInitializationService>();
+
+        foreach (var asyncInitializationService in services.OrderBy(s => s.Order))
         {
-            var services = scope.ServiceProvider.GetServices<IAsyncInitializationService>();
-
-            foreach (var asyncInitializationService in services.OrderBy(s => s.Order))
+            try
             {
-                try
-                {
-                    await asyncInitializationService.InitializeAsync().ConfigureAwait(false);
-                }
-                catch (Exception ex)
-                {
-                    errors.Add(ex);
-                }
+                await asyncInitializationService.InitializeAsync().ConfigureAwait(false);
             }
-
-            if (errors.Any())
+            catch (Exception ex)
             {
-                throw new AggregateException(errors);
+                errors.Add(ex);
             }
+        }
+
+        if (errors.Any())
+        {
+            throw new AggregateException(errors);
         }
     }
 

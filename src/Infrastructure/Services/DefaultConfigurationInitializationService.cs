@@ -1,6 +1,6 @@
-﻿using System.Collections.Concurrent;
-using Meshmakers.Octo.Runtime.Contracts.MongoDb;
+﻿using Meshmakers.Octo.Runtime.Contracts.MongoDb;
 using Meshmakers.Octo.Services.Infrastructure.Initialization;
+using Microsoft.Extensions.Logging;
 
 namespace Meshmakers.Octo.Services.Infrastructure.Services;
 
@@ -9,6 +9,7 @@ namespace Meshmakers.Octo.Services.Infrastructure.Services;
 /// </summary>
 public class DefaultConfigurationInitializationService : IAsyncInitializationService
 {
+    private readonly ILogger<DefaultConfigurationInitializationService> _logger;
     private readonly ISystemContext _systemContext;
     private readonly IDefaultConfigurationCreatorService _defaultConfigurationCreatorService;
 
@@ -17,8 +18,10 @@ public class DefaultConfigurationInitializationService : IAsyncInitializationSer
     /// </summary>
     /// <param name="systemContext"></param>
     /// <param name="defaultConfigurationCreatorService"></param>
-    public DefaultConfigurationInitializationService(ISystemContext systemContext, IDefaultConfigurationCreatorService defaultConfigurationCreatorService)
+    public DefaultConfigurationInitializationService(ILogger<DefaultConfigurationInitializationService> logger, 
+        ISystemContext systemContext, IDefaultConfigurationCreatorService defaultConfigurationCreatorService)
     {
+        _logger = logger;
         _systemContext = systemContext;
         _defaultConfigurationCreatorService = defaultConfigurationCreatorService;
     }
@@ -27,19 +30,26 @@ public class DefaultConfigurationInitializationService : IAsyncInitializationSer
 
     public async Task InitializeAsync()
     {
+        
         // Call for system tenant
+        _logger.LogInformation("Initialize default configuration for system tenant '{TenantId}'", _systemContext.TenantId);
         await _defaultConfigurationCreatorService.SetupAsync(_systemContext.TenantId).ConfigureAwait(false);
+        _logger.LogInformation("Initialize default configuration for system tenant '{TenantId}' done", _systemContext.TenantId);
 
         // Call for all child tenants
+        _logger.LogInformation("Initialize default configuration for child tenants of '{TenantId}'", _systemContext.TenantId);
         if (await _systemContext.IsSystemTenantExistingAsync().ConfigureAwait(false))
         {
+
             var systemSession = await _systemContext.GetSystemSessionAsync().ConfigureAwait(false);
             systemSession.StartTransaction();
 
             var tenants = await _systemContext.GetChildTenantsAsync(systemSession).ConfigureAwait(false);
             foreach (var tenant in tenants.Items)
             {
+                _logger.LogInformation("Initialize default configuration for tenant '{TenantId}'", tenant.TenantId);
                 await _defaultConfigurationCreatorService.SetupAsync(tenant.TenantId).ConfigureAwait(false);
+                _logger.LogInformation("Initialize default configuration for tenant '{TenantId}' done", tenant.TenantId);
             }
         }
     }
