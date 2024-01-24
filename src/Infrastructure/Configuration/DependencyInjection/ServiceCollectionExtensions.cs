@@ -19,8 +19,8 @@ public static class ServiceCollectionExtensions
     ///     Adds infrastructure components to all octo services
     /// </summary>
     /// <param name="services"></param>
-    /// <param name="uniqueBrokerServiceAddress"></param>
-    /// <param name="configureDistributionEventHub"></param>
+    /// <param name="uniqueBrokerServiceAddress">A unique address for the distribution event hub</param>
+    /// <param name="configureDistributionEventHub">Optional configuration of the distribution event hub</param>
     public static void AddOctoServiceInfrastructure(this IServiceCollection services, string uniqueBrokerServiceAddress,
         Action<IDistributionEventHubConfiguration>? configureDistributionEventHub = null)
     {
@@ -39,7 +39,7 @@ public static class ServiceCollectionExtensions
             c.AddBroadcastEventConsumer<CacheTenantConsumer, PreDeleteTenant>();
             c.AddBroadcastEventConsumer<PosCreateTenantConsumer, PosCreateTenant>();
         });
-        
+
         services.AddInitializationService<DefaultConfigurationInitializationService>();
     }
 }
