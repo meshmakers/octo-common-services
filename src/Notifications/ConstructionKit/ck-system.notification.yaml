@@ -2,43 +2,43 @@ $schema: https://schemas.meshmakers.cloud/construction-kit-compiled.schema.json
 types:
 - isCollectionRoot: true
   typeId: NotificationTemplate
-  derivedFromCkTypeId: System/Entity
+  derivedFromCkTypeId: System-1.0.0/Entity-1.0.0
   attributes:
-  - id: System.Notification/SubjectTemplate
+  - id: System.Notification-1.0.0/SubjectTemplate-1.0.0
     name: SubjectTemplate
-  - id: System.Notification/BodyTemplate
+  - id: System.Notification-1.0.0/BodyTemplate-1.0.0
     name: BodyTemplate
-  - id: System.Notification/Type
+  - id: System.Notification-1.0.0/Type-1.0.0
     name: Type
 - isCollectionRoot: true
   typeId: NotificationMessage
-  derivedFromCkTypeId: System/Entity
+  derivedFromCkTypeId: System-1.0.0/Entity-1.0.0
   attributes:
-  - id: System.Notification/SubjectText
+  - id: System.Notification-1.0.0/SubjectText-1.0.0
     name: SubjectText
-  - id: System.Notification/BodyText
+  - id: System.Notification-1.0.0/BodyText-1.0.0
     name: BodyText
     isOptional: true
-  - id: System.Notification/RecipientAddress
+  - id: System.Notification-1.0.0/RecipientAddress-1.0.0
     name: RecipientAddress
-  - id: System.Notification/Type
+  - id: System.Notification-1.0.0/Type-1.0.0
     name: NotificationType
-  - id: System.Notification/SentDateTime
+  - id: System.Notification-1.0.0/SentDateTime-1.0.0
     name: SentDateTime
     isOptional: true
-  - id: System.Notification/LastTryDateTime
+  - id: System.Notification-1.0.0/LastTryDateTime-1.0.0
     name: LastTryDateTime
     isOptional: true
-  - id: System.Notification/Status
+  - id: System.Notification-1.0.0/Status-1.0.0
     name: SendStatus
-  - id: System.Notification/ErrorText
+  - id: System.Notification-1.0.0/ErrorText-1.0.0
     name: ErrorText
     isOptional: true
 - isCollectionRoot: true
   typeId: Page
-  derivedFromCkTypeId: System/Entity
+  derivedFromCkTypeId: System-1.0.0/Entity-1.0.0
   attributes:
-  - id: System.Notification/Page.Content
+  - id: System.Notification-1.0.0/Page.Content-1.0.0
     name: Content
 associationRoles: []
 attributes:
@@ -62,10 +62,10 @@ attributes:
   valueType: String
 - id: Type
   valueType: Enum
-  valueCkEnumId: System.Notification/NotificationTypes
+  valueCkEnumId: System.Notification-1.0.0/NotificationTypes-1.0.0
 - id: Status
   valueType: Enum
-  valueCkEnumId: System.Notification/NotificationStates
+  valueCkEnumId: System.Notification-1.0.0/NotificationStates-1.0.0
   defaultValues:
   - 0
 records: []

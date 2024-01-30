@@ -12,18 +12,9 @@
         <Platforms>AnyCPU</Platforms>
     </PropertyGroup>
 
-    <ItemGroup Condition="'$(Configuration)'!='DebugL'">
-        <PackageReference Include="Meshmakers.Octo.Common.DistributionEventHub" Version="3.0.36" />
-        <PackageReference Include="Meshmakers.Octo.Sdk.ServiceClient" Version="3.0.37" />
-
-    </ItemGroup>
-
-    <ItemGroup Condition="'$(Configuration)'=='DebugL'">
-        <PackageReference Include="Meshmakers.Octo.Common.DistributionEventHub" Version="999.0.0" />
-        <PackageReference Include="Meshmakers.Octo.Sdk.ServiceClient" Version="999.0.0" />
-    </ItemGroup>
-
     <ItemGroup>
+        <PackageReference Include="Meshmakers.Octo.Common.DistributionEventHub" Version="$(OctoVersion)" />
+        <PackageReference Include="Meshmakers.Octo.Sdk.ServiceClient" Version="$(OctoVersion)" />
         <PackageReference Include="IdentityModel" Version="6.2.0" />
         <PackageReference Include="Microsoft.AspNetCore.Mvc.Cors" Version="2.2.0" />
         <PackageReference Include="Newtonsoft.Json" Version="13.0.3" />
