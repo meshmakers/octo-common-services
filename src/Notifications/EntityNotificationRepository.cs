@@ -229,7 +229,7 @@ public class EntityNotificationRepository : INotificationRepository
         return new NotificationMessageDto
         {
             RtId = rtEntity.RtId,
-            CkTypeId = rtEntity.CkTypeId,
+            CkTypeId = rtEntity.CkTypeId ?? throw OperationFailedException.CkTypeIdUndefined(),
             SubjectText = rtEntity.SubjectText,
             BodyText = rtEntity.BodyText,
             RecipientAddress = rtEntity.RecipientAddress,
