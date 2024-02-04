@@ -29,7 +29,7 @@ public class CorsPolicyProvider : ICorsPolicyProvider
     {
         var tenantId = context.GetTenantId() ?? "";
 
-        if (_corsPolicyDictionary.TryGetValue(tenantId, out var corsPolicy))
+        if (!_corsPolicyDictionary.TryGetValue(tenantId, out var corsPolicy))
         {
             var knownOriginsProvider = context.RequestServices.GetRequiredService<IKnownOriginsProvider>();
             var origins = await knownOriginsProvider.GetKnownOriginsAsync();
