@@ -1,10 +1,12 @@
 using Meshmakers.Octo.Common.DistributionEventHub.Configuration;
 using Meshmakers.Octo.Common.DistributionEventHub.Repository;
 using Meshmakers.Octo.Runtime.Contracts.MongoDb.Services;
+using Meshmakers.Octo.Services.Common.Cors;
 using Meshmakers.Octo.Services.Common.DistributionEventHub.Messages;
 using Meshmakers.Octo.Services.Infrastructure.Consumers;
 using Meshmakers.Octo.Services.Infrastructure.DistributionEventHub;
 using Meshmakers.Octo.Services.Infrastructure.Services;
+using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 
 // ReSharper disable once CheckNamespace
@@ -26,6 +28,9 @@ public static class ServiceCollectionExtensions
     {
         services.AddSingleton<ITenantNotifications, DistributedTenantNotifications>();
         services.AddSingleton<IRepositoryClient, OctoRepositoryClient>();
+        services.AddSingleton<IHttpContextAccessor, HttpContextAccessor>();
+        services.AddScoped<IMultiTenancyResolverService, MultiTenancyResolverService>();
+        services.AddScoped<IKnownOriginsProvider, KnownOriginsProvider>();
 
         // Adding dependent octo modules
         services.AddDistributionEventHub(c =>
