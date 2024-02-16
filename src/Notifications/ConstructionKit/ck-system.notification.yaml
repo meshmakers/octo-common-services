@@ -1,16 +1,6 @@
 $schema: https://schemas.meshmakers.cloud/construction-kit-compiled.schema.json
 types:
 - isCollectionRoot: true
-  typeId: NotificationTemplate
-  derivedFromCkTypeId: System-1.0.0/Entity-1.0.0
-  attributes:
-  - id: System.Notification-1.0.0/SubjectTemplate-1.0.0
-    name: SubjectTemplate
-  - id: System.Notification-1.0.0/BodyTemplate-1.0.0
-    name: BodyTemplate
-  - id: System.Notification-1.0.0/Type-1.0.0
-    name: Type
-- isCollectionRoot: true
   typeId: NotificationMessage
   derivedFromCkTypeId: System-1.0.0/Entity-1.0.0
   attributes:
@@ -34,32 +24,42 @@ types:
   - id: System.Notification-1.0.0/ErrorText-1.0.0
     name: ErrorText
     isOptional: true
+- isCollectionRoot: true
+  typeId: NotificationTemplate
+  derivedFromCkTypeId: System-1.0.0/Entity-1.0.0
+  attributes:
+  - id: System.Notification-1.0.0/SubjectTemplate-1.0.0
+    name: SubjectTemplate
+  - id: System.Notification-1.0.0/BodyTemplate-1.0.0
+    name: BodyTemplate
+  - id: System.Notification-1.0.0/Type-1.0.0
+    name: Type
 associationRoles: []
 attributes:
 - id: BodyTemplate
   valueType: String
 - id: BodyText
   valueType: String
-- id: SubjectTemplate
+- id: ErrorText
   valueType: String
-- id: SubjectText
-  valueType: String
-- id: SentDateTime
-  valueType: DateTime
 - id: LastTryDateTime
   valueType: DateTime
 - id: RecipientAddress
   valueType: String
-- id: ErrorText
-  valueType: String
-- id: Type
-  valueType: Enum
-  valueCkEnumId: System.Notification-1.0.0/NotificationTypes-1.0.0
+- id: SentDateTime
+  valueType: DateTime
 - id: Status
   valueType: Enum
   valueCkEnumId: System.Notification-1.0.0/NotificationStates-1.0.0
   defaultValues:
   - 0
+- id: SubjectTemplate
+  valueType: String
+- id: SubjectText
+  valueType: String
+- id: Type
+  valueType: Enum
+  valueCkEnumId: System.Notification-1.0.0/NotificationTypes-1.0.0
 records: []
 enums:
 - enumId: NotificationStates
