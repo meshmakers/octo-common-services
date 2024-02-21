@@ -4,14 +4,14 @@ using Meshmakers.Octo.ConstructionKit.Contracts;
 namespace Meshmakers.Octo.Services.Common.DistributionEventHub.Messages.Payloads;
 
 /// <summary>
-/// Description of a plug in a pool
+/// Description of an adapter in a pool
 /// </summary>
-public record PoolPlugDescription
+public record PoolAdapterDescription
 {
     /// <summary>
-    /// Plug runtime id
+    /// Adapter runtime id
     /// </summary>
-    public OctoObjectId PlugRtId { get; set; }
+    public OctoObjectId AdapterRtId { get; set; }
     
     /// <summary>
     /// Pool runtime id

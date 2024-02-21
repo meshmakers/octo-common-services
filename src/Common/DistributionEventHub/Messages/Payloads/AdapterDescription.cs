@@ -4,9 +4,9 @@ using Meshmakers.Octo.ConstructionKit.Contracts;
 namespace Meshmakers.Octo.Services.Common.DistributionEventHub.Messages.Payloads;
 
 /// <summary>
-/// Description of a plug
+/// Description of an adapter
 /// </summary>
-public record PlugDescription
+public record AdapterDescription
 {
     /// <summary>
     /// Connection Id
@@ -14,25 +14,24 @@ public record PlugDescription
     public string ConnectionId { get; }
     
     /// <summary>
-    /// Plug Runtime Id
+    /// Adapter Runtime Id
     /// </summary>
-    public OctoObjectId PlugRtId { get; }
+    public OctoObjectId AdapterRtId { get; }
     
     /// <summary>
-    /// Plug configuration
+    /// Adapter configuration
     /// </summary>
-    public PlugConfigurationDto Configuration { get; }
-    
+    public AdapterConfigurationDto Configuration { get; }
 
     /// <summary>
-    /// Creates a new instance of <see cref="PlugDescription"/>
+    /// Creates a new instance of <see cref="AdapterDescription"/>
     /// </summary>
-    /// <param name="plugRtId"></param>
+    /// <param name="adapterRtId"></param>
     /// <param name="connectionId"></param>
     /// <param name="configuration"></param>
-    public PlugDescription(OctoObjectId plugRtId, string connectionId, PlugConfigurationDto configuration)
+    public AdapterDescription(OctoObjectId adapterRtId, string connectionId, AdapterConfigurationDto configuration)
     {
-        PlugRtId = plugRtId;
+        AdapterRtId = adapterRtId;
         ConnectionId = connectionId;
         Configuration = configuration;
     }

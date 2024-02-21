@@ -3,6 +3,6 @@ using Meshmakers.Octo.Services.Common.DistributionEventHub.Messages.Payloads;
 namespace Meshmakers.Octo.Services.Common.DistributionEventHub.Messages;
 
 /// <summary>
-/// Communication Controller plug update
+/// Communication Controller adapter update
 /// </summary>
-public record ComControllerPoolUpdate(string TenantId, IEnumerable<PoolDescription> Pools, IEnumerable<PoolPlugDescription> Plugs);
+public record ComControllerPoolUpdate(string TenantId, IEnumerable<PoolDescription> Pools, IEnumerable<PoolAdapterDescription> Adapters);
