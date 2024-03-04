@@ -11,7 +11,7 @@ public record AdapterDescription
     /// <summary>
     /// Connection Id
     /// </summary>
-    public string ConnectionId { get; }
+    public string? ConnectionId { get; }
     
     /// <summary>
     /// Adapter Runtime Id
@@ -29,7 +29,7 @@ public record AdapterDescription
     /// <param name="adapterRtId"></param>
     /// <param name="connectionId"></param>
     /// <param name="configuration"></param>
-    public AdapterDescription(OctoObjectId adapterRtId, string connectionId, AdapterConfigurationDto configuration)
+    public AdapterDescription(OctoObjectId adapterRtId, string? connectionId, AdapterConfigurationDto configuration)
     {
         AdapterRtId = adapterRtId;
         ConnectionId = connectionId;
