@@ -2,12 +2,12 @@ using Meshmakers.Common.Shared;
 using Meshmakers.Octo.Communication.Contracts.DataTransferObjects;
 using Meshmakers.Octo.Communication.Contracts.Services;
 using Meshmakers.Octo.ConstructionKit.Contracts;
-using Meshmakers.Octo.ConstructionKit.Models.System.ConstructionKit.Generated.System.v1;
+using Meshmakers.Octo.ConstructionKit.Models.System.Generated.System.v1;
 using Meshmakers.Octo.Runtime.Contracts;
 using Meshmakers.Octo.Runtime.Contracts.MongoDb;
 using Meshmakers.Octo.Runtime.Contracts.MongoDb.Repository;
 using Meshmakers.Octo.Runtime.Contracts.Repositories.Query;
-using Meshmakers.Octo.Services.Notifications.ConstructionKit.Generated.System.Notification.v1;
+using Meshmakers.Octo.Services.Notifications.Generated.System.Notification.v1;
 
 namespace Meshmakers.Octo.Services.Notifications;
 

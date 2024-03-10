@@ -5,7 +5,7 @@
         <RootNamespace>Meshmakers.Octo.Services.Notifications</RootNamespace>
         <Configurations>Debug;Release;DebugL</Configurations>
         <Platforms>AnyCPU</Platforms>
-        <OctoCompileCkModel Condition="'$(Configuration)'=='Release'">false</OctoCompileCkModel>
+        <OctoPublishCkModel>true</OctoPublishCkModel>
     </PropertyGroup>
 
     <ItemGroup>
@@ -17,5 +17,9 @@
         <PackageReference Include="Meshmakers.Octo.ConstructionKit.Models.System" Version="$(OctoVersion)" />
         <PackageReference Include="Meshmakers.Octo.ConstructionKit.SourceGeneration" OutputItemType="Analyzer" ReferenceOutputAssembly="false" Version="$(OctoVersion)" PrivateAssets="all" />
         <PackageReference Include="Meshmakers.Octo.ConstructionKit.MsBuildTasks" Version="$(OctoVersion)" PrivateAssets="all" />
+    </ItemGroup>
+
+    <ItemGroup>
+        <ConstructionKitFolder Visible="false" Include="ConstructionKit"/>
     </ItemGroup>
 </Project>
