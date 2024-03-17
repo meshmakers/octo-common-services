@@ -4,6 +4,4 @@ namespace Meshmakers.Octo.Services.Common.DistributionEventHub.Commands;
 ///     Record for the response to a job created command.
 /// </summary>
 /// <param name="JobId"></param>
-public record JobCreatedResponse(string JobId)
-{
-}
+public record JobCreatedResponse(string JobId);
