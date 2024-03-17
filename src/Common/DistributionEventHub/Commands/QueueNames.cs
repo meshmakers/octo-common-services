@@ -29,4 +29,9 @@ public static class QueueNames
     /// Create identity data command
     /// </summary>
     public const string CreateIdentityDataCommand = "identity::create-identity-data";
+    
+    /// <summary>
+    /// The pipeline trigger queue
+    /// </summary>
+    public const string PipelineTriggerQueue = "queue:bot::pipeline-trigger";
 }
