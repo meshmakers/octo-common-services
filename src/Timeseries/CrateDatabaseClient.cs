@@ -74,9 +74,9 @@ internal class CrateDatabaseClient : ITimeSeriesDatabaseClient, ITimeSeriesDatab
         var result = await connection.ExecuteAsync(query,
             new
             {
-                rtId = datapoint.DataRtId.RtId,
-                ckId = datapoint.DataRtId.CkTypeId,
-                timestamp = datapoint.Timestamp,
+                datapoint.DataRtId.RtId,
+                datapoint.DataRtId.CkTypeId,
+                datapoint.Timestamp,
                 data
             });
     }
