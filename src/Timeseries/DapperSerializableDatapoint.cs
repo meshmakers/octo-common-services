@@ -37,5 +37,5 @@ internal class DapperSerializableDatapoint
     /// <summary>
     /// The value of the datapoint.
     /// </summary>
-    public Json<Dictionary<string, object?>> Values { get; set; } = null!;
+    public Json<Dictionary<string, object?>> Data { get; set; } = null!;
 }

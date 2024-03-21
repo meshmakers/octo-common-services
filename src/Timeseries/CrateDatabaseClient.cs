@@ -1,5 +1,6 @@
 ﻿using System.Diagnostics;
 using Dapper;
+using Meshmakers.Octo.ConstructionKit.Contracts;
 using Meshmakers.Octo.Services.Common.Timeseries.Configuration;
 using Meshmakers.Octo.Services.Common.Timeseries.Dapper;
 using Microsoft.Extensions.Options;
@@ -21,38 +22,46 @@ internal class CrateDatabaseClient : ITimeSeriesDatabaseClient, ITimeSeriesDatab
     public CrateDatabaseClient(IOptions<TimeSeriesConfiguration> options)
     {
         ArgumentException.ThrowIfNullOrEmpty(options.Value.TimeSeriesConnectionString);
-        
+
         _connectionString = options.Value.TimeSeriesConnectionString;
-        
+
         SqlMapper.AddTypeHandler(new JsonTypeHandler<Dictionary<string, object>>());
         SqlMapper.AddTypeHandler(new CkIdTypeHandler());
         SqlMapper.AddTypeHandler(new OctoIdTypeHandler());
     }
 
-    public async Task<IEnumerable<DataPointDto>> GetDataAsync(string tenantId, string ckId, string rtId,
-        DateTime from, DateTime to, int limit = 10, int offset = 0)
+    public async Task<IEnumerable<DataPointDto>> GetDataAsync(string query)
     {
-        var query = string.Format(Queries.SelectTimeSeriesDataByRtIdAndTimestamp, tenantId, ckId);
         await using var connection = await CreateConnection();
 
-        var result = await connection.QueryAsync<DapperSerializableDatapoint>(query, new { rtId, from, to, limit, offset });
+        var queryResult = await connection.QueryAsync(query);
 
-        var datapoints = new List<DataPointDto>();
-        
-        foreach (var r in result)
+        var dataPointDtos = new List<DataPointDto>();
+
+        foreach (var entry in queryResult)
         {
-            datapoints.Add(new DataPointDto()
+            if (entry is not IDictionary<string, object?> result)
             {
-                ExternalId = r.ExternalId,
-                AdapterReceivedTimestamp = r.AdapterReceivedTimestamp,
-                DataRtId = r.DataRtId,
-                PlugId = r.PlugId,
-                Timestamp = r.Timestamp,
-                Values = r.Values.Value,
-            });
+                continue;
+            }
+
+            var dp = new DataPointDto(result.ToDictionary());
+
+            if (result.TryGetValue(Constants.Timestamp, out var timestamp))
+            {
+                dp.Timestamp = (DateTime)timestamp!;
+            }
+
+            if (result.TryGetValue(Constants.RtId, out var rtId) && result.TryGetValue(Constants.CkId, out var ckId))
+            {
+                var rtEntityId = new RtEntityId(ckId as string ?? "", new OctoObjectId(rtId as string ?? ""));
+                dp.DataRtId = rtEntityId;
+            }
+
+            dataPointDtos.Add(dp);
         }
 
-        return datapoints;
+        return dataPointDtos;
     }
 
     public async Task InsertDataAsync(string tenantId, DataPointDto datapoint)
@@ -60,15 +69,15 @@ internal class CrateDatabaseClient : ITimeSeriesDatabaseClient, ITimeSeriesDatab
         var query = string.Format(Queries.InsertTimeSeriesEntry, tenantId);
         await using var connection = await CreateConnection();
 
-        var data = new Json<Dictionary<string, object?>>(datapoint.Values);
-        
+        var data = new Json<Dictionary<string, object?>>(datapoint.Attributes.ToDictionary());
+
         var result = await connection.ExecuteAsync(query,
             new
             {
-                rtId = datapoint.DataRtId.RtId, 
+                rtId = datapoint.DataRtId.RtId,
                 ckId = datapoint.DataRtId.CkTypeId,
                 timestamp = datapoint.Timestamp,
-                data,
+                data
             });
     }
 
@@ -83,7 +92,7 @@ internal class CrateDatabaseClient : ITimeSeriesDatabaseClient, ITimeSeriesDatab
         await using var connection = await CreateConnection();
         var result = await connection.ExecuteAsync(string.Format(Queries.DeleteTableIfExists, tenantId));
     }
-    
+
     private ValueTask<NpgsqlConnection> CreateConnection()
     {
         var csb = new NpgsqlConnectionStringBuilder(_connectionString);
