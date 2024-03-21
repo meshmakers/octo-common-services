@@ -52,12 +52,17 @@ internal class CrateDatabaseClient : ITimeSeriesDatabaseClient, ITimeSeriesDatab
                 dp.Timestamp = (DateTime)timestamp!;
             }
 
-            if (result.TryGetValue(Constants.RtId, out var rtId) && result.TryGetValue(Constants.CkId, out var ckId))
+            if (result.TryGetValue(Constants.RtId, out var rtIdValue) &&
+                OctoObjectId.TryParse(rtIdValue as string ?? "", out var octoRtId))
             {
-                var rtEntityId = new RtEntityId(ckId as string ?? "", new OctoObjectId(rtId as string ?? ""));
-                dp.DataRtId = rtEntityId;
+                dp.RtId = octoRtId;
             }
-
+            if(result.TryGetValue(Constants.CkTypeId, out var ckTypeIdValue))
+            {
+                var typeId = new CkId<CkTypeId>(ckTypeIdValue as string ?? "");
+                dp.CkTypeId = typeId;
+            }
+            
             dataPointDtos.Add(dp);
         }
 
@@ -74,8 +79,8 @@ internal class CrateDatabaseClient : ITimeSeriesDatabaseClient, ITimeSeriesDatab
         var result = await connection.ExecuteAsync(query,
             new
             {
-                datapoint.DataRtId.RtId,
-                datapoint.DataRtId.CkTypeId,
+                datapoint.RtId,
+                datapoint.CkTypeId,
                 datapoint.Timestamp,
                 data
             });

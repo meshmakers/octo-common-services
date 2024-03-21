@@ -20,7 +20,12 @@ public class DataPointDto : RtTypeWithAttributes
     /// <summary>
     /// The id of the entity that the datapoint is associated with.
     /// </summary>
-    public RtEntityId DataRtId { get; set; }
+    public OctoObjectId? RtId { get; set; }
+    
+    /// <summary>
+    /// The type id of the entity that the datapoint is associated with.
+    /// </summary>
+    public CkId<CkTypeId>? CkTypeId { get; set; }
     
     /// <summary>
     /// The timestamp in UTC.

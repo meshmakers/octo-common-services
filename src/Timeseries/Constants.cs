@@ -18,5 +18,5 @@ public static class Constants
     /// <summary>
     /// CkId
     /// </summary>
-    public const string CkId = "CkId";
+    public const string CkTypeId = "CkTypeId";
 }
