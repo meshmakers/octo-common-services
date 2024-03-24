@@ -7,4 +7,4 @@ namespace Meshmakers.Octo.Services.Common.DistributionEventHub.Messages;
 /// </summary>
 /// <param name="TenantId">The tenant id</param>
 /// <param name="PipelineRtIdList">The pipeline runtime id list</param>
-public record PipelineTriggerSchedule(string TenantId, IEnumerable<OctoObjectId> PipelineRtIdList);
+public record PipelineTriggerSchedule(string TenantId, ICollection<OctoObjectId> PipelineRtIdList);

@@ -31,7 +31,12 @@ public static class QueueNames
     public const string CreateIdentityDataCommand = "identity::create-identity-data";
     
     /// <summary>
+    /// The pipeline trigger channel name
+    /// </summary>
+    public const string PipelineTriggerChannelName = "bot::pipeline-trigger";
+    
+    /// <summary>
     /// The pipeline trigger queue
     /// </summary>
-    public const string PipelineTriggerQueue = "queue:bot::pipeline-trigger";
+    public const string PipelineTriggerQueue = $"queue:{PipelineTriggerChannelName}";
 }
