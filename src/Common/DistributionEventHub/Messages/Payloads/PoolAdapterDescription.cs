@@ -11,7 +11,7 @@ public record PoolAdapterDescription
     /// <summary>
     /// Adapter runtime id
     /// </summary>
-    public OctoObjectId AdapterRtId { get; set; }
+    public RtEntityId AdapterRtEntityId { get; set; }
     
     /// <summary>
     /// Pool runtime id

@@ -16,7 +16,7 @@ public record AdapterDescription
     /// <summary>
     /// Adapter Runtime Id
     /// </summary>
-    public OctoObjectId AdapterRtId { get; }
+    public RtEntityId AdapterRtEntityId { get; }
     
     /// <summary>
     /// Adapter configuration
@@ -26,12 +26,12 @@ public record AdapterDescription
     /// <summary>
     /// Creates a new instance of <see cref="AdapterDescription"/>
     /// </summary>
-    /// <param name="adapterRtId"></param>
+    /// <param name="adapterRtEntityId"></param>
     /// <param name="connectionId"></param>
     /// <param name="configuration"></param>
-    public AdapterDescription(OctoObjectId adapterRtId, string? connectionId, AdapterConfigurationDto configuration)
+    public AdapterDescription(RtEntityId adapterRtEntityId, string? connectionId, AdapterConfigurationDto configuration)
     {
-        AdapterRtId = adapterRtId;
+        AdapterRtEntityId = adapterRtEntityId;
         ConnectionId = connectionId;
         Configuration = configuration;
     }
