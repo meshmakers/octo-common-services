@@ -19,4 +19,9 @@ public static class Constants
     /// CkId
     /// </summary>
     public const string CkTypeId = "CkTypeId";
+    
+    /// <summary>
+    /// Default time series fields
+    /// </summary>
+    public static readonly string[] DefaultTimeSeriesFields = [RtId, Timestamp, CkTypeId];
 }
