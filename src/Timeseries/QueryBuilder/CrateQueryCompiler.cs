@@ -33,6 +33,12 @@ public class CrateQueryCompiler
             query.Append(" GROUP BY ");
             query.Append(string.Join(", ", queryBuilder.Groupings.Select(x => x.ToGroupByString())));
         }
+        
+        if (queryBuilder.HasOrderBy)
+        {
+            query.Append(" ORDER BY ");
+            query.Append(string.Join(", ", queryBuilder.OrderByVariables.Select(x => x.ToOrderByString())));
+        }
 
         return query.ToString();
     }

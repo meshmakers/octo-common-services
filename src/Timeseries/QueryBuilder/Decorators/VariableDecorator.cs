@@ -22,11 +22,17 @@ internal class VariableDecorator : IQueryVariable
     }
 
     public AggregationFunctionDto? AggregationFunction => Inner.AggregationFunction;
+    public SortOrderDto? SortOrder
+    {
+        get => Inner.SortOrder;
+        set => Inner.SortOrder = value;
+    }
+
 
     public virtual string? Alias => Inner.Alias;
-    
+
     public virtual string Name => Inner.Name;
-    
+
     public virtual bool IsDataVariable => Inner.IsDataVariable;
 
     /// <inheritdoc />
@@ -34,9 +40,14 @@ internal class VariableDecorator : IQueryVariable
     {
         return Inner.ToSelectString();
     }
-    
+
     public virtual string ToGroupByString()
     {
         return Inner.ToGroupByString();
+    }
+
+    public virtual string ToOrderByString()
+    {
+        return Inner.ToOrderByString();
     }
 }

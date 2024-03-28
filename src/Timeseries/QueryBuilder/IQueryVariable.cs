@@ -11,6 +11,12 @@ internal interface IQueryVariable
     /// Aggregation Function
     /// </summary>
     AggregationFunctionDto? AggregationFunction { get; }
+    
+    /// <summary>
+    /// Sort order of the variable
+    /// </summary>
+    SortOrderDto? SortOrder { get; set; }
+    
     /// <summary>
     /// Alias
     /// </summary>
@@ -26,6 +32,12 @@ internal interface IQueryVariable
     /// </summary>
     /// <returns></returns>
     string ToGroupByString();
+
+    /// <summary>
+    /// Converts the variable to an order by string
+    /// </summary>
+    /// <returns></returns>
+    string ToOrderByString();
     
     /// <summary>
     /// Name

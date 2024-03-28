@@ -11,4 +11,9 @@ internal class QuotationDecorator(IQueryVariable inner) : VariableDecorator(inne
     {
         return $"\"{Inner.ToGroupByString()}\"";
     }
+    
+    public override string ToOrderByString()
+    {
+        return $"\"{Inner.ToOrderByString()}\"";
+    }
 }

@@ -15,6 +15,8 @@ internal record QueryVariable(
     AggregationFunctionDto? AggregationFunction,
     bool IsDataVariable = false) : IQueryVariable
 {
+    public SortOrderDto? SortOrder { get; set; }
+
     /// <inheritdoc />
     public string ToSelectString()
     {
@@ -23,6 +25,12 @@ internal record QueryVariable(
 
     /// <inheritdoc />
     public string ToGroupByString()
+    {
+        return Alias ?? Name;
+    }
+    
+    /// <inheritdoc />
+    public string ToOrderByString()
     {
         return Alias ?? Name;
     }

@@ -2,17 +2,11 @@
 
 namespace Meshmakers.Octo.Services.Common.Timeseries.QueryBuilder.Decorators;
 
-internal class AggregationFunctionDecorator : VariableDecorator
+internal class AggregationFunctionDecorator(IQueryVariable inner, AggregationFunctionDto aggregationFunctionDto)
+    : VariableDecorator(inner)
 {
-    private readonly AggregationFunctionDto _aggregationFunctionDto;
-
-    public AggregationFunctionDecorator(IQueryVariable inner, AggregationFunctionDto aggregationFunctionDto) : base(inner)
-    {
-        _aggregationFunctionDto = aggregationFunctionDto;
-    }
-
     public override string ToSelectString()
     {
-        return $"{_aggregationFunctionDto.ToString().ToUpper()}({Inner.ToSelectString()})";
+        return $"{aggregationFunctionDto.ToString().ToUpper()}({Inner.ToSelectString()})";
     }
 }

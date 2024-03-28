@@ -8,18 +8,20 @@ namespace Meshmakers.Octo.Services.Common.Timeseries.QueryBuilder;
 /// </summary>
 public class CrateQueryBuilder
 {
-    private readonly HashSet<IQueryVariable> _variablesToInclude = new();
-
     /// <summary>
     /// All Variables in the query
     /// </summary>
-    internal HashSet<IQueryVariable> Variables => _variablesToInclude;
+    internal List<IQueryVariable> Variables { get; } = new();
+
+    /// <summary>
+    /// All variables to ordered by
+    /// </summary>
+    internal List<IQueryVariable> OrderByVariables { get; } = new();
 
     /// <summary>
     /// Tenant Id
     /// </summary>
     internal string TenantId { get; }
-
 
     /// <summary>
     /// Time Filter
@@ -34,12 +36,21 @@ public class CrateQueryBuilder
     /// <summary>
     /// 
     /// </summary>
-    internal bool HasAggregations => _variablesToInclude.Any(x => x.AggregationFunction != null);
+    internal bool HasAggregations => Variables.Any(x => x.AggregationFunction != null);
+    
+    /// <summary>
+    /// 
+    /// </summary>
+    internal bool HasOrderBy => OrderByVariables.Count > 0;
 
     /// <summary>
     /// Variables to be included in the group by clause
     /// </summary>
-    internal IEnumerable<IQueryVariable> Groupings => _variablesToInclude.Where(x => x.AggregationFunction == null);
+    internal IEnumerable<IQueryVariable> Groupings => Variables.Where(x => x.AggregationFunction == null);
+    
+    internal int? Limit { get; private set; }
+    
+    internal int Offset { get; private set; }
 
     /// <summary>
     /// Constructor
@@ -77,7 +88,8 @@ public class CrateQueryBuilder
         variable = new DataVariableDecorator(variable);
         variable = new QuotationDecorator(variable);
         variable = new VariableAliasDecorator(variable);
-        _variablesToInclude.Add(variable);
+        variable = new OrderByDecorator(variable);
+        Variables.Add(variable);
         return this;
     }
     
@@ -93,7 +105,8 @@ public class CrateQueryBuilder
             IQueryVariable variable = new QueryVariable(timeSeriesField, null, null, false);
             variable = new QuotationDecorator(variable);
             variable = new VariableAliasDecorator(variable);
-            _variablesToInclude.Add(variable);
+            variable = new OrderByDecorator(variable);
+            Variables.Add(variable);
         }
         
         return this;
@@ -116,7 +129,61 @@ public class CrateQueryBuilder
         variable = new QuotationDecorator(variable);
         variable = new AggregationFunctionDecorator(variable, aggregate);
         variable = new VariableAliasDecorator(variable);
-        _variablesToInclude.Add(variable);
+        variable = new OrderByDecorator(variable);
+        Variables.Add(variable);
+        return this;
+    }
+
+    /// <summary>
+    /// Adds a 
+    /// </summary>
+    /// <param name="nameOrAlias"></param>
+    /// <param name="sortOrder"></param>
+    /// <returns></returns>
+    /// <exception cref="QueryBuilderException"></exception>
+    public CrateQueryBuilder OrderBy(string nameOrAlias, SortOrderDto sortOrder)
+    {
+        var variable = Variables.FirstOrDefault(x=> x.Name == nameOrAlias || x.Alias == nameOrAlias);
+        if (variable == null)
+        {
+            throw QueryBuilderException.OrderByVariableNotFound(nameOrAlias);
+        }
+
+        variable.SortOrder = sortOrder;
+        
+        OrderByVariables.Add(variable);
+        return this;
+    }
+
+    /// <summary>
+    /// Sets a limit on the query
+    /// </summary>
+    /// <param name="limit">must be a positive integer (limit>0)</param>
+    /// <returns></returns>
+    /// <exception cref="QueryBuilderException"></exception>
+    public CrateQueryBuilder WithLimit(int limit)
+    {
+        if (limit < 1)
+        {
+            throw QueryBuilderException.LimitMustBeGreaterThanZero();
+        }
+        Limit = limit;
+        return this;
+    }
+    
+    /// <summary>
+    /// Sets an offset on the query
+    /// </summary>
+    /// <param name="offset">must be a positive integer including zero (offset>=0)</param>
+    /// <returns></returns>
+    /// <exception cref="QueryBuilderException"></exception>
+    public CrateQueryBuilder WithOffset(int offset)
+    {
+        if (offset < 0)
+        {
+            throw QueryBuilderException.OffsetMustBeGreaterThanZero();
+        }
+        Offset = offset;
         return this;
     }
     

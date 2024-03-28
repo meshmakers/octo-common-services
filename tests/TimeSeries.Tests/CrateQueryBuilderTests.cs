@@ -108,4 +108,49 @@ public class CrateQueryBuilderTests
     
         Assert.Equal("SELECT \"Timestamp\", \"RtId\", \"CkTypeId\", AVG(\"data['Voltage']\") AS \"Avg_Voltage\" FROM meshtest GROUP BY \"Timestamp\", \"RtId\", \"CkTypeId\"", query);
     }
+    
+    [Fact]
+    public void IncludeSingleVariableWithAggregationFunctionAndDefaultVariablesAndOrderBy_ReturnsValidQuery()
+    {
+        var queryBuilder = new CrateQueryBuilder("meshtest");
+        queryBuilder.IncludeDefaultVariables();
+        queryBuilder.AddAggregationVariable("Voltage", AggregationFunctionDto.Avg, null, true);
+        queryBuilder.OrderBy("Timestamp", SortOrderDto.Ascending);
+    
+        var compiler = new CrateQueryCompiler();
+        var query = compiler.CompileQuery(queryBuilder);
+    
+        Assert.Equal("SELECT \"Timestamp\", \"RtId\", \"CkTypeId\", AVG(\"data['Voltage']\") AS \"Avg_Voltage\" FROM meshtest GROUP BY \"Timestamp\", \"RtId\", \"CkTypeId\" ORDER BY \"Timestamp\" ASC", query);
+    }
+
+    [Fact]
+    public void IncludeSingleVariableWithAliasAndAggregationFunction_ReturnsValidQuery()
+    {
+        var queryBuilder = new CrateQueryBuilder("meshtest");
+        queryBuilder.AddAggregationVariable("Voltage", AggregationFunctionDto.Avg, "V", true);
+        queryBuilder.AddVariable("Timestamp", "T", null, false);
+        queryBuilder.OrderBy("Timestamp", SortOrderDto.Ascending);
+        
+        var compiler = new CrateQueryCompiler();
+        var query = compiler.CompileQuery(queryBuilder);
+        
+        Assert.Equal("SELECT AVG(\"data['Voltage']\") AS \"V\", \"Timestamp\" AS \"T\" FROM meshtest GROUP BY \"T\" ORDER BY \"T\" ASC", query);
+    }
+
+    [Fact]
+    public void IncludeMultipleVariablesWithAliasAggregationFunctions_ReturnsValidQuery()
+    {
+        var queryBuilder = new CrateQueryBuilder("meshtest");
+        queryBuilder.AddAggregationVariable("Voltage", AggregationFunctionDto.Avg, "V", true);
+        queryBuilder.AddAggregationVariable("Voltage", AggregationFunctionDto.Min, "MinV", true);
+        queryBuilder.AddAggregationVariable("Voltage", AggregationFunctionDto.Max, "MaxV", true);
+        queryBuilder.AddVariable("Timestamp", "T", null, false);
+        queryBuilder.OrderBy("Timestamp", SortOrderDto.Descending);
+        queryBuilder.OrderBy("MaxV", SortOrderDto.Ascending);
+        
+        var compiler = new CrateQueryCompiler();
+        var query = compiler.CompileQuery(queryBuilder);
+        
+        Assert.Equal("SELECT AVG(\"data['Voltage']\") AS \"V\", MIN(\"data['Voltage']\") AS \"MinV\", MAX(\"data['Voltage']\") AS \"MaxV\", \"Timestamp\" AS \"T\" FROM meshtest GROUP BY \"T\" ORDER BY \"T\" DESC, \"MaxV\" ASC", query);
+    }
 }
