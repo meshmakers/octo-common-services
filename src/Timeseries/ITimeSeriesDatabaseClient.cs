@@ -1,3 +1,5 @@
+using Meshmakers.Octo.Services.Common.Timeseries.Dtos;
+
 namespace Meshmakers.Octo.Services.Common.Timeseries;
 
 /// <summary>
@@ -18,5 +20,5 @@ public interface ITimeSeriesDatabaseClient
     /// </summary>
     /// <param name="query"></param>
     /// <returns></returns>
-    Task<IEnumerable<DataPointDto>> GetDataAsync(string query);
+    Task<List<DataPointDto>> GetDataAsync(string query);
 }

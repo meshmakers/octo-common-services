@@ -1,0 +1,111 @@
+using System.Globalization;
+using Meshmakers.Octo.Services.Common.Timeseries.Dtos;
+using Meshmakers.Octo.Services.Common.Timeseries.QueryBuilder;
+
+namespace TimeSeries.Tests;
+
+public class CrateQueryBuilderTests
+{
+    [Fact]
+    public void SingleVariable_ReturnsValidQuery()
+    {
+        var queryBuilder = new CrateQueryBuilder("meshtest");
+        queryBuilder.AddVariable("Voltage", null, null, true);
+
+        var compiler = new CrateQueryCompiler();
+
+        var query = compiler.CompileQuery(queryBuilder);
+
+        Assert.Equal("SELECT \"data['Voltage']\" FROM meshtest", query);
+    }
+
+    [Fact]
+    public void IncludeDefaultVariables_ReturnsValidQuery()
+    {
+        var queryBuilder = new CrateQueryBuilder("meshtest");
+        queryBuilder.IncludeDefaultVariables();
+
+        var compiler = new CrateQueryCompiler();
+        var query = compiler.CompileQuery(queryBuilder);
+
+        Assert.Equal("SELECT \"Timestamp\", \"RtId\", \"CkTypeId\" FROM meshtest", query);
+    }
+
+    [Fact]
+    public void IncludeDefaultVariablesAndSingleVariable_ReturnsValidQuery()
+    {
+        var queryBuilder = new CrateQueryBuilder("meshtest");
+        queryBuilder.IncludeDefaultVariables();
+        queryBuilder.AddVariable("Voltage", null, null, true);
+
+        var compiler = new CrateQueryCompiler();
+        var query = compiler.CompileQuery(queryBuilder);
+
+        Assert.Equal("SELECT \"Timestamp\", \"RtId\", \"CkTypeId\", \"data['Voltage']\" FROM meshtest", query);
+    }
+
+    [Fact]
+    public void IncludeSingleVariableAndTimeFilter_ReturnsValidQuery()
+    {
+        var queryBuilder = new CrateQueryBuilder("meshtest");
+        queryBuilder.AddVariable("Voltage", null, null, true);
+
+        var startDate = DateTime.Parse("2022-01-01T00:00Z", CultureInfo.InvariantCulture,
+            DateTimeStyles.AdjustToUniversal);
+        var endDate = DateTime.Parse("2022-12-31T23:59:59.999Z", CultureInfo.InvariantCulture,
+            DateTimeStyles.AdjustToUniversal);
+        queryBuilder.WithTimeFilter(startDate, endDate);
+
+        var compiler = new CrateQueryCompiler();
+        var query = compiler.CompileQuery(queryBuilder);
+
+        Assert.Equal(
+            "SELECT \"data['Voltage']\" FROM meshtest WHERE \"Timestamp\" >= '2022-01-01 00:00:00.000Z' AND \"Timestamp\" <= '2022-12-31 23:59:59.999Z'",
+            query);
+    }
+
+    [Fact]
+    public void IncludeSingleVariableWithAlias_ReturnsValidQuery()
+    {
+        var queryBuilder = new CrateQueryBuilder("meshtest");
+        queryBuilder.AddVariable("Voltage", "V", null, true);
+
+        var compiler = new CrateQueryCompiler();
+        var query = compiler.CompileQuery(queryBuilder);
+
+        Assert.Equal("SELECT \"data['Voltage']\" AS \"V\" FROM meshtest", query);
+    }
+
+    [Fact]
+    public void IncludeDefaultVariablesAndSingleVariableWithAliasAndWithTimeFilter_ReturnsValidQuery()
+    {
+        var queryBuilder = new CrateQueryBuilder("meshtest");
+        queryBuilder.IncludeDefaultVariables();
+        queryBuilder.AddVariable("Voltage", "V", null, true);
+        
+        var startDate = DateTime.Parse("2022-01-01T00:00Z", CultureInfo.InvariantCulture,
+            DateTimeStyles.AdjustToUniversal);
+        var endDate = DateTime.Parse("2022-12-31T23:59:59.999Z", CultureInfo.InvariantCulture,
+            DateTimeStyles.AdjustToUniversal);
+        
+        queryBuilder.WithTimeFilter(startDate, endDate);
+        
+        var compiler = new CrateQueryCompiler();
+        var query = compiler.CompileQuery(queryBuilder);
+        
+        Assert.Equal("SELECT \"Timestamp\", \"RtId\", \"CkTypeId\", \"data['Voltage']\" AS \"V\" FROM meshtest WHERE \"Timestamp\" >= '2022-01-01 00:00:00.000Z' AND \"Timestamp\" <= '2022-12-31 23:59:59.999Z'", query);
+    }
+    
+    [Fact]
+    public void IncludeSingleVariableWithAggregationFunctionAndDefaultVariables_ReturnsValidQuery()
+    {
+        var queryBuilder = new CrateQueryBuilder("meshtest");
+        queryBuilder.IncludeDefaultVariables();
+        queryBuilder.AddAggregationVariable("Voltage", AggregationFunctionDto.Avg, null, true);
+    
+        var compiler = new CrateQueryCompiler();
+        var query = compiler.CompileQuery(queryBuilder);
+    
+        Assert.Equal("SELECT \"Timestamp\", \"RtId\", \"CkTypeId\", AVG(\"data['Voltage']\") AS \"Avg_Voltage\" FROM meshtest GROUP BY \"Timestamp\", \"RtId\", \"CkTypeId\"", query);
+    }
+}

@@ -1,7 +1,7 @@
 ﻿using Meshmakers.Octo.ConstructionKit.Contracts;
 using Meshmakers.Octo.Runtime.Contracts.RepositoryEntities;
 
-namespace Meshmakers.Octo.Services.Common.Timeseries;
+namespace Meshmakers.Octo.Services.Common.Timeseries.Dtos;
 
 /// <summary>
 /// Represents a data point.

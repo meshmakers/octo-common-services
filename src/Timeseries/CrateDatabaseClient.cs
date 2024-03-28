@@ -3,6 +3,7 @@ using Dapper;
 using Meshmakers.Octo.ConstructionKit.Contracts;
 using Meshmakers.Octo.Services.Common.Timeseries.Configuration;
 using Meshmakers.Octo.Services.Common.Timeseries.Dapper;
+using Meshmakers.Octo.Services.Common.Timeseries.Dtos;
 using Microsoft.Extensions.Options;
 using Npgsql;
 
@@ -30,7 +31,7 @@ internal class CrateDatabaseClient : ITimeSeriesDatabaseClient, ITimeSeriesDatab
         SqlMapper.AddTypeHandler(new OctoIdTypeHandler());
     }
 
-    public async Task<IEnumerable<DataPointDto>> GetDataAsync(string query)
+    public async Task<List<DataPointDto>> GetDataAsync(string query)
     {
         await using var connection = await CreateConnection();
 
