@@ -48,4 +48,18 @@ internal interface IQueryVariable
     /// Indicates whether the variable is a data variable (stored in dynamic data column)
     /// </summary>
     bool IsDataVariable { get; }
+
+    /// <summary>
+    /// Adds items to the VariableIn collection
+    /// </summary>
+    /// <param name="items"></param>
+    void AddWhereInListItems(string[] items);
+
+    /// <summary>
+    /// Returns something like 'where "RtId" in ('65dc6d24cc529cdc46c84fcc', '65dc6d24cc529cdc46c84fcb')
+    /// </summary>
+    /// <returns></returns>
+    string ToVariableInListString();
+    
+    bool HasVariableInListVariables { get; }
 }

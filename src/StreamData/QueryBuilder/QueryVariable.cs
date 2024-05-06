@@ -15,7 +15,11 @@ internal record QueryVariable(
     AggregationFunctionDto? AggregationFunction,
     bool IsDataVariable = false) : IQueryVariable
 {
+    /// <inheritdoc />
     public SortOrderDto? SortOrder { get; set; }
+    
+    /// <inheritdoc />
+    public bool HasVariableInListVariables => false;
 
     /// <inheritdoc />
     public string ToSelectString()
@@ -28,10 +32,21 @@ internal record QueryVariable(
     {
         return Alias ?? Name;
     }
-    
+
     /// <inheritdoc />
     public string ToOrderByString()
     {
         return Alias ?? Name;
     }
+
+    /// <summary>
+    /// Adds items to the VariableIn collection
+    /// </summary>
+    /// <param name="items"></param>
+    public void AddWhereInListItems(string[] items)
+    {
+    }
+
+
+    public string ToVariableInListString() => "";
 }

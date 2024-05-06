@@ -40,4 +40,9 @@ public class QueryBuilderException : Exception
     {
         return new QueryBuilderException("Offset must be a positive integer");
     }
+
+    internal static QueryBuilderException WhereInVariableNotFound(string variableName)
+    {
+        return new QueryBuilderException($"WhereIn Variable not found: '{variableName}'");
+    }
 }

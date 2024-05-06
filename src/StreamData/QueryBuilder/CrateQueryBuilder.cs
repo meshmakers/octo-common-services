@@ -1,4 +1,5 @@
-﻿using Meshmakers.Octo.Services.Common.StreamData.Dtos;
+﻿using MassTransit;
+using Meshmakers.Octo.Services.Common.StreamData.Dtos;
 using Meshmakers.Octo.Services.Common.StreamData.QueryBuilder.Decorators;
 
 namespace Meshmakers.Octo.Services.Common.StreamData.QueryBuilder;
@@ -47,6 +48,8 @@ public class CrateQueryBuilder
     /// Variables to be included in the group by clause
     /// </summary>
     internal IEnumerable<IQueryVariable> Groupings => Variables.Where(x => x.AggregationFunction == null);
+
+    internal IEnumerable<IQueryVariable> VariableInListVariables => Variables.Where(x => x.HasVariableInListVariables);
     
     internal int? Limit { get; private set; }
     
@@ -89,6 +92,7 @@ public class CrateQueryBuilder
         variable = new QuotationDecorator(variable);
         variable = new VariableAliasDecorator(variable);
         variable = new OrderByDecorator(variable);
+        variable = new IsInListDecorator(variable);
         Variables.Add(variable);
         return this;
     }
@@ -100,12 +104,13 @@ public class CrateQueryBuilder
     /// </summary>
     public CrateQueryBuilder IncludeDefaultVariables()
     {
-        foreach(var StreamDataField in Constants.DefaultStreamDataFields)
+        foreach(var streamDataField in Constants.DefaultStreamDataFields)
         {
-            IQueryVariable variable = new QueryVariable(StreamDataField, null, null, false);
+            IQueryVariable variable = new QueryVariable(streamDataField, null, null, false);
             variable = new QuotationDecorator(variable);
             variable = new VariableAliasDecorator(variable);
             variable = new OrderByDecorator(variable);
+            variable = new IsInListDecorator(variable);
             Variables.Add(variable);
         }
         
@@ -152,6 +157,26 @@ public class CrateQueryBuilder
         variable.SortOrder = sortOrder;
         
         OrderByVariables.Add(variable);
+        return this;
+    }
+
+    /// <summary>
+    /// Add a list of values wher e
+    /// </summary>
+    /// <param name="nameOrAlias"></param>
+    /// <param name="list"></param>
+    /// <returns></returns>
+    /// <exception cref="QueryBuilderException"></exception>
+    public CrateQueryBuilder AddWhereIn(string nameOrAlias, string[] list)
+    {
+        var variable = Variables.FirstOrDefault(x => x.Name == nameOrAlias || x.Alias == nameOrAlias);
+        if (variable == null)
+        {
+            throw QueryBuilderException.WhereInVariableNotFound(nameOrAlias);
+        }
+
+        variable.AddWhereInListItems(list);
+
         return this;
     }
 
