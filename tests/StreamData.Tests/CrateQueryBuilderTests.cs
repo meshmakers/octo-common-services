@@ -106,7 +106,7 @@ public class CrateQueryBuilderTests
         var compiler = new CrateQueryCompiler();
         var query = compiler.CompileQuery(queryBuilder);
     
-        Assert.Equal("SELECT \"Timestamp\", \"RtId\", \"CkTypeId\", AVG(\"data['Voltage']\") AS \"Avg_Voltage\" FROM meshtest GROUP BY \"Timestamp\", \"RtId\", \"CkTypeId\"", query);
+        Assert.Equal("SELECT \"Timestamp\", \"RtId\", \"CkTypeId\", AVG(data['Voltage']) AS \"Avg_Voltage\" FROM meshtest GROUP BY \"Timestamp\", \"RtId\", \"CkTypeId\"", query);
     }
     
     [Fact]
@@ -120,7 +120,7 @@ public class CrateQueryBuilderTests
         var compiler = new CrateQueryCompiler();
         var query = compiler.CompileQuery(queryBuilder);
     
-        Assert.Equal("SELECT \"Timestamp\", \"RtId\", \"CkTypeId\", AVG(\"data['Voltage']\") AS \"Avg_Voltage\" FROM meshtest GROUP BY \"Timestamp\", \"RtId\", \"CkTypeId\" ORDER BY \"Timestamp\" ASC", query);
+        Assert.Equal("SELECT \"Timestamp\", \"RtId\", \"CkTypeId\", AVG(data['Voltage']) AS \"Avg_Voltage\" FROM meshtest GROUP BY \"Timestamp\", \"RtId\", \"CkTypeId\" ORDER BY \"Timestamp\" ASC", query);
     }
 
     [Fact]
@@ -134,7 +134,7 @@ public class CrateQueryBuilderTests
         var compiler = new CrateQueryCompiler();
         var query = compiler.CompileQuery(queryBuilder);
         
-        Assert.Equal("SELECT AVG(\"data['Voltage']\") AS \"V\", \"Timestamp\" AS \"T\" FROM meshtest GROUP BY \"T\" ORDER BY \"T\" ASC", query);
+        Assert.Equal("SELECT AVG(data['Voltage']) AS \"V\", \"Timestamp\" AS \"T\" FROM meshtest GROUP BY \"T\" ORDER BY \"T\" ASC", query);
     }
 
     [Fact]
@@ -151,6 +151,6 @@ public class CrateQueryBuilderTests
         var compiler = new CrateQueryCompiler();
         var query = compiler.CompileQuery(queryBuilder);
         
-        Assert.Equal("SELECT AVG(\"data['Voltage']\") AS \"V\", MIN(\"data['Voltage']\") AS \"MinV\", MAX(\"data['Voltage']\") AS \"MaxV\", \"Timestamp\" AS \"T\" FROM meshtest GROUP BY \"T\" ORDER BY \"T\" DESC, \"MaxV\" ASC", query);
+        Assert.Equal("SELECT AVG(data['Voltage']) AS \"V\", MIN(data['Voltage']) AS \"MinV\", MAX(data['Voltage']) AS \"MaxV\", \"Timestamp\" AS \"T\" FROM meshtest GROUP BY \"T\" ORDER BY \"T\" DESC, \"MaxV\" ASC", query);
     }
 }

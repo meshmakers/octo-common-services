@@ -44,7 +44,7 @@ public class CrateQueryCompiler
         if (queryBuilder is { From: not null, To: not null })
         {
             query.Append(
-                $"Timestamp\" >= '{queryBuilder.From.Value.ToString(Constants.DateTimeFormat)}' AND \"Timestamp\" <= '{queryBuilder.To.Value.ToString(Constants.DateTimeFormat)}'");
+                $"\"Timestamp\" >= '{queryBuilder.From.Value.ToString(Constants.DateTimeFormat)}' AND \"Timestamp\" <= '{queryBuilder.To.Value.ToString(Constants.DateTimeFormat)}'");
         }
 
         if (queryBuilder.HasAggregations)

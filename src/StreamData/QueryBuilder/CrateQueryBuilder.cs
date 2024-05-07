@@ -1,6 +1,4 @@
-﻿using MassTransit;
-using Meshmakers.Octo.Services.Common.StreamData.Dtos;
-using Meshmakers.Octo.Services.Common.StreamData.QueryBuilder.Decorators;
+﻿using Meshmakers.Octo.Services.Common.StreamData.Dtos;
 
 namespace Meshmakers.Octo.Services.Common.StreamData.QueryBuilder;
 
@@ -53,7 +51,7 @@ public class CrateQueryBuilder
     
     internal int? Limit { get; private set; }
     
-    internal int Offset { get; private set; }
+    internal int? Offset { get; private set; }
 
     /// <summary>
     /// Constructor
@@ -88,11 +86,6 @@ public class CrateQueryBuilder
     public CrateQueryBuilder AddVariable(string variableName, string? alias = null, AggregationFunctionDto? aggregationFunction = null, bool isDataVariable = false)
     {
         IQueryVariable variable = new QueryVariable(variableName, alias, aggregationFunction, isDataVariable);
-        variable = new DataVariableDecorator(variable);
-        variable = new QuotationDecorator(variable);
-        variable = new VariableAliasDecorator(variable);
-        variable = new OrderByDecorator(variable);
-        variable = new IsInListDecorator(variable);
         Variables.Add(variable);
         return this;
     }
@@ -107,10 +100,6 @@ public class CrateQueryBuilder
         foreach(var streamDataField in Constants.DefaultStreamDataFields)
         {
             IQueryVariable variable = new QueryVariable(streamDataField, null, null, false);
-            variable = new QuotationDecorator(variable);
-            variable = new VariableAliasDecorator(variable);
-            variable = new OrderByDecorator(variable);
-            variable = new IsInListDecorator(variable);
             Variables.Add(variable);
         }
         
@@ -130,11 +119,6 @@ public class CrateQueryBuilder
     {
         var variableAlias = alias ?? $"{aggregate.ToString()}_{name}";
         IQueryVariable variable = new QueryVariable(name, variableAlias, aggregate, isDataVariable);
-        variable = new DataVariableDecorator(variable);
-        variable = new QuotationDecorator(variable);
-        variable = new AggregationFunctionDecorator(variable, aggregate);
-        variable = new VariableAliasDecorator(variable);
-        variable = new OrderByDecorator(variable);
         Variables.Add(variable);
         return this;
     }
