@@ -17,7 +17,7 @@ public class TenantMiddleware
     {
         // Load tenant repository
         var tenantId = context.GetTenantId();
-        using var systemSession = await systemContext.GetSystemSessionAsync().ConfigureAwait(false);
+        using var systemSession = await systemContext.GetAdminSessionAsync().ConfigureAwait(false);
         systemSession.StartTransaction();
 
         if (!string.IsNullOrWhiteSpace(tenantId))

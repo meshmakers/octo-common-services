@@ -41,7 +41,7 @@ public class DefaultConfigurationInitializationService : IAsyncInitializationSer
         if (await _systemContext.IsSystemTenantExistingAsync().ConfigureAwait(false))
         {
 
-            var systemSession = await _systemContext.GetSystemSessionAsync().ConfigureAwait(false);
+            var systemSession = await _systemContext.GetAdminSessionAsync().ConfigureAwait(false);
             systemSession.StartTransaction();
 
             var tenants = await _systemContext.GetChildTenantsAsync(systemSession).ConfigureAwait(false);
