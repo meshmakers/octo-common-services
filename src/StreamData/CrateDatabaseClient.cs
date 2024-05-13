@@ -1,5 +1,4 @@
-﻿using System.Diagnostics;
-using Dapper;
+﻿using Dapper;
 using Meshmakers.Octo.ConstructionKit.Contracts;
 using Meshmakers.Octo.Services.Common.StreamData.Configuration;
 using Meshmakers.Octo.Services.Common.StreamData.Dapper;
@@ -108,14 +107,7 @@ internal class CrateDatabaseClient : IStreamDataDatabaseClient, IStreamDataDatab
     {
         var csb = new NpgsqlConnectionStringBuilder(_connectionString);
 
-        var v = typeof(NpgsqlDataSourceBuilder).Assembly.GetName().Version;
-        var expectedVersion = new Version("8.0.1.0");
-        Debug.Assert(v == expectedVersion,
-            "After updating to newer version of npgsql, check if the following issue is in the release notes: https://github.com/npgsql/npgsql/issues/5503#issuecomment-1883801663");
-        csb.ServerCompatibilityMode = ServerCompatibilityMode.NoTypeLoading;
-
         var dataSourceBuilder = new NpgsqlDataSourceBuilder(csb.ConnectionString);
-
 
         var dataSource = dataSourceBuilder.Build();
         return dataSource.OpenConnectionAsync();
