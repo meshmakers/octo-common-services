@@ -45,4 +45,9 @@ public class QueryBuilderException : Exception
     {
         return new QueryBuilderException($"WhereIn Variable not found: '{variableName}'");
     }
+
+    internal static QueryBuilderException InterpolationOrDownsamplingNeedToIncludeTimeStampVariable()
+    {
+        return new QueryBuilderException("Interpolation or downsampling need to include a timestamp variable in the query");
+    }
 }

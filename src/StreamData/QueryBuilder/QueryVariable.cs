@@ -7,7 +7,6 @@ namespace Meshmakers.Octo.Services.Common.StreamData.QueryBuilder;
 /// </summary>
 internal record QueryVariable : IQueryVariable
 {
-    
     private readonly List<string> _variableContainedInList = [];
 
     /// <summary>
@@ -29,7 +28,7 @@ internal record QueryVariable : IQueryVariable
         
         if (AggregationFunction != null)
         {
-            Name = $"{AggregationFunction.ToString()!.ToUpper()}({Name})";
+            Name = $"{AggregationFunction.ToString()!.ToUpper()}(\"{Name}\")";
         }
 
         if (alias == null)

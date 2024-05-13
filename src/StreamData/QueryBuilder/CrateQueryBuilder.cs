@@ -11,11 +11,18 @@ public class CrateQueryBuilder
     /// All Variables in the query
     /// </summary>
     internal List<IQueryVariable> Variables { get; } = new();
+    
+    internal IEnumerable<IQueryVariable> QueryVariablesWithoutTimestamp => Variables.Where(x => x.Name != "Timestamp");
 
     /// <summary>
     /// All variables to ordered by
     /// </summary>
     internal List<IQueryVariable> OrderByVariables { get; } = new();
+
+    /// <summary>
+    /// Time Stamp Variable
+    /// </summary>
+    internal IQueryVariable? TimeStampVariable => Variables.FirstOrDefault(x => x.Name == "Timestamp");
 
     /// <summary>
     /// Tenant Id
@@ -195,6 +202,25 @@ public class CrateQueryBuilder
         Offset = offset;
         return this;
     }
-    
-    
+
+    /// <summary>
+    /// Adds a downsampling to the query
+    /// </summary>
+    /// <param name="limit">Amount of points</param>
+    /// <param name="from"></param>
+    /// <param name="to"></param>
+    /// <returns></returns>
+    public CrateQueryBuilder WithDownsampling(int limit, DateTime from, DateTime to)
+    {
+        From = from;
+        To = to;
+        QueryMode = QueryModeDto.Downsampling;
+        Limit = limit;
+        return this;
+    }
+
+    /// <summary>
+    /// Defines what kind of query should be executed
+    /// </summary>
+    public QueryModeDto? QueryMode { get; set; }
 }

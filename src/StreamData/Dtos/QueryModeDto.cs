@@ -11,9 +11,9 @@ public enum QueryModeDto
     Default,
     
     /// <summary>
-    /// Aggregates the values
+    /// Downsampling of the values
     /// </summary>
-    Aggregation,
+    Downsampling,
     
     /// <summary>
     /// Interpolates the values

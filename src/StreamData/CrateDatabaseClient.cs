@@ -52,18 +52,23 @@ internal class CrateDatabaseClient : IStreamDataDatabaseClient, IStreamDataDatab
             {
                 dp.Timestamp = (DateTime)timestamp!;
             }
+            else if (result.TryGetValue("T", out var ts))
+            {
+                dp.Timestamp = (DateTime)ts!;
+            }
 
             if (result.TryGetValue(Constants.RtId, out var rtIdValue) &&
                 OctoObjectId.TryParse(rtIdValue as string ?? "", out var octoRtId))
             {
                 dp.RtId = octoRtId;
             }
-            if(result.TryGetValue(Constants.CkTypeId, out var ckTypeIdValue))
+
+            if (result.TryGetValue(Constants.CkTypeId, out var ckTypeIdValue))
             {
                 var typeId = new CkId<CkTypeId>(ckTypeIdValue as string ?? "");
                 dp.CkTypeId = typeId;
             }
-            
+
             dataPointDtos.Add(dp);
         }
 

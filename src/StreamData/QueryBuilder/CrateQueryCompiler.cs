@@ -1,5 +1,5 @@
 ﻿using System.Text;
-using Microsoft.Extensions.Primitives;
+using Meshmakers.Octo.Services.Common.StreamData.Dtos;
 
 namespace Meshmakers.Octo.Services.Common.StreamData.QueryBuilder;
 
@@ -18,7 +18,28 @@ public class CrateQueryCompiler
         var query = new StringBuilder();
 
         query.Append("SELECT ");
-        var queryVariables = string.Join(", ", queryBuilder.Variables.Select(x => x.ToSelectString()));
+        
+        // figure out if we want to downsample or interpolate
+
+        if (queryBuilder.QueryMode == QueryModeDto.Downsampling)
+        {
+            if (queryBuilder.TimeStampVariable == null)
+            {
+                throw QueryBuilderException.InterpolationOrDownsamplingNeedToIncludeTimeStampVariable();
+            }
+            
+            var interval = queryBuilder.To!.Value - queryBuilder.From!.Value;
+            var intervalSeconds = (int)interval.TotalSeconds / queryBuilder.Limit;
+            
+            query.Append($"DATE_BIN('{intervalSeconds} seconds'::INTERVAL, \"Timestamp\", 0) AS \"T\", ");
+        }
+        else if(queryBuilder.TimeStampVariable != null)
+        {
+            var timeStampVariable = queryBuilder.TimeStampVariable;
+            query.Append(timeStampVariable.ToSelectString() + ", ");
+        }
+        
+        var queryVariables = string.Join(", ", queryBuilder.QueryVariablesWithoutTimestamp.Select(x => x.ToSelectString()));
         query.Append(queryVariables);
 
         query.Append($" FROM {queryBuilder.TenantId}");
