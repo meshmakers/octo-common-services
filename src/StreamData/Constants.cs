@@ -29,4 +29,9 @@ public static class Constants
     /// Date time format
     /// </summary>
     public static readonly string DateTimeFormat = "yyyy-MM-dd HH:mm:ss.fffZ";
+    
+    /// <summary>
+    /// Default connection cache duration
+    /// </summary>
+    public static readonly TimeSpan DefaultConnectionCacheDuration = TimeSpan.FromMinutes(5);
 }

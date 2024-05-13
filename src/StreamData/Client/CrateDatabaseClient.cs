@@ -1,38 +1,34 @@
 ﻿using Dapper;
 using Meshmakers.Octo.ConstructionKit.Contracts;
-using Meshmakers.Octo.Services.Common.StreamData.Configuration;
 using Meshmakers.Octo.Services.Common.StreamData.Dapper;
 using Meshmakers.Octo.Services.Common.StreamData.Dtos;
-using Microsoft.Extensions.Options;
 using Npgsql;
 
-namespace Meshmakers.Octo.Services.Common.StreamData;
+namespace Meshmakers.Octo.Services.Common.StreamData.Client;
 
 /// <summary>
 /// Client for interacting with the stream data database.
 /// </summary>
 internal class CrateDatabaseClient : IStreamDataDatabaseClient, IStreamDataDatabaseManagementClient
 {
-    private readonly string _connectionString;
+    private readonly ICrateDbConnectionAccess _connectionAccess;
 
     /// <summary>
     /// Constructor.
     /// </summary>
-    /// <param name="options"></param>
-    public CrateDatabaseClient(IOptions<StreamDataConfiguration> options)
+    /// <param name="connectionAccess"></param>
+    public CrateDatabaseClient(ICrateDbConnectionAccess connectionAccess)
     {
-        ArgumentException.ThrowIfNullOrEmpty(options.Value.ConnectionString);
-
-        _connectionString = options.Value.ConnectionString;
+        _connectionAccess = connectionAccess;
 
         SqlMapper.AddTypeHandler(new JsonTypeHandler<Dictionary<string, object>>());
         SqlMapper.AddTypeHandler(new CkIdTypeHandler());
         SqlMapper.AddTypeHandler(new OctoIdTypeHandler());
     }
 
-    public async Task<List<DataPointDto>> GetDataAsync(string query)
+    public async Task<List<DataPointDto>> GetDataAsync(string tenantId, string query)
     {
-        await using var connection = await CreateConnection();
+        await using var connection = CreateConnection(tenantId);
 
         var queryResult = await connection.QueryAsync(query);
 
@@ -77,7 +73,7 @@ internal class CrateDatabaseClient : IStreamDataDatabaseClient, IStreamDataDatab
     public async Task InsertDataAsync(string tenantId, DataPointDto datapoint)
     {
         var query = string.Format(Queries.InsertStreamDataEntry, tenantId);
-        await using var connection = await CreateConnection();
+        await using var connection = CreateConnection(tenantId);
 
         var data = new Json<Dictionary<string, object?>>(datapoint.Attributes.ToDictionary());
 
@@ -93,23 +89,20 @@ internal class CrateDatabaseClient : IStreamDataDatabaseClient, IStreamDataDatab
 
     public async Task CreateStreamDataTableIfNotExistAsync(string tenantId)
     {
-        await using var connection = await CreateConnection();
+        await using var connection = CreateConnection(tenantId);
+        
         var result = await connection.ExecuteAsync(string.Format(Queries.CreateTableIfNotExists, tenantId));
     }
 
     public async Task DeleteStreamDataDatabaseAsync(string tenantId)
     {
-        await using var connection = await CreateConnection();
+        await using var connection = CreateConnection(tenantId);
+        
         var result = await connection.ExecuteAsync(string.Format(Queries.DeleteTableIfExists, tenantId));
     }
 
-    private ValueTask<NpgsqlConnection> CreateConnection()
+    private NpgsqlConnection CreateConnection(string tenantId)
     {
-        var csb = new NpgsqlConnectionStringBuilder(_connectionString);
-
-        var dataSourceBuilder = new NpgsqlDataSourceBuilder(csb.ConnectionString);
-
-        var dataSource = dataSourceBuilder.Build();
-        return dataSource.OpenConnectionAsync();
+        return _connectionAccess.CreateConnection(tenantId);
     }
 }

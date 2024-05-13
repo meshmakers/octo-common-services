@@ -10,4 +10,9 @@ public class StreamDataConfiguration
     /// </summary>
     public required string ConnectionString { get; set; }
 
+    /// <summary>
+    /// Duration for which connections are cached.
+    /// </summary>
+    public TimeSpan ConnectionCacheDuration { get; set; } = Constants.DefaultConnectionCacheDuration;
+
 }

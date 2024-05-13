@@ -18,7 +18,8 @@ public interface IStreamDataDatabaseClient
     /// <summary>
     /// Get data from the stream data database.
     /// </summary>
+    /// <param name="tenantId"></param>
     /// <param name="query"></param>
     /// <returns></returns>
-    Task<List<DataPointDto>> GetDataAsync(string query);
+    Task<List<DataPointDto>> GetDataAsync(string tenantId, string query);
 }

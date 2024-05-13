@@ -1,4 +1,5 @@
-﻿using Meshmakers.Octo.Services.Common.StreamData.Configuration;
+﻿using Meshmakers.Octo.Services.Common.StreamData.Client;
+using Meshmakers.Octo.Services.Common.StreamData.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 
 namespace Meshmakers.Octo.Services.Common.StreamData.Extensions;
@@ -22,6 +23,8 @@ public static class ServiceCollectionExtensions
                 CrateDatabaseClient, 
                 IStreamDataDatabaseClient,
                 IStreamDataDatabaseManagementClient>();
+
+        services.AddSingleton<ICrateDbConnectionAccess, CrateDbConnectionAccess>();
         
         return services;
     }
