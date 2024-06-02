@@ -75,13 +75,5 @@ stages:
         displayName: 'Publish Artifact: local'
         inputs:
           ArtifactName: local
-      - task: DotNetCoreCLI@2
-        displayName: Push Nuget Package
-        inputs:
-          command: custom
-          custom: nuget
-          arguments: >
-             push $(Build.ArtifactStagingDirectory)/**/*.nupkg
-             -s https://api.nuget.org/v3/index.json
-             -k $(NuGetApiKey)           
+      - template: push-nuget-package.yml            
 

@@ -1,0 +1,21 @@
+﻿steps:
+  - task: DotNetCoreCLI@2
+    displayName: Push Nuget Package to public nuget server
+    condition: eq(variables.isRelease, true)
+    inputs:
+      command: custom
+      custom: nuget
+      arguments: >
+        push $(Build.ArtifactStagingDirectory)/**/*.nupkg
+        -s $(NuGetPublicServer)
+        -k $(NugetPublicApiKey)
+  - task: DotNetCoreCLI@2
+    displayName: Push Nuget Package to private nuget server
+    condition: eq(variables.isRelease, false)
+    inputs:
+      command: custom
+      custom: nuget
+      arguments: >
+        push $(Build.ArtifactStagingDirectory)/**/*.nupkg
+        -s $(NugetPrivateServer)
+        -k $(NuGetPrivateApiKey)          
