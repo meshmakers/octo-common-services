@@ -12,7 +12,8 @@
         <Nullable>enable</Nullable>
         <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
         <ImplicitUsings>true</ImplicitUsings>
-        <RepositoryUrl>https://github.com/meshmakers/octo-core</RepositoryUrl>
+        <RepositoryUrl>https://github.com/meshmakers/octo-common-services</RepositoryUrl>
+        <PackageIcon>meshmakers64.png</PackageIcon>
         <PackageLicenseFile>LICENSE</PackageLicenseFile>
         <PackageProjectUrl>https://www.meshmakers.io</PackageProjectUrl>
         <PackageTags>Octo data mesh iot</PackageTags>
