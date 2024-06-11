@@ -11,12 +11,19 @@ trigger:
       - '*'
       
 variables:
-  buildConfiguration: 'Release'
-  buildPlatform: 'any cpu'
-  solutionFile: "Octo.Common.Services.sln"
-  isRelease: $[startsWith(variables['Build.SourceBranch'], 'refs/tags/r')]
-  MajorVersion: 0
-  MinorVersion: 0
+  - group: ApiKeys
+  - name: solutionFile
+    value: 'Octo.Common.Services.sln'
+  - name: isRelease
+    value: ${{ startsWith(variables['Build.SourceBranch'], 'refs/tags/r') }}
+  - name: buildConfiguration
+    value: 'Release'
+  - name: buildPlatform
+    value: 'any cpu'
+  - name: MajorVersion
+    value: '0'
+  - name: MinorVersion
+    value: '0'
 
 stages:
  - stage: Build
@@ -65,7 +72,7 @@ stages:
         inputs:
           command: 'build'
           projects:  $(SolutionFile)
-          arguments: '--configuration $(BuildConfiguration)'
+          arguments: '--configuration $(BuildConfiguration) /p:OctoNugetPrivateServer=$(nugetPrivateServer)'
       - task: DotNetCoreCLI@2
         displayName: 'Test'
         inputs:
