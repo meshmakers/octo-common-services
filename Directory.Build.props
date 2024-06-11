@@ -5,10 +5,10 @@
         <OctoRepoRootPath>$(MSBuildThisFileDirectory)../</OctoRepoRootPath>
         <OctoRepoRootPath Condition="'$(OctoRootDirectoryPropsFilePath)'!=''">$([System.IO.Path]::GetDirectoryName($(OctoRootDirectoryPropsFilePath)))</OctoRepoRootPath>
     </PropertyGroup>
+    <!-- Import an custom file to overwrite versions etc. -->
+    <Import Condition="'$(OctoRootDirectoryPropsFilePath)'=='' And Exists($(OctoUserPropsFilePath))" Project="$(OctoUserPropsFilePath)"/>
     <!-- Import the Directory.Build.props file of the root directory -->
     <Import Condition="Exists($(OctoRootDirectoryPropsFilePath))" Project="$(OctoRootDirectoryPropsFilePath)"/>
-    <!-- Import an custom file to overwrite versions etc. -->
-    <Import Condition="Exists($(OctoUserPropsFilePath))" Project="$(OctoUserPropsFilePath)"/>
     <PropertyGroup>
         <OctoConstructionKitPath Condition=" '$(OctoConstructionKitPath)' == '' ">$(MSBuildThisFileDirectory)src/octo-construction-kit-engine-mongodb/</OctoConstructionKitPath>
         <Authors>meshmakers GmbH and Contributors</Authors>
