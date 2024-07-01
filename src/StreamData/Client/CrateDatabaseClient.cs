@@ -2,6 +2,7 @@
 using Meshmakers.Octo.ConstructionKit.Contracts;
 using Meshmakers.Octo.Services.Common.StreamData.Dapper;
 using Meshmakers.Octo.Services.Common.StreamData.Dtos;
+using Microsoft.Extensions.Diagnostics.HealthChecks;
 using Npgsql;
 
 namespace Meshmakers.Octo.Services.Common.StreamData.Client;
@@ -9,7 +10,7 @@ namespace Meshmakers.Octo.Services.Common.StreamData.Client;
 /// <summary>
 /// Client for interacting with the stream data database.
 /// </summary>
-internal class CrateDatabaseClient : IStreamDataDatabaseClient, IStreamDataDatabaseManagementClient
+internal class CrateDatabaseClient : IStreamDataDatabaseClient, IStreamDataDatabaseManagementClient, IStreamDataHealthCheckClient
 {
     private readonly ICrateDbConnectionAccess _connectionAccess;
 
@@ -104,5 +105,20 @@ internal class CrateDatabaseClient : IStreamDataDatabaseClient, IStreamDataDatab
     private NpgsqlConnection CreateConnection(string tenantId)
     {
         return _connectionAccess.CreateConnection(tenantId);
+    }
+
+    public async Task<HealthCheckResult> CheckHealthAsync()
+    {
+        try
+        {
+            await using var connection = CreateConnection("default");
+            await connection.ExecuteAsync("SELECT 1");
+            return HealthCheckResult.Healthy("CrateDB is healthy");
+        }
+        catch (Exception)
+        {
+            return HealthCheckResult.Unhealthy("CrateDB is unhealthy");
+        }
+
     }
 }

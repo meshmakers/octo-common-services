@@ -15,17 +15,19 @@ public static class ServiceCollectionExtensions
     /// <param name="services"></param>
     /// <param name="configure"></param>
     /// <returns></returns>
-    public static IServiceCollection AddStreamDataDatabase(this IServiceCollection services, Action<StreamDataConfiguration> configure)
+    public static IServiceCollection AddStreamDataDatabase(this IServiceCollection services,
+        Action<StreamDataConfiguration> configure)
     {
         services.Configure(configure);
 
         services.AddSingletonMultipleInterfaces<
-                CrateDatabaseClient, 
-                IStreamDataDatabaseClient,
-                IStreamDataDatabaseManagementClient>();
+            CrateDatabaseClient,
+            IStreamDataDatabaseClient,
+            IStreamDataDatabaseManagementClient,
+            IStreamDataHealthCheckClient>();
 
         services.AddSingleton<ICrateDbConnectionAccess, CrateDbConnectionAccess>();
-        
+
         return services;
     }
 }
