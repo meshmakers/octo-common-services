@@ -1,4 +1,5 @@
 ﻿using Microsoft.AspNetCore.Builder;
+using Microsoft.AspNetCore.Diagnostics.HealthChecks;
 
 namespace Meshmakers.Octo.Services.Observability;
 
@@ -14,6 +15,9 @@ public static class WebApplicationExtensions
     public static void MapObservability(this WebApplication app)
     {
         app.MapPrometheusScrapingEndpoint();
-        app.MapHealthChecks("/health");
+        app.MapHealthChecks("/health", new HealthCheckOptions()
+        {
+            ResponseWriter = ResponseWriter.WriteResponse
+        });
     }
 }
