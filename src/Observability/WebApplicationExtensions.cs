@@ -1,6 +1,6 @@
 ﻿using Microsoft.AspNetCore.Builder;
 
-namespace Observability;
+namespace Meshmakers.Octo.Services.Observability;
 
 /// <summary>
 /// Extensions for the <see cref="WebApplication"/> class.

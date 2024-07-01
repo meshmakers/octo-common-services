@@ -4,7 +4,7 @@ using OpenTelemetry.Metrics;
 using OpenTelemetry.Resources;
 using OpenTelemetry.Trace;
 
-namespace Observability;
+namespace Meshmakers.Octo.Services.Observability;
 
 public static class WebApplicationBuilderExtensions
 {

@@ -1,9 +1,11 @@
 ﻿<Project Sdk="Microsoft.NET.Sdk">
 
     <PropertyGroup>
-        <TargetFramework>net8.0</TargetFramework>
-        <ImplicitUsings>enable</ImplicitUsings>
-        <Nullable>enable</Nullable>
+        <AssemblyName>Meshmakers.Octo.Services.Observability</AssemblyName>
+        <PackageId>Meshmakers.Octo.Services.Observability</PackageId>
+        <RootNamespace>Meshmakers.Octo.Services.Observability</RootNamespace>
+        <Configurations>Debug;Release;DebugL</Configurations>
+        <Platforms>AnyCPU</Platforms>
     </PropertyGroup>
     
 <ItemGroup>
