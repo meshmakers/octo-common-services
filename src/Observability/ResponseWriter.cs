@@ -18,11 +18,12 @@ public class ResponseWriter
         {
             jsonWriter.WriteStartObject();
             jsonWriter.WriteString("status", healthReport.Status.ToString());
-            jsonWriter.WriteStartObject("results");
+            jsonWriter.WriteStartArray("results");
 
             foreach (var healthReportEntry in healthReport.Entries)
             {
-                jsonWriter.WriteStartObject(healthReportEntry.Key);
+                jsonWriter.WriteStartObject();
+                jsonWriter.WriteString("title", healthReportEntry.Key);
                 jsonWriter.WriteString("status",
                     healthReportEntry.Value.Status.ToString());
                 jsonWriter.WriteString("description",
@@ -41,7 +42,7 @@ public class ResponseWriter
                 jsonWriter.WriteEndObject();
             }
 
-            jsonWriter.WriteEndObject();
+            jsonWriter.WriteEndArray();
             jsonWriter.WriteEndObject();
         }
 
