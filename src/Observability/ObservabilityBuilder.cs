@@ -45,11 +45,9 @@ internal class ObservabilityBuilder(IConfigurationManager config, IServiceCollec
             }
         });
 
-        // In theory that should be fixed with version 8.6.0, but it seems it isn't yet.
-        
-        // Services.AddResourceMonitoring();
+        Services.AddResourceMonitoring();
 
-        return Services.AddHealthChecks();
-            // .AddResourceUtilizationHealthCheck();
+        return Services.AddHealthChecks()
+            .AddResourceUtilizationHealthCheck();
     }
 }

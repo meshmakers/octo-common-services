@@ -3,6 +3,7 @@ using Meshmakers.Octo.ConstructionKit.Contracts;
 using Meshmakers.Octo.Services.Common.StreamData.Dapper;
 using Meshmakers.Octo.Services.Common.StreamData.Dtos;
 using Microsoft.Extensions.Diagnostics.HealthChecks;
+using Microsoft.Extensions.Logging;
 using Npgsql;
 
 namespace Meshmakers.Octo.Services.Common.StreamData.Client;
@@ -12,14 +13,17 @@ namespace Meshmakers.Octo.Services.Common.StreamData.Client;
 /// </summary>
 internal class CrateDatabaseClient : IStreamDataDatabaseClient, IStreamDataDatabaseManagementClient, IStreamDataHealthCheckClient
 {
+    private readonly ILogger<CrateDatabaseClient> _logger;
     private readonly ICrateDbConnectionAccess _connectionAccess;
 
     /// <summary>
     /// Constructor.
     /// </summary>
     /// <param name="connectionAccess"></param>
-    public CrateDatabaseClient(ICrateDbConnectionAccess connectionAccess)
+    /// <param name="logger"></param>
+    public CrateDatabaseClient(ILogger<CrateDatabaseClient> logger, ICrateDbConnectionAccess connectionAccess)
     {
+        _logger = logger;
         _connectionAccess = connectionAccess;
 
         SqlMapper.AddTypeHandler(new JsonTypeHandler<Dictionary<string, object>>());
@@ -115,8 +119,9 @@ internal class CrateDatabaseClient : IStreamDataDatabaseClient, IStreamDataDatab
             await connection.ExecuteAsync("SELECT 1");
             return HealthCheckResult.Healthy("CrateDB is healthy");
         }
-        catch (Exception)
+        catch (Exception ex)
         {
+            _logger.LogError("CrateDB is unhealthy: {Message}", ex.Message);
             return HealthCheckResult.Unhealthy("CrateDB is unhealthy");
         }
 
