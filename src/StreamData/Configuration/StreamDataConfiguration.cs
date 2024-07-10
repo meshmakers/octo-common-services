@@ -15,4 +15,21 @@ public class StreamDataConfiguration
     /// </summary>
     public TimeSpan ConnectionCacheDuration { get; set; } = Constants.DefaultConnectionCacheDuration;
 
+    /// <summary>
+    /// Helper method to create a connection string from the configuration
+    /// </summary>
+    /// <param name="host"></param>
+    /// <param name="user"></param>
+    /// <param name="password"></param>
+    /// <returns></returns>
+    public void ConnectionStringFromConfiguration(string host, string user, string? password)
+    {
+        if (password != null)
+        {
+            ConnectionString = $"Host={host};Username={user};SSL Mode=Prefer";
+        }
+        
+        ConnectionString = $"Host={host};Username={user};Password={password};SSL Mode=Prefer";
+    }
+
 }
