@@ -1,23 +1,18 @@
 using Meshmakers.Octo.ConstructionKit.Contracts;
-using Meshmakers.Octo.Runtime.Contracts.MongoDb.Repository;
+using Meshmakers.Octo.Runtime.Contracts.MongoDb.Repositories;
 using Meshmakers.Octo.Runtime.Contracts.Repositories.Query;
 using Meshmakers.Octo.Runtime.Contracts.RepositoryEntities;
 using Meshmakers.Octo.Services.Common.Cors;
 
 namespace Meshmakers.Octo.Services.Infrastructure.Services;
 
-internal class KnownOriginsProvider : IKnownOriginsProvider
+internal class KnownOriginsProvider(IMultiTenancyResolverService multiTenancyResolverService) : IKnownOriginsProvider
 {
-    private readonly ITenantRepository _tenantRepository;
+    private readonly ITenantRepository _tenantRepository = multiTenancyResolverService.GetTenantRepository();
     
     private static readonly CkId<CkTypeId> CkIdClient = new("System.Identity/Client"); 
     private const string AllowedCorsOriginsAttribute = "AllowedCorsOrigins";
 
-    public KnownOriginsProvider(IMultiTenancyResolverService multiTenancyResolverService)
-    {
-        _tenantRepository = multiTenancyResolverService.GetTenantRepository();
-    }
-    
     private async Task<IEnumerable<RtEntity>> GetClients()
     {
         var session = await _tenantRepository.GetSessionAsync().ConfigureAwait(false);

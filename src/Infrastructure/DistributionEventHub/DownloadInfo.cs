@@ -3,18 +3,15 @@ using MongoDB.Bson;
 
 namespace Meshmakers.Octo.Services.Infrastructure.DistributionEventHub;
 
-internal class DownloadInfo : IDownloadInfo
+internal class DownloadInfo(Runtime.Contracts.MongoDb.Repositories.IDownloadInfo downloadInfo)
+    : IDownloadInfo
 {
-    private readonly Runtime.Contracts.MongoDb.Repository.IDownloadInfo _downloadInfo;
+    public string ContentType => downloadInfo.ContentType;
 
-    public DownloadInfo(Runtime.Contracts.MongoDb.Repository.IDownloadInfo downloadInfo)
-    {
-        _downloadInfo = downloadInfo;
-    }
+    public ObjectId BinaryId { get; }
 
-    public string ContentType => _downloadInfo.ContentType;
-    public ObjectId BinaryId => new (_downloadInfo.BinaryId.ToString());
-    public string Filename => _downloadInfo.Filename;
-    public DateTime UploadDateTime => _downloadInfo.UploadDateTime;
-    public long Length => _downloadInfo.Length;
+    // public ObjectId BinaryId => new (downloadInfo.BinaryId.ToString());
+    public string Filename => downloadInfo.Filename;
+    public DateTime UploadDateTime => downloadInfo.UploadDateTime;
+    public long Length => downloadInfo.Length;
 }

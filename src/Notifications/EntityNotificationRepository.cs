@@ -5,21 +5,14 @@ using Meshmakers.Octo.ConstructionKit.Contracts;
 using Meshmakers.Octo.ConstructionKit.Models.System.Generated.System.v1;
 using Meshmakers.Octo.Runtime.Contracts;
 using Meshmakers.Octo.Runtime.Contracts.MongoDb;
-using Meshmakers.Octo.Runtime.Contracts.MongoDb.Repository;
+using Meshmakers.Octo.Runtime.Contracts.MongoDb.Repositories;
 using Meshmakers.Octo.Runtime.Contracts.Repositories.Query;
 using Meshmakers.Octo.Services.Notifications.Generated.System.Notification.v1;
 
 namespace Meshmakers.Octo.Services.Notifications;
 
-public class EntityNotificationRepository : INotificationRepository
+public class EntityNotificationRepository(ISystemContext systemContext) : INotificationRepository
 {
-    private readonly ISystemContext _systemContext;
-
-    public EntityNotificationRepository(ISystemContext systemContext)
-    {
-        _systemContext = systemContext;
-    }
-
     public async Task AddShortMessageAsync(string tenantId, string toPhoneNumber, string message)
     {
         await AddShortMessageAsync(tenantId, toPhoneNumber, message, null).ConfigureAwait(false);
@@ -88,12 +81,12 @@ public class EntityNotificationRepository : INotificationRepository
     {
         ArgumentValidation.ValidateString(nameof(tenantId), tenantId);
 
-        if (!await _systemContext.IsSystemTenantExistingAsync().ConfigureAwait(false))
+        if (!await systemContext.IsSystemTenantExistingAsync().ConfigureAwait(false))
         {
             return new PagedResult<NotificationMessageDto>(new List<NotificationMessageDto>());
         }
 
-        var tenantRepository = await _systemContext.FindTenantRepositoryAsync(tenantId).ConfigureAwait(false);
+        var tenantRepository = await systemContext.FindTenantRepositoryAsync(tenantId).ConfigureAwait(false);
         var session = await tenantRepository.GetSessionAsync().ConfigureAwait(false);
         session.StartTransaction();
 
@@ -118,12 +111,12 @@ public class EntityNotificationRepository : INotificationRepository
     {
         ArgumentValidation.ValidateString(nameof(tenantId), tenantId);
 
-        if (!await _systemContext.IsSystemTenantExistingAsync().ConfigureAwait(false))
+        if (!await systemContext.IsSystemTenantExistingAsync().ConfigureAwait(false))
         {
             throw new NotificationSendFailedException("No system tenant is existing.");
         }
 
-        var tenantRepository = await _systemContext.FindTenantRepositoryAsync(tenantId).ConfigureAwait(false);
+        var tenantRepository = await systemContext.FindTenantRepositoryAsync(tenantId).ConfigureAwait(false);
         
         var session = await tenantRepository.GetSessionAsync().ConfigureAwait(false);
         session.StartTransaction();
@@ -151,12 +144,12 @@ public class EntityNotificationRepository : INotificationRepository
     {
         ArgumentValidation.ValidateString(nameof(tenantId), tenantId);
 
-        if (!await _systemContext.IsSystemTenantExistingAsync().ConfigureAwait(false))
+        if (!await systemContext.IsSystemTenantExistingAsync().ConfigureAwait(false))
         {
             return;
         }
 
-        var tenantRepository = await _systemContext.FindTenantRepositoryAsync(tenantId).ConfigureAwait(false);
+        var tenantRepository = await systemContext.FindTenantRepositoryAsync(tenantId).ConfigureAwait(false);
         var session = await tenantRepository.GetSessionAsync().ConfigureAwait(false);
         session.StartTransaction();
 
