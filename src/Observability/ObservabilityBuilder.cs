@@ -45,7 +45,10 @@ internal class ObservabilityBuilder(IConfigurationManager config, IServiceCollec
             }
         });
 
-        Services.AddResourceMonitoring();
+        if (OperatingSystem.IsWindows() || OperatingSystem.IsLinux())
+        {
+            Services.AddResourceMonitoring();
+        }
 
         return Services.AddHealthChecks()
             .AddResourceUtilizationHealthCheck();
