@@ -7,10 +7,7 @@ internal class DownloadInfo(Runtime.Contracts.MongoDb.Repositories.IDownloadInfo
     : IDownloadInfo
 {
     public string ContentType => downloadInfo.ContentType;
-
-    public ObjectId BinaryId { get; }
-
-    // public ObjectId BinaryId => new (downloadInfo.BinaryId.ToString());
+    public ObjectId BinaryId => new (downloadInfo.BinaryId.ToString());
     public string Filename => downloadInfo.Filename;
     public DateTime UploadDateTime => downloadInfo.UploadDateTime;
     public long Length => downloadInfo.Length;
