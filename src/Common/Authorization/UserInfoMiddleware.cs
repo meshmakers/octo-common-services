@@ -6,22 +6,22 @@ namespace Meshmakers.Octo.Services.Common.Authorization;
 
 /// <summary>
 ///     Middleware to add information of the user info endpoint to HttpContext.User to add
-///     user name and roles
+///     username and roles
 /// </summary>
 public class UserInfoMiddleware
 {
-    private readonly IAuthorizationClient _authorizationClient;
+    private readonly IUserInfoCache _userInfoCache;
     private readonly RequestDelegate _next;
 
     /// <summary>
     ///     Constructor
     /// </summary>
     /// <param name="next">Next delegate</param>
-    /// <param name="authorizationClient"></param>
-    public UserInfoMiddleware(RequestDelegate next, IAuthorizationClient authorizationClient)
+    /// <param name="userInfoCache"></param>
+    public UserInfoMiddleware(RequestDelegate next, IUserInfoCache userInfoCache)
     {
         _next = next;
-        _authorizationClient = authorizationClient;
+        _userInfoCache = userInfoCache;
     }
 
     /// <summary>
@@ -33,8 +33,8 @@ public class UserInfoMiddleware
     {
         if (httpContext.TryGetBearerAccessToken(out var bearerToken) && !string.IsNullOrWhiteSpace(bearerToken))
         {
-            var userInfoData = await _authorizationClient.GetUserInfoAsync(bearerToken);
-            if (userInfoData.IsAuthenticated && userInfoData.Claims != null)
+            var userInfoData = await _userInfoCache.GetUserInfoAsync(bearerToken);
+            if (userInfoData is { IsAuthenticated: true, Claims: not null })
             {
                 var claimsIdentity = (ClaimsIdentity)httpContext.User.Identity!;
                 claimsIdentity.AddClaims(userInfoData.Claims);
