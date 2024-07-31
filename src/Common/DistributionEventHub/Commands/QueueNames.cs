@@ -16,9 +16,14 @@ public static class QueueNames
     public const string ImportRtCommand = "bot::import-rt";
 
     /// <summary>
-    /// Export a runtime model command
+    /// Export a runtime model by query command
     /// </summary>
-    public const string ExportRtCommand = "bot::export-rt";
+    public const string ExportRtByQueryCommand = "bot::export-rt-by-query";
+    
+    /// <summary>
+    /// Export a runtime model by deep graph command
+    /// </summary>
+    public const string ExportRtByDeepGraphCommand = "bot::export-rt-by-query";
     
     /// <summary>
     /// Remove recurring jobs by schedule group command
