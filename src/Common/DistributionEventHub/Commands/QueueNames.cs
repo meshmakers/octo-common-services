@@ -23,7 +23,7 @@ public static class QueueNames
     /// <summary>
     /// Export a runtime model by deep graph command
     /// </summary>
-    public const string ExportRtByDeepGraphCommand = "bot::export-rt-by-query";
+    public const string ExportRtByDeepGraphCommand = "bot::export-rt-by-deep-graph";
     
     /// <summary>
     /// Remove recurring jobs by schedule group command
