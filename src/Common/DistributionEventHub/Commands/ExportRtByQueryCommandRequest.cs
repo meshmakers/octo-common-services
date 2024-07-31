@@ -5,16 +5,17 @@ using Meshmakers.Octo.ConstructionKit.Contracts.Serialization;
 namespace Meshmakers.Octo.Services.Common.DistributionEventHub.Commands;
 
 /// <summary>
-///     Export runtime data arguments
+///     Requests the export of an Runtime model by a query.
 /// </summary>
-public record ExportRtCommandRequest : CommandBaseRequest
+// ReSharper disable once ClassNeverInstantiated.Global
+public record ExportRtByQueryCommandRequest : CommandBaseRequest
 {
     /// <summary>
     ///     Constructor
     /// </summary>
-    /// <param name="tenantId"></param>
-    /// <param name="queryId"></param>
-    public ExportRtCommandRequest(string tenantId, OctoObjectId queryId)
+    /// <param name="tenantId">The corresponding tenant id</param>
+    /// <param name="queryId">ID of query, whose data is exported</param>
+    public ExportRtByQueryCommandRequest(string tenantId, OctoObjectId queryId)
         : base(tenantId)
     {
         QueryId = queryId;
