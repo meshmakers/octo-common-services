@@ -27,12 +27,14 @@ public record ExportRtByDeepGraphCommandRequest : CommandBaseRequest
     /// <summary>
     ///     The RtIds as starting point of the deep graph export
     /// </summary>
-    [JsonConverter(typeof(OctoObjectIdArrayConverter))]
+    [JsonConverter(typeof(OctoObjectIdEnumerableConverter))]
+    [Newtonsoft.Json.JsonConverter(typeof(NewtonOctoObjectIdEnumerableConverter))]
     public IEnumerable<OctoObjectId> OriginRtIds { get; set; }
     
     /// <summary>
     ///     The CkTypeId as starting point of the deep graph export
     /// </summary>
     [JsonConverter(typeof(CkIdTypeIdConverter))]
+    [Newtonsoft.Json.JsonConverter(typeof(NewtonCkTypeIdConverter))]
     public CkId<CkTypeId> OriginCkTypeId { get; set; }
 }
