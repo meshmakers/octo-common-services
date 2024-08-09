@@ -24,6 +24,9 @@ variables:
     value: '0'
   - name: MinorVersion
     value: '0'
+  - name: generateDocumentation
+    value: 'true'
+
 
 stages:
  - stage: Build
@@ -79,6 +82,9 @@ stages:
           script: |
               New-Item $(build.artifactstagingdirectory)/versioninfo.txt
               Set-Content $(build.artifactstagingdirectory)/versioninfo.txt $(Build.BuildNumber)
+      - template: generate-documentation.yml
+        parameters:
+          GenerateDocumentation: ${{ variables.generateDocumentation }}
       - task: PublishBuildArtifacts@1
         displayName: 'Publish Artifact: local'
         inputs:
