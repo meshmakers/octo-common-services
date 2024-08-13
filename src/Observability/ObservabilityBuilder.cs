@@ -39,10 +39,6 @@ internal class ObservabilityBuilder(IConfigurationManager config, IServiceCollec
             {
                 tracing.AddOtlpExporter(otlpOptions => { otlpOptions.Endpoint = new Uri(tracingOtlpEndpoint); });
             }
-            else
-            {
-                tracing.AddConsoleExporter();
-            }
         });
 
         if (OperatingSystem.IsWindows() || OperatingSystem.IsLinux())
