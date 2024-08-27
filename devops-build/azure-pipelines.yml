@@ -82,9 +82,11 @@ stages:
           script: |
               New-Item $(build.artifactstagingdirectory)/versioninfo.txt
               Set-Content $(build.artifactstagingdirectory)/versioninfo.txt $(Build.BuildNumber)
-      - template: generate-documentation.yml
-        parameters:
-          GenerateDocumentation: ${{ variables.generateDocumentation }}
+      - ${{ if eq(variables.generateDocumentation, true) }}:
+          - template: generate-documentation.yml
+            parameters:
+              ConstructionKits:
+                - '**/Notifications.csproj'
       - task: PublishBuildArtifacts@1
         displayName: 'Publish Artifact: local'
         inputs:
