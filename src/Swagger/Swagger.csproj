@@ -11,8 +11,8 @@
     <ItemGroup>
         <PackageReference Include="Meshmakers.Octo.Communication.Contracts" Version="$(OctoVersion)" />
         <PackageReference Include="Microsoft.AspNetCore.Mvc.Versioning.ApiExplorer" Version="5.1.0" />
-        <PackageReference Include="Swashbuckle.AspNetCore.SwaggerGen" Version="6.7.0" />
-        <PackageReference Include="Swashbuckle.AspNetCore" Version="6.7.0" />
+        <PackageReference Include="Swashbuckle.AspNetCore.SwaggerGen" Version="6.7.3" />
+        <PackageReference Include="Swashbuckle.AspNetCore" Version="6.7.3" />
         <PackageReference Include="Swashbuckle.AspNetCore.Filters" Version="8.0.2" />
     </ItemGroup>
 
