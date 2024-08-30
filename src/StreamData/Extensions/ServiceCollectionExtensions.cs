@@ -1,6 +1,7 @@
 ﻿using Meshmakers.Octo.Services.Common.StreamData.Client;
 using Meshmakers.Octo.Services.Common.StreamData.Configuration;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Options;
 
 namespace Meshmakers.Octo.Services.Common.StreamData.Extensions;
 
@@ -13,12 +14,11 @@ public static class ServiceCollectionExtensions
     /// 
     /// </summary>
     /// <param name="services"></param>
-    /// <param name="configure"></param>
     /// <returns></returns>
-    public static IServiceCollection AddStreamDataDatabase(this IServiceCollection services,
-        Action<StreamDataConfiguration> configure)
+    public static IServiceCollection AddStreamDataDatabase<TConfigureOptions>(this IServiceCollection services)
+        where TConfigureOptions : IConfigureNamedOptions<StreamDataConfiguration>
     {
-        services.Configure(configure);
+        services.ConfigureOptions(typeof(TConfigureOptions));
 
         services.AddSingletonMultipleInterfaces<
             CrateDatabaseClient,
