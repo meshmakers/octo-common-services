@@ -1,17 +1,22 @@
-﻿using Dapper;
+﻿using System.Text;
+using Dapper;
 using Meshmakers.Octo.ConstructionKit.Contracts;
 using Meshmakers.Octo.Services.Common.StreamData.Dapper;
 using Meshmakers.Octo.Services.Common.StreamData.Dtos;
 using Microsoft.Extensions.Diagnostics.HealthChecks;
 using Microsoft.Extensions.Logging;
+using Newtonsoft.Json;
 using Npgsql;
+using NpgsqlTypes;
+using JsonSerializer = Newtonsoft.Json.JsonSerializer;
 
 namespace Meshmakers.Octo.Services.Common.StreamData.Client;
 
 /// <summary>
 /// Client for interacting with the stream data database.
 /// </summary>
-internal class CrateDatabaseClient : IStreamDataDatabaseClient, IStreamDataDatabaseManagementClient, IStreamDataHealthCheckClient
+internal class CrateDatabaseClient : IStreamDataDatabaseClient, IStreamDataDatabaseManagementClient,
+    IStreamDataHealthCheckClient
 {
     private readonly ILogger<CrateDatabaseClient> _logger;
     private readonly ICrateDbConnectionAccess _connectionAccess;
@@ -75,6 +80,41 @@ internal class CrateDatabaseClient : IStreamDataDatabaseClient, IStreamDataDatab
         return dataPointDtos;
     }
 
+
+    private string ToJsonArray(object o)
+    {
+        var json = new JsonSerializer();
+        var sb = new StringBuilder();
+        using var textWriter = new StringWriter(sb);
+        using var jsonWriter = new JsonTextWriter(textWriter)
+        {
+            QuoteChar = '\'',
+        };
+
+        json.Serialize(jsonWriter, o);
+        return sb.ToString();
+    }
+
+    public async Task InsertDataAsync(string tenantId, IEnumerable<DataPointDto> datapoints)
+    {
+        await using var connection = CreateConnection(tenantId);
+
+        var command =
+            new NpgsqlCommand(
+                "insert into " + tenantId + " (\"RtId\", \"CkTypeId\", \"Timestamp\") VALUES (@rtIds, ckTypeIds, @timestamps);",
+                connection);
+        command.Parameters.AddWithValue("@rtIds", NpgsqlDbType.Array | NpgsqlDbType.Text,
+            datapoints.Select(x => x.RtId.ToString()).ToArray());
+        command.Parameters.AddWithValue("@ckTypeIds", NpgsqlDbType.Array | NpgsqlDbType.Text,
+            datapoints.Select(x => x.CkTypeId!.ToString()).ToArray());
+        command.Parameters.AddWithValue("@timestamps", NpgsqlDbType.Array | NpgsqlDbType.Date,
+            datapoints.Select(x => x.Timestamp).ToArray());
+        // command.Parameters.AddWithValue("@data", NpgsqlDbType.Array | NpgsqlDbType.Json,
+        //     datapoints.Select(x => new Json<Dictionary<string, object?>>(x.Attributes.ToDictionary())).ToArray());
+
+        command.ExecuteNonQuery();
+    }
+
     public async Task InsertDataAsync(string tenantId, DataPointDto datapoint)
     {
         var query = string.Format(Queries.InsertStreamDataEntry, tenantId);
@@ -95,14 +135,14 @@ internal class CrateDatabaseClient : IStreamDataDatabaseClient, IStreamDataDatab
     public async Task CreateStreamDataTableIfNotExistAsync(string tenantId)
     {
         await using var connection = CreateConnection(tenantId);
-        
+
         var result = await connection.ExecuteAsync(string.Format(Queries.CreateTableIfNotExists, tenantId));
     }
 
     public async Task DeleteStreamDataDatabaseAsync(string tenantId)
     {
         await using var connection = CreateConnection(tenantId);
-        
+
         var result = await connection.ExecuteAsync(string.Format(Queries.DeleteTableIfExists, tenantId));
     }
 
@@ -124,6 +164,5 @@ internal class CrateDatabaseClient : IStreamDataDatabaseClient, IStreamDataDatab
             _logger.LogError("CrateDB is unhealthy: {Message}", ex.Message);
             return HealthCheckResult.Unhealthy("CrateDB is unhealthy");
         }
-
     }
 }
