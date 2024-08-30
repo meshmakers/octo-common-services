@@ -20,5 +20,5 @@ public record PoolDescription
     /// <summary>
     /// Returns the connection id of the pool
     /// </summary>
-    public string ConnectionId { get; set; } = null!;
+    public string? ConnectionId { get; set; }
 }
