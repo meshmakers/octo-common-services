@@ -16,6 +16,7 @@ public class DefaultConfigurationInitializationService : IAsyncInitializationSer
     /// <summary>
     ///     Constructor
     /// </summary>
+    /// <param name="logger"></param>
     /// <param name="systemContext"></param>
     /// <param name="defaultConfigurationCreatorService"></param>
     public DefaultConfigurationInitializationService(ILogger<DefaultConfigurationInitializationService> logger, 
@@ -30,6 +31,10 @@ public class DefaultConfigurationInitializationService : IAsyncInitializationSer
 
     public async Task InitializeAsync()
     {
+        // Do global initialization here
+        _logger.LogInformation("Initialize default configuration");
+        await _defaultConfigurationCreatorService.InitializeAsync().ConfigureAwait(false);
+        _logger.LogInformation("Initialize default configuration done");
         
         // Call for system tenant
         _logger.LogInformation("Initialize default configuration for system tenant '{TenantId}'", _systemContext.TenantId);

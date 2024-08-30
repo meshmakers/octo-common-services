@@ -6,7 +6,13 @@ namespace Meshmakers.Octo.Services.Infrastructure.Services;
 public interface IDefaultConfigurationCreatorService
 {
     /// <summary>
-    ///     Setups the default configuration
+    ///     Initializes the default configuration
+    /// </summary>
+    /// <returns></returns>
+    Task InitializeAsync();
+    
+    /// <summary>
+    ///     Setups the default configuration for a tenant
     /// </summary>
     /// <param name="tenantId">The tenant id, if null the system tenant is used.</param>
     /// <returns></returns>

@@ -31,6 +31,7 @@ public static class ServiceCollectionExtensions
         services.AddSingleton<IHttpContextAccessor, HttpContextAccessor>();
         services.AddScoped<IMultiTenancyResolverService, MultiTenancyResolverService>();
         services.AddScoped<IKnownOriginsProvider, KnownOriginsProvider>();
+        services.AddScoped<IDiagnosticsService, DiagnosticsService>();
 
         // Adding dependent octo modules
         services.AddDistributionEventHub(c =>
