@@ -16,4 +16,7 @@ internal static class Queries
 
     public const string InsertStreamDataEntry =
         """insert into {0} ("RtId", "CkTypeId", "Timestamp", data) values (@RtId, @CkTypeId, @Timestamp, @data);""";
+
+    public const string InsertStreamDataBulk =
+        """insert into {0}("RtId", "CkTypeId", "Timestamp", "data") SELECT * FROM unnest(@rtIds, @ckTypeIds, @timestamps, @data);""";
 }
