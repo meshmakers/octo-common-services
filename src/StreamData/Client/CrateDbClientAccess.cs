@@ -43,6 +43,7 @@ internal class CrateDbConnectionAccess(
 
             var csb = new NpgsqlConnectionStringBuilder(connectionString);
             var dataSourceBuilder = new NpgsqlDataSourceBuilder(csb.ConnectionString);
+            dataSourceBuilder.EnableDynamicJson([typeof(IReadOnlyDictionary<string, object?>)]);
             var dataSource = dataSourceBuilder.Build();
 
             return dataSource;
