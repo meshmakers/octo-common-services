@@ -88,7 +88,7 @@ internal class CrateDatabaseClient : IStreamDataDatabaseClient, IStreamDataDatab
         using var textWriter = new StringWriter(sb);
         using var jsonWriter = new JsonTextWriter(textWriter)
         {
-            QuoteChar = '\'',
+            QuoteChar = '\"',
         };
 
         json.Serialize(jsonWriter, o);
@@ -99,20 +99,33 @@ internal class CrateDatabaseClient : IStreamDataDatabaseClient, IStreamDataDatab
     {
         await using var connection = CreateConnection(tenantId);
 
-        var command =
-            new NpgsqlCommand(
-                "insert into " + tenantId + " (\"RtId\", \"CkTypeId\", \"Timestamp\") VALUES (@rtIds, ckTypeIds, @timestamps);",
-                connection);
-        command.Parameters.AddWithValue("@rtIds", NpgsqlDbType.Array | NpgsqlDbType.Text,
-            datapoints.Select(x => x.RtId.ToString()).ToArray());
-        command.Parameters.AddWithValue("@ckTypeIds", NpgsqlDbType.Array | NpgsqlDbType.Text,
-            datapoints.Select(x => x.CkTypeId!.ToString()).ToArray());
-        command.Parameters.AddWithValue("@timestamps", NpgsqlDbType.Array | NpgsqlDbType.Date,
-            datapoints.Select(x => x.Timestamp).ToArray());
-        // command.Parameters.AddWithValue("@data", NpgsqlDbType.Array | NpgsqlDbType.Json,
-        //     datapoints.Select(x => new Json<Dictionary<string, object?>>(x.Attributes.ToDictionary())).ToArray());
+        // var command =
+        //     new NpgsqlCommand(
+        //         "insert into " + tenantId + " (\"RtId\", \"CkTypeId\", \"Timestamp\") VALUES (UNNEST(@rtIds), UNNEST(@ckTypeIds), UNNEST(@timestamps));",
+        //         connection);
+        // command.Parameters.AddWithValue("@rtIds", NpgsqlDbType.Array | NpgsqlDbType.Text,
+        //     datapoints.Select(x => x.RtId.ToString()).ToArray());
+        // command.Parameters.AddWithValue("@ckTypeIds", NpgsqlDbType.Array | NpgsqlDbType.Text,
+        //     datapoints.Select(x => x.CkTypeId!.ToString()).ToArray());
+        // command.Parameters.AddWithValue("@timestamps", NpgsqlDbType.Array | NpgsqlDbType.Date,
+        //     datapoints.Select(x => x.Timestamp).ToArray());
+        // // command.Parameters.AddWithValue("@data", NpgsqlDbType.Array | NpgsqlDbType.Json,
+        // //     datapoints.Select(x => new Json<Dictionary<string, object?>>(x.Attributes.ToDictionary())).ToArray());
 
-        command.ExecuteNonQuery();
+        // command.ExecuteNonQuery();
+
+        var sql = new StringBuilder();
+
+        sql.Append($"INSERT INTO {tenantId} (\"RtId\", \"CkTypeId\", \"Timestamp\", \"data\") VALUES ");
+        foreach (var datapoint in datapoints)
+        {
+            sql.Append(
+                $"('{datapoint.RtId.ToString()}', '{datapoint.CkTypeId!.ToString()}', '{datapoint.Timestamp.ToString("u")}','{ToJsonArray(datapoint.Attributes)}'),");
+        }
+
+        sql.Remove(sql.Length - 1, 1);
+
+        await connection.ExecuteAsync(sql.ToString());
     }
 
     public async Task InsertDataAsync(string tenantId, DataPointDto datapoint)
