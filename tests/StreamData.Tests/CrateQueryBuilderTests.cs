@@ -165,4 +165,19 @@ public class CrateQueryBuilderTests
             """SELECT "Timestamp" AS "T", AVG("data['Voltage']") AS "V", MIN("data['Voltage']") AS "MinV", MAX("data['Voltage']") AS "MaxV" FROM meshtest GROUP BY "T" ORDER BY "T" DESC, "MaxV" ASC""",
             query);
     }
+    
+    [Fact]
+    public void IncludeCkTypeId_ReturnsValidQuery()
+    {
+        var queryBuilder = new CrateQueryBuilder("meshtest");
+        queryBuilder.IncludeDefaultVariables();
+        queryBuilder.WithCkTypeIdFilter("123");
+
+        var compiler = new CrateQueryCompiler();
+        var query = compiler.CompileQuery(queryBuilder);
+
+        Assert.Equal(
+            """SELECT "Timestamp", "RtId", "CkTypeId" FROM meshtest WHERE "CkTypeId" = '123'""",
+            query);
+    }
 }

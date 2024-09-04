@@ -44,10 +44,21 @@ public class CrateQueryCompiler
 
         query.Append($" FROM {queryBuilder.TenantId}");
 
-        if (queryBuilder.VariableInListVariables.Any() || queryBuilder is { From: not null, To: not null })
+        if (queryBuilder.VariableInListVariables.Any() || queryBuilder is { From: not null, To: not null } || queryBuilder.CkTypeId != null)
         {
             // we can only have one where clause, but we can connect it with AND
             query.Append(" WHERE ");
+        }
+        
+        if(queryBuilder.CkTypeId != null)
+        {
+            query.Append($"\"CkTypeId\" = '{queryBuilder.CkTypeId}'");
+
+            if (queryBuilder.VariableInListVariables.Any() || queryBuilder is { From: not null, To: not null })
+            {
+                query.Append(" AND ");
+            }
+            
         }
         
         if (queryBuilder.VariableInListVariables.Any())

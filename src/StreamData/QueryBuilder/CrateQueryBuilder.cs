@@ -59,6 +59,8 @@ public class CrateQueryBuilder
     internal int? Limit { get; private set; }
     
     internal int? Offset { get; private set; }
+    
+    internal string? CkTypeId { get; private set; }
 
     /// <summary>
     /// Constructor
@@ -83,6 +85,17 @@ public class CrateQueryBuilder
     }
 
     /// <summary>
+    /// Adds a type filter to the query
+    /// </summary>
+    /// <param name="CkTypeId"></param>
+    /// <returns></returns>
+    public CrateQueryBuilder WithCkTypeIdFilter(string CkTypeId)
+    {
+        this.CkTypeId = CkTypeId;
+        return this;
+    }
+
+    /// <summary>
     /// Adds a normal variable to the query
     /// </summary>
     /// <param name="variableName"></param>
@@ -93,6 +106,13 @@ public class CrateQueryBuilder
     public CrateQueryBuilder AddVariable(string variableName, string? alias = null, AggregationFunctionDto? aggregationFunction = null, bool isDataVariable = false)
     {
         IQueryVariable variable = new QueryVariable(variableName, alias, aggregationFunction, isDataVariable);
+        
+        var idx = Variables.FindIndex(x => x.Name == variable.Name || x.Alias == variable.Alias);
+        if (idx != -1)
+        {
+            Variables[idx] = variable;
+            return this;
+        }
         Variables.Add(variable);
         return this;
     }
