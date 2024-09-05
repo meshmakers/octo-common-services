@@ -27,6 +27,11 @@ public abstract class DefaultConfigurationCreatorServiceBase(ILogger<DefaultConf
         {
             await SetupTenantAsync(tenantId).ConfigureAwait(false);
         }
+        catch (Exception ex)
+        {
+            logger.LogError(ex, "Setup tenant failed: '{TenantId}'", tenantId);
+            throw;
+        }
         finally
         {
             TenantsInHandling.Remove(tenantId, out _);
