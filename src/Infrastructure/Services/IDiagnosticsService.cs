@@ -11,6 +11,9 @@ public interface IDiagnosticsService
     /// Reconfigure the log level of the service.
     /// </summary>
     /// <param name="minLogLevel">Minimal log level to be logged.</param>
+    /// <param name="maxLogLevel">Maximum log level to be logged.</param>
+    /// <param name="loggerName">The name of the logger to be reconfigured.</param>
     /// <returns></returns>
-    Task ReconfigureLogLevelAsync(LogLevelDto minLogLevel);
+    Task ReconfigureLogLevelAsync(LogLevelDto minLogLevel, LogLevelDto maxLogLevel = LogLevelDto.Fatal,
+        string loggerName = "*");
 }

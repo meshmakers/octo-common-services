@@ -8,20 +8,20 @@ namespace Meshmakers.Octo.Services.Infrastructure.Services;
 /// </summary>
 public class DiagnosticsService : IDiagnosticsService
 {
-    /// <summary>
-    /// Reconfigure the log level of the service.
-    /// </summary>
-    /// <param name="minLogLevel">Minimal log level to be logged.</param>
-    /// <returns></returns>
-    public Task ReconfigureLogLevelAsync(LogLevelDto minLogLevel)
+    public Task ReconfigureLogLevelAsync(LogLevelDto minLogLevel, LogLevelDto maxLogLevel = LogLevelDto.Fatal,
+        string loggerName = "Meshmakers.*")
     {
-        var logLevel = LogLevel.FromOrdinal((int)minLogLevel);
+        var minLevel = LogLevel.FromOrdinal((int)minLogLevel);
+        var maxLevel = LogLevel.FromOrdinal((int)maxLogLevel);
         foreach (var rule in LogManager.Configuration.LoggingRules)
         {
-            rule.DisableLoggingForLevels(LogLevel.Trace, LogLevel.Fatal);
-            rule.EnableLoggingForLevels(logLevel, LogLevel.Fatal);
+            if (rule.LoggerNamePattern == loggerName)
+            {
+                rule.DisableLoggingForLevels(LogLevel.Trace, LogLevel.Fatal);
+                rule.EnableLoggingForLevels(minLevel, maxLevel);
+            }
         }
-
+        
         LogManager.ReconfigExistingLoggers();
 
         return Task.CompletedTask;
