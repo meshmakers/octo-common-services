@@ -9,31 +9,31 @@ internal class DistributedTenantNotifications(IDistributionEventHubService distr
 {
     public Task NotifyPreTenantCreateAsync(string tenantId, Guid correlationId)
     {
-        return distributionEventHubService.PublishAsync(new PreCreateTenant(tenantId, correlationId));
+        return distributionEventHubService.PublishAsync(new PreCreateTenant(tenantId, correlationId, DateTime.Now));
     }
 
     public Task NotifyPosTenantCreateAsync(string tenantId, Guid correlationId)
     {
-        return distributionEventHubService.PublishAsync(new PosCreateTenant(tenantId, correlationId));
+        return distributionEventHubService.PublishAsync(new PosCreateTenant(tenantId, correlationId, DateTime.Now));
     }
 
     public Task NotifyPreTenantUpdateAsync(string tenantId, Guid correlationId)
     {
-        return distributionEventHubService.PublishAsync(new PreUpdateTenant(tenantId, correlationId));
+        return distributionEventHubService.PublishAsync(new PreUpdateTenant(tenantId, correlationId, DateTime.Now));
     }
 
     public Task NotifyPosTenantUpdateAsync(string tenantId, Guid correlationId)
     {
-        return distributionEventHubService.PublishAsync(new PosUpdateTenant(tenantId, correlationId));
+        return distributionEventHubService.PublishAsync(new PosUpdateTenant(tenantId, correlationId, DateTime.Now));
     }
 
     public Task NotifyPreTenantDeleteAsync(string tenantId, Guid correlationId)
     {
-        return distributionEventHubService.PublishAsync(new PreDeleteTenant(tenantId, correlationId));
+        return distributionEventHubService.PublishAsync(new PreDeleteTenant(tenantId, correlationId, DateTime.Now));
     }
 
     public Task NotifyPosTenantDeleteAsync(string tenantId, Guid correlationId)
     {
-        return distributionEventHubService.PublishAsync(new PosDeleteTenant(tenantId, correlationId));
+        return distributionEventHubService.PublishAsync(new PosDeleteTenant(tenantId, correlationId, DateTime.Now));
     }
 }
