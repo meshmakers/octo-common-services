@@ -4,42 +4,36 @@ using Meshmakers.Octo.Services.Common.DistributionEventHub.Messages;
 
 namespace Meshmakers.Octo.Services.Infrastructure.Services;
 
-internal class DistributedTenantNotifications : ITenantNotifications
+internal class DistributedTenantNotifications(IDistributionEventHubService distributionEventHubService)
+    : ITenantNotifications
 {
-    private readonly IDistributionEventHubService _distributionEventHubService;
-
-    public DistributedTenantNotifications(IDistributionEventHubService distributionEventHubService)
+    public Task NotifyPreTenantCreateAsync(string tenantId, Guid correlationId)
     {
-        _distributionEventHubService = distributionEventHubService;
-    }
-    
-    public Task NotifyPreTenantCreateAsync(string tenantId)
-    {
-        return _distributionEventHubService.PublishAsync(new PreCreateTenant(tenantId));
+        return distributionEventHubService.PublishAsync(new PreCreateTenant(tenantId, correlationId));
     }
 
-    public Task NotifyPosTenantCreateAsync(string tenantId)
+    public Task NotifyPosTenantCreateAsync(string tenantId, Guid correlationId)
     {
-        return _distributionEventHubService.PublishAsync(new PosCreateTenant(tenantId));
+        return distributionEventHubService.PublishAsync(new PosCreateTenant(tenantId, correlationId));
     }
 
-    public Task NotifyPreTenantUpdateAsync(string tenantId)
+    public Task NotifyPreTenantUpdateAsync(string tenantId, Guid correlationId)
     {
-        return _distributionEventHubService.PublishAsync(new PreUpdateTenant(tenantId));
+        return distributionEventHubService.PublishAsync(new PreUpdateTenant(tenantId, correlationId));
     }
 
-    public Task NotifyPosTenantUpdateAsync(string tenantId)
+    public Task NotifyPosTenantUpdateAsync(string tenantId, Guid correlationId)
     {
-        return _distributionEventHubService.PublishAsync(new PosUpdateTenant(tenantId));
+        return distributionEventHubService.PublishAsync(new PosUpdateTenant(tenantId, correlationId));
     }
 
-    public Task NotifyPreTenantDeleteAsync(string tenantId)
+    public Task NotifyPreTenantDeleteAsync(string tenantId, Guid correlationId)
     {
-        return _distributionEventHubService.PublishAsync(new PreDeleteTenant(tenantId));
+        return distributionEventHubService.PublishAsync(new PreDeleteTenant(tenantId, correlationId));
     }
 
-    public Task NotifyPosTenantDeleteAsync(string tenantId)
+    public Task NotifyPosTenantDeleteAsync(string tenantId, Guid correlationId)
     {
-        return _distributionEventHubService.PublishAsync(new PosDeleteTenant(tenantId));
+        return distributionEventHubService.PublishAsync(new PosDeleteTenant(tenantId, correlationId));
     }
 }
