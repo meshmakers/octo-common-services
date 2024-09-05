@@ -1,5 +1,7 @@
 using Meshmakers.Octo.Communication.Contracts.DataTransferObjects;
 using NLog;
+using NLog.Config;
+using NLog.Fluent;
 
 namespace Meshmakers.Octo.Services.Infrastructure.Services;
 
@@ -13,15 +15,32 @@ public class DiagnosticsService : IDiagnosticsService
     {
         var minLevel = LogLevel.FromOrdinal((int)minLogLevel);
         var maxLevel = LogLevel.FromOrdinal((int)maxLogLevel);
-        foreach (var rule in LogManager.Configuration.LoggingRules)
+
+        var loggingRule = LogManager.Configuration.LoggingRules.SingleOrDefault(r => r.LoggerNamePattern == loggerName);
+        
+        // If the logger is disabled, remove the logging rule
+        if (minLevel == LogLevel.Off && maxLevel == LogLevel.Off && loggerName != "*")
         {
-            if (rule.LoggerNamePattern == loggerName)
+            if (loggingRule != null)
             {
-                rule.DisableLoggingForLevels(LogLevel.Trace, LogLevel.Fatal);
-                rule.EnableLoggingForLevels(minLevel, maxLevel);
+                LogManager.Configuration.LoggingRules.Remove(loggingRule);
+                LogManager.ReconfigExistingLoggers();
             }
+            return Task.CompletedTask;
         }
         
+        // Create a new logging rule if it does not exist
+        if (loggingRule == null)
+        {
+            var target = LogManager.Configuration.FindTargetByName("coloredConsole");
+            loggingRule = new LoggingRule(loggerName, target);
+            LogManager.Configuration.LoggingRules.Insert(0, loggingRule);
+        }
+        
+        // Configure the logging rule
+        loggingRule.DisableLoggingForLevels(LogLevel.Trace, LogLevel.Fatal);
+        loggingRule.EnableLoggingForLevels(minLevel, maxLevel);
+
         LogManager.ReconfigExistingLoggers();
 
         return Task.CompletedTask;
