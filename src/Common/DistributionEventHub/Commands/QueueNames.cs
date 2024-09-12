@@ -44,4 +44,9 @@ public static class QueueNames
     /// The pipeline trigger queue
     /// </summary>
     public const string PipelineTriggerQueue = $"queue:{PipelineTriggerChannelName}";
+    
+    /// <summary>
+    /// Execute mesh pipeline command
+    /// </summary>
+    public const string ExecuteMeshPipelineCommand = "com-controller::execute-mesh-pipeline";
 }
