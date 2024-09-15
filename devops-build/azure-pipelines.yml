@@ -23,7 +23,7 @@ variables:
   - name: MajorVersion
     value: '0'
   - name: MinorVersion
-    value: '0'
+    value: '1'
   - name: generateDocumentation
     value: 'true'
 
