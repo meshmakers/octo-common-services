@@ -22,10 +22,12 @@ internal class CrateDbConnectionAccess(
     : ICrateDbConnectionAccess
 {
     private readonly IMemoryCache _cache = new MemoryCache(new MemoryCacheOptions());
+    private readonly SemaphoreSlim _semaphore = new(1, 1);
 
     public NpgsqlConnection CreateConnection(string tenantId)
     {
         var cacheKey = NormalizeTenantId(tenantId);
+        _semaphore.Wait();
 
         var dataSource = _cache.GetOrCreate<NpgsqlDataSource>(cacheKey, f =>
         {
@@ -48,6 +50,8 @@ internal class CrateDbConnectionAccess(
 
             return dataSource;
         });
+        
+        _semaphore.Release();
         
         if (dataSource == null)
         {
