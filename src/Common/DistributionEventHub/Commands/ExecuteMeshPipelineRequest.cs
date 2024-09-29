@@ -1,5 +1,3 @@
-using Meshmakers.Octo.ConstructionKit.Contracts;
-
 namespace Meshmakers.Octo.Services.Common.DistributionEventHub.Commands;
 
 /// <summary>
@@ -11,19 +9,12 @@ public record ExecuteMeshPipelineRequest : CommandBaseRequest
     ///     Constructor
     /// </summary>
     /// <param name="tenantId">Tenant id</param>
-    /// <param name="meshPipelineRtEntityId">Mesh pipeline runtime entity id</param>
     /// <param name="pipelineInput">Optional pipeline input</param>
-    public ExecuteMeshPipelineRequest(string tenantId, RtEntityId meshPipelineRtEntityId, string? pipelineInput)
+    public ExecuteMeshPipelineRequest(string tenantId, string? pipelineInput)
         : base(tenantId)
     {
-        MeshPipelineRtEntityId = meshPipelineRtEntityId;
         PipelineInput = pipelineInput;
     }
-
-    /// <summary>
-    /// Mesh pipeline runtime entity id
-    /// </summary>
-    public RtEntityId MeshPipelineRtEntityId { get; init; }
 
     /// <summary>
     /// An optional value as pipeline input
