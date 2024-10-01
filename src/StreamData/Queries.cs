@@ -31,8 +31,8 @@ internal static class Queries
 
     public const string InsertStreamDataBulk =
         """
-        INSERT INTO {0} ("RtId", "CkTypeId", "Timestamp", "RtWellKnownName" "data")
-        SELECT * FROM unnest(@rtIds, @ckTypeIds, @timestamps,@rtWellKnownNames, @data)
+        INSERT INTO {0} ("RtId", "CkTypeId", "Timestamp", "RtWellKnownName", "data")
+        SELECT * FROM unnest(@rtIds, @ckTypeIds, @timestamps, @rtWellKnownNames, @data)
         ON CONFLICT ("Timestamp", "RtId", "CkTypeId")
         DO UPDATE SET
             "data" = "data" || EXCLUDED."data",
