@@ -28,6 +28,11 @@ public class DataPointDto : RtTypeWithAttributes
     public CkId<CkTypeId>? CkTypeId { get; set; }
     
     /// <summary>
+    /// the optional well known name of the entity that the datapoint is associated with.
+    /// </summary>
+    public string? RtWellKnownName { get; set; }
+    
+    /// <summary>
     /// The timestamp in UTC.
     /// </summary>
     public DateTime Timestamp { get; set; }

@@ -97,6 +97,8 @@ internal class CrateDatabaseClient : IStreamDataDatabaseClient, IStreamDataDatab
             d.Select(x => x.CkTypeId!.ToString()).ToArray()));
         command.Parameters.Add(new NpgsqlParameter<DateTime[]>("@timestamps",
             d.Select(x => x.Timestamp).ToArray()));
+        command.Parameters.Add(new NpgsqlParameter<string?[]>("@rtWellKnownNames",
+            d.Select(x => x.RtWellKnownName).ToArray()));
         command.Parameters.Add(dataParameter);
 
         command.ExecuteNonQuery();
