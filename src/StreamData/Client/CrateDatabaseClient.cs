@@ -70,6 +70,21 @@ internal class CrateDatabaseClient : IStreamDataDatabaseClient, IStreamDataDatab
                 var typeId = new CkId<CkTypeId>(ckTypeIdValue as string ?? "");
                 dp.CkTypeId = typeId;
             }
+            
+            if(result.TryGetValue(Constants.RtWellKnownName, out var rtWellKnownName))
+            {
+                dp.RtWellKnownName = rtWellKnownName as string;
+            }
+            
+            if(result.TryGetValue(Constants.RtChangedDateTime, out var rtChangedDateTime))
+            {
+                dp.RtChangedDateTime = (DateTime)rtChangedDateTime!;
+            }
+            
+            if(result.TryGetValue(Constants.RtCreationDateTime, out var rtCreationDateTime))
+            {
+                dp.RtCreationDateTime = (DateTime)rtCreationDateTime!;
+            }
 
             dataPointDtos.Add(dp);
         }

@@ -19,11 +19,26 @@ public static class Constants
     /// CkId
     /// </summary>
     public const string CkTypeId = "CkTypeId";
+    
+    /// <summary>
+    /// RtWellKnownName
+    /// </summary>
+    public const string RtWellKnownName = "RtWellKnownName";
+    
+    /// <summary>
+    /// RtCreationDateTime
+    /// </summary>
+    public const string RtCreationDateTime = "RtCreationDateTime";
+    
+    /// <summary>
+    /// RtChangedDateTime
+    /// </summary>
+    public const string RtChangedDateTime = "RtChangedDateTime";
 
     /// <summary>
     /// Default stream data fields
     /// </summary>
-    public static readonly string[] DefaultStreamDataFields = [Timestamp, RtId, CkTypeId];
+    public static readonly string[] DefaultStreamDataFields = [Timestamp, RtId, CkTypeId, RtWellKnownName, RtCreationDateTime, RtChangedDateTime];
 
     /// <summary>
     /// Date time format

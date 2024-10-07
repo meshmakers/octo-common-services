@@ -38,19 +38,14 @@ public class DataPointDto : RtTypeWithAttributes
     public DateTime Timestamp { get; set; }
     
     /// <summary>
-    /// when was the datapoint received by the plug
+    /// The creation date time of the entity
     /// </summary>
-    public DateTime AdapterReceivedTimestamp { get; set; }
+    public DateTime RtCreationDateTime { get; set; }
     
     /// <summary>
-    /// The id of the plug that received the data point
+    /// The last changed date time of the entity
     /// </summary>
-    public OctoObjectId PlugId { get; set; }
-    
-    /// <summary>
-    /// the external id of the data point
-    /// </summary>
-    public OctoObjectId ExternalId { get; set; }
+    public DateTime RtChangedDateTime { get; set; }
     
     /// <summary>
     /// 
