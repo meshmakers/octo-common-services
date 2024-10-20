@@ -1,11 +1,12 @@
 using System.Text.Json.Serialization;
 using Meshmakers.Octo.ConstructionKit.Contracts;
 using Meshmakers.Octo.ConstructionKit.Contracts.Serialization;
+using Meshmakers.Octo.Runtime.Contracts.Serialization;
 
 namespace Meshmakers.Octo.Services.Common.DistributionEventHub.Commands;
 
 /// <summary>
-///     Requests the export of an Runtime model by a query.
+///     Requests the export of a Runtime model by a query.
 /// </summary>
 // ReSharper disable once ClassNeverInstantiated.Global
 public record ExportRtByQueryCommandRequest : CommandBaseRequest
@@ -25,5 +26,6 @@ public record ExportRtByQueryCommandRequest : CommandBaseRequest
     ///     Query id to export
     /// </summary>
     [JsonConverter(typeof(OctoObjectIdConverter))]
+    [Newtonsoft.Json.JsonConverter(typeof(NewtonOctoObjectIdConverter))]
     public OctoObjectId QueryId { get; set; }
 }
