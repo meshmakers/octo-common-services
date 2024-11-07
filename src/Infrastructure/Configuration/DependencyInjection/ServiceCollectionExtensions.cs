@@ -1,11 +1,13 @@
 using Meshmakers.Octo.Common.DistributionEventHub.Configuration;
 using Meshmakers.Octo.Common.DistributionEventHub.Repository;
 using Meshmakers.Octo.Runtime.Contracts.MongoDb.Services;
+using Meshmakers.Octo.Services.Common;
 using Meshmakers.Octo.Services.Common.Cors;
 using Meshmakers.Octo.Services.Common.DistributionEventHub.Messages;
 using Meshmakers.Octo.Services.Infrastructure.Consumers;
 using Meshmakers.Octo.Services.Infrastructure.DistributionEventHub;
 using Meshmakers.Octo.Services.Infrastructure.Services;
+using Microsoft.AspNetCore.Cors.Infrastructure;
 using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 
@@ -29,6 +31,7 @@ public static class ServiceCollectionExtensions
         services.AddScoped<IMultiTenancyResolverService, MultiTenancyResolverService>();
         services.AddScoped<IKnownOriginsProvider, KnownOriginsProvider>();
         services.AddScoped<IDiagnosticsService, DiagnosticsService>();
+        services.AddSingletonMultipleInterfaces<CorsPolicyProvider, ICorsPolicyProvider>();
     }
 
     /// <summary>
