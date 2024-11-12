@@ -41,12 +41,13 @@ internal class ObservabilityBuilder(IConfigurationManager config, IServiceCollec
             }
         });
 
+        var healthChecksBuilder = Services.AddHealthChecks();
         if (OperatingSystem.IsWindows() || OperatingSystem.IsLinux())
         {
-            Services.AddResourceMonitoring();
+            healthChecksBuilder
+                .AddResourceUtilizationHealthCheck();
         }
 
-        return Services.AddHealthChecks()
-            .AddResourceUtilizationHealthCheck();
+        return healthChecksBuilder;
     }
 }
