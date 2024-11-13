@@ -1,4 +1,4 @@
-<Project Sdk="Microsoft.NET.Sdk">
+<Project Sdk="Microsoft.NET.Sdk.Web">
 
     <PropertyGroup>
         <AssemblyName>Meshmakers.Octo.Services.Infrastructure</AssemblyName>
@@ -6,11 +6,11 @@
         <RootNamespace>Meshmakers.Octo.Services.Infrastructure</RootNamespace>
         <Configurations>Debug;Release;DebugL</Configurations>
         <Platforms>AnyCPU</Platforms>
+        <OutputType>Library</OutputType>
     </PropertyGroup>
 
     <ItemGroup>
         <PackageReference Include="Markdig" Version="0.38.0" />
-        <PackageReference Include="Microsoft.AspNetCore.Http.Abstractions" Version="2.2.0"/>
         <PackageReference Include="Microsoft.Extensions.Hosting.Abstractions" Version="8.0.1" />
     </ItemGroup>
 

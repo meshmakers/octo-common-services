@@ -38,7 +38,7 @@ public class CookieBasedAuthorizationMiddleware
                     if (tokenStringValues.Count > 0)
                     {
                         context.Response.Cookies.Append(CookieName, tokenStringValues[0] ?? string.Empty);
-                        context.Request.Headers.Add(AuthorizationHeaderName, new[] { $"{BearerPrefix} {tokenStringValues[0]}" });
+                        context.Request.Headers.Append(AuthorizationHeaderName, new[] { $"{BearerPrefix} {tokenStringValues[0]}" });
                     }
                 }
 
@@ -46,7 +46,7 @@ public class CookieBasedAuthorizationMiddleware
                 {
                     if (!string.IsNullOrWhiteSpace(token))
                     {
-                        context.Request.Headers.Add(AuthorizationHeaderName, new[] { $"{BearerPrefix} {token}" });
+                        context.Request.Headers.Append(AuthorizationHeaderName, new[] { $"{BearerPrefix} {token}" });
                     }
                 }
             }

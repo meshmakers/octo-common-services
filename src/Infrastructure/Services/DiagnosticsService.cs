@@ -1,7 +1,7 @@
 using Meshmakers.Octo.Communication.Contracts.DataTransferObjects;
 using NLog;
 using NLog.Config;
-using NLog.Fluent;
+using LogLevel = NLog.LogLevel;
 
 namespace Meshmakers.Octo.Services.Infrastructure.Services;
 

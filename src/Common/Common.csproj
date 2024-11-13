@@ -1,4 +1,4 @@
-﻿<Project Sdk="Microsoft.NET.Sdk">
+﻿<Project Sdk="Microsoft.NET.Sdk.Web">
 
     <PropertyGroup>
         <AssemblyName>Meshmakers.Octo.Services.Common</AssemblyName>
@@ -10,13 +10,14 @@
         <DocumentationFile>..\..\bin\$(Configuration)\$(AssemblyName).xml</DocumentationFile>
         <Configurations>Debug;Release;DebugL</Configurations>
         <Platforms>AnyCPU</Platforms>
+        <OutputType>Library</OutputType>
+        <IsPackable>true</IsPackable>
     </PropertyGroup>
 
     <ItemGroup>
         <PackageReference Include="Meshmakers.Octo.Common.DistributionEventHub" Version="$(OctoVersion)" />
         <PackageReference Include="Meshmakers.Octo.Sdk.ServiceClient" Version="$(OctoVersion)" />
         <PackageReference Include="IdentityModel" Version="7.0.0" />
-        <PackageReference Include="Microsoft.AspNetCore.Mvc.Cors" Version="2.2.0" />
         <PackageReference Include="Newtonsoft.Json" Version="13.0.3" />
         <PackageReference Include="NLog" Version="5.3.4" />
     </ItemGroup>
