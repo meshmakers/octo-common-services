@@ -11,24 +11,24 @@
 
     <ItemGroup>
         <PackageReference Include="Markdig" Version="0.38.0" />
-        <PackageReference Include="Microsoft.Extensions.Hosting.Abstractions" Version="8.0.1" />
+        <PackageReference Include="Microsoft.Extensions.Hosting.Abstractions" Version="9.0.0" />
     </ItemGroup>
 
     <ItemGroup>
         <None Include="..\..\assets\meshmakers64.png">
             <Pack>True</Pack>
-            <PackagePath/>
+            <PackagePath />
             <Link>meshmakers64.png</Link>
         </None>
     </ItemGroup>
 
     <ItemGroup>
-        <ProjectReference Include="..\Common\Common.csproj"/>
-        <ProjectReference Include="$(OctoConstructionKitPath)src\Runtime.Contracts.MongoDb\Runtime.Contracts.MongoDb.csproj"/>
+        <ProjectReference Include="..\Common\Common.csproj" />
+        <ProjectReference Include="$(OctoConstructionKitPath)src\Runtime.Contracts.MongoDb\Runtime.Contracts.MongoDb.csproj" />
     </ItemGroup>
 
     <ItemGroup>
-        <None Remove="Assets\materialize.min.css"/>
-        <EmbeddedResource Include="Assets\materialize.min.css"/>
+        <None Remove="Assets\materialize.min.css" />
+        <EmbeddedResource Include="Assets\materialize.min.css" />
     </ItemGroup>
 </Project>
