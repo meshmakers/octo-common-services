@@ -92,7 +92,7 @@ public class ConfigureSwaggerOptions : IConfigureOptions<SwaggerGenOptions>
             Title = _options.Value.ApiTitle,
             Version = description.ApiVersion.ToString(),
             Description = _options.Value.ApiDescription,
-            Contact = new OpenApiContact { Name = "Gerald Lochner", Email = "gerald.lochner@salzburgdev.at" },
+            Contact = new OpenApiContact { Name = "meshmakers GmbH", Email = "support@meshmakers.io" },
             License = new OpenApiLicense { Name = "MIT", Url = new Uri("https://opensource.org/licenses/MIT") }
         };
 
