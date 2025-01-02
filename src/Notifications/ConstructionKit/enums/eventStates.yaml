@@ -1,0 +1,10 @@
+$schema: https://schemas.meshmakers.cloud/construction-kit-elements.schema.json
+enums:
+  - enumId: EventStates
+    values:
+      - key: 0
+        name: Active
+      - key: 1
+        name: Inactive
+      - key: 2
+        name: Error

@@ -1,0 +1,15 @@
+"$schema": "https://schemas.meshmakers.cloud/construction-kit-elements.schema.json"
+types:
+  - typeId: Event
+    derivedFromCkTypeId: System/Entity
+    isFinal: false
+    isAbstract: false
+    attributes:
+      - id: ${thisModel}/SubjectText
+        name: SubjectText
+      - id: ${thisModel}/BodyText
+        name: BodyText
+        isOptional: true
+      - id: ${thisModel}/EventLevel
+        name: Level
+

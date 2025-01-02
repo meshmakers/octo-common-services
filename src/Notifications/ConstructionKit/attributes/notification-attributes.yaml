@@ -1,0 +1,14 @@
+"$schema": "https://schemas.meshmakers.cloud/construction-kit-elements.schema.json"
+attributes:
+  - id: BodyTemplate
+    description: The body of the event as a template
+    valueType: String
+  - id: SubjectTemplate
+    description: The subject of the event as a template
+    valueType: String
+  - id: NotificationType
+    description: Defines the type of the notification (Email, SMS, Push)
+    valueType: Enum
+    valueCkEnumId: ${thisModel}/NotificationTypes
+    
+

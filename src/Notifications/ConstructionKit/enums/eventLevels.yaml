@@ -1,10 +1,10 @@
 $schema: https://schemas.meshmakers.cloud/construction-kit-elements.schema.json
 enums:
-  - enumId: NotificationStates
+  - enumId: EventLevels
     values:
       - key: 0
-        name: Pending
+        name: Information
       - key: 1
-        name: Sent
+        name: Warning
       - key: 2
         name: Error

@@ -6,3 +6,5 @@ enums:
         name: EMail
       - key: 2
         name: SMS
+      - key: 3
+        name: Push        

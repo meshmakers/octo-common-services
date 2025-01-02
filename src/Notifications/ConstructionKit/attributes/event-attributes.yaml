@@ -1,0 +1,18 @@
+"$schema": "https://schemas.meshmakers.cloud/construction-kit-elements.schema.json"
+attributes:
+  - id: BodyText
+    description: The body of the event
+    valueType: String
+  - id: SubjectText
+    description: The subject of the event
+    valueType: String
+  - id: EventLevel
+    description: Defines the level of the event (Information, Warning, Error)
+    valueType: Enum
+    valueCkEnumId: ${thisModel}/EventLevels
+  - id: EventState
+    description: Defines the state of the event (Active, Inactive)
+    valueType: Enum
+    valueCkEnumId: ${thisModel}/EventStates
+    
+

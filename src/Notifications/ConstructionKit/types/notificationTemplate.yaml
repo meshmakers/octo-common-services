@@ -1,0 +1,14 @@
+"$schema": "https://schemas.meshmakers.cloud/construction-kit-elements.schema.json"
+types:
+  - typeId: NotificationTemplate
+    derivedFromCkTypeId: System/Entity
+    isFinal: false
+    isAbstract: false
+    attributes:
+      - id: ${thisModel}/SubjectTemplate
+        name: SubjectTemplate
+      - id: ${thisModel}/BodyTemplate
+        name: BodyTemplate
+      - id: ${thisModel}/NotificationType
+        name: Type
+

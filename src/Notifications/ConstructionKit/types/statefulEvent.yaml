@@ -1,0 +1,10 @@
+"$schema": "https://schemas.meshmakers.cloud/construction-kit-elements.schema.json"
+types:
+  - typeId: StatefulEvent
+    derivedFromCkTypeId: ${thisModel}/Event
+    isFinal: false
+    isAbstract: false
+    attributes:
+      - id: ${thisModel}/EventState
+        name: State
+
