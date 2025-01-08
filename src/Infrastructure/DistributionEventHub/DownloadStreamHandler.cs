@@ -11,7 +11,7 @@ internal class DownloadStreamHandler(Runtime.Contracts.MongoDb.Repositories.IDow
         streamHandler.Dispose();
     }
 
-    public ObjectId Id => ObjectId.Parse(streamHandler.Id.ToString());
+    public string Id => streamHandler.Id.ToString();
     public string ContentType => streamHandler.ContentType;
     public DateTime UploadDateTime => streamHandler.UploadDateTime;
     public Stream Stream => streamHandler.Stream;
