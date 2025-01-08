@@ -1,5 +1,5 @@
+using Asp.Versioning.ApiExplorer;
 using Microsoft.AspNetCore.Builder;
-using Microsoft.AspNetCore.Mvc.ApiExplorer;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Options;
 
@@ -14,22 +14,22 @@ public static class ApplicationBuilderExtensions
     /// <returns></returns>
     // ReSharper disable once UnusedMethodReturnValue.Global
     public static IApplicationBuilder UseOctoApiVersioningAndDocumentation(
-        this IApplicationBuilder app)
+        this WebApplication app)
     {
         // Enable middleware to serve generated Swagger as a JSON endpoint.
-        app.UseSwagger();
+        app.MapOpenApi();
 
         // Enable middleware to serve swagger-ui (HTML, JS, CSS, etc.), 
         // specifying the Swagger JSON endpoint.
-        var provider = app.ApplicationServices.GetRequiredService<IApiVersionDescriptionProvider>();
-        var octoOptions = app.ApplicationServices.GetRequiredService<IOptions<OctoSwaggerOptions>>();
+        var provider = app.Services.GetRequiredService<IApiVersionDescriptionProvider>();
+        var octoOptions = app.Services.GetRequiredService<IOptions<OctoOpenApiOptions>>();
         app.UseSwaggerUI(
             options =>
             {
                 // build a swagger endpoint for each discovered API version
                 foreach (var description in provider.ApiVersionDescriptions)
                 {
-                    options.SwaggerEndpoint($"/swagger/{description.GroupName}/swagger.json",
+                    options.SwaggerEndpoint($"/openapi/{description.GroupName}.json",
                         description.GroupName.ToUpperInvariant());
                 }
 

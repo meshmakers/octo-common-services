@@ -1,0 +1,6 @@
+@SampleWebService_HostAddress = http://localhost:5238
+
+GET {{SampleWebService_HostAddress}}/weatherforecast/
+Accept: application/json
+
+###
