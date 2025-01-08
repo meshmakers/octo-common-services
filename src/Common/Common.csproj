@@ -17,7 +17,6 @@
     <ItemGroup>
         <PackageReference Include="Meshmakers.Octo.Common.DistributionEventHub" Version="$(OctoVersion)" />
         <PackageReference Include="Meshmakers.Octo.Sdk.ServiceClient" Version="$(OctoVersion)" />
-        <PackageReference Include="IdentityModel" Version="7.0.0" />
         <PackageReference Include="Newtonsoft.Json" Version="13.0.3" />
         <PackageReference Include="NLog" Version="5.3.4" />
     </ItemGroup>
