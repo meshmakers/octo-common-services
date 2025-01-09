@@ -1,0 +1,44 @@
+using Meshmakers.Octo.Services.Swagger.Configuration;
+using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.OpenApi;
+using Microsoft.Extensions.Options;
+using Microsoft.OpenApi.Models;
+
+namespace Meshmakers.Octo.Services.Swagger.Transformers;
+
+internal class OperationTransformer(IOptions<OctoOpenApiOptions> options) : IOpenApiOperationTransformer
+{
+    public Task TransformAsync(OpenApiOperation operation, OpenApiOperationTransformerContext context,
+        CancellationToken cancellationToken)
+    {
+        if (context.Description.ActionDescriptor.EndpointMetadata.FirstOrDefault(a => a is AuthorizeAttribute
+            {
+                Policy: not null
+            }) is AuthorizeAttribute a)
+        {
+            if (a.Policy is null)
+            {
+                return Task.CompletedTask;
+            }
+
+            if (options.Value.PolicyScopeMapping.TryGetValue(a.Policy, out var scopes))
+            {
+                operation.Security.Add(new OpenApiSecurityRequirement
+                {
+                    {
+                        new OpenApiSecurityScheme
+                        {
+                            Reference = new OpenApiReference
+                            {
+                                Id = OpenApiConstants.SchemeId,
+                                Type = ReferenceType.SecurityScheme
+                            }
+                        },
+                        scopes.ToList()
+                    }
+                });
+            }
+        }
+        return Task.CompletedTask;
+    }
+}

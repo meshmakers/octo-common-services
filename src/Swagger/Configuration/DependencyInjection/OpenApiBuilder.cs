@@ -1,6 +1,7 @@
 using Meshmakers.Octo.Services.Swagger.Transformers;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Options;
+using Microsoft.OpenApi.Models;
 
 namespace Meshmakers.Octo.Services.Swagger.Configuration.DependencyInjection;
 
@@ -8,10 +9,12 @@ internal class OpenApiBuilder(IServiceCollection serviceCollection) : IOpenApiBu
 {
     public IServiceCollection Services { get; } = serviceCollection;
     
-    public IOpenApiBuilder AddVersion(string versionName = "v1")
+    public IOpenApiBuilder AddVersion(string versionName = OpenApiConstants.Version1)
     {
         Services.AddOpenApi(versionName, options =>
         {
+            options.AddOperationTransformer<OperationTransformer>();
+
             options.AddDocumentTransformer((document, ctx, _) =>
             {
                 var octoOptions = ctx.ApplicationServices.GetRequiredService<IOptions<OctoOpenApiOptions>>();
@@ -19,7 +22,7 @@ internal class OpenApiBuilder(IServiceCollection serviceCollection) : IOpenApiBu
                 document.Info.Title = octoOptions.Value.ApiTitle;
                 document.Info.Description = octoOptions.Value.ApiDescription;
                 document.Info.Version = versionName;
-                document.Info.Contact = new Microsoft.OpenApi.Models.OpenApiContact
+                document.Info.Contact = new OpenApiContact
                     { Name = OpenApiConstants.CompanyName, Email = OpenApiConstants.MailAddress };
 
                 return Task.CompletedTask;
