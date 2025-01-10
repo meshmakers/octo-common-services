@@ -61,18 +61,19 @@ internal class XmlDocOperationTransformer(IOptions<OctoOpenApiOptions> options) 
                                     }
                                     
                                     SetOperationSummary(node, operation);
-                                    
-                                    foreach (var openApiParameter in operation.Value.Parameters)
+
+                                    if (operation.Value.Parameters != null)
                                     {
-                                        var parameterNode = node.SelectSingleNode($"param[@name='{openApiParameter.Name}']");
-                                        if (parameterNode == null)
+                                        foreach (var openApiParameter in operation.Value.Parameters)
                                         {
-                                            continue;
+                                            var parameterNode = node.SelectSingleNode($"param[@name='{openApiParameter.Name}']");
+                                            if (parameterNode == null)
+                                            {
+                                                continue;
+                                            }
+                                            openApiParameter.Description = parameterNode.InnerText.Trim();
                                         }
-                                        openApiParameter.Description = parameterNode.InnerText.Trim();
                                     }
-                                    
-                                    
                                 }
                             }
                         }
