@@ -40,12 +40,18 @@ public class OctoOpenApiOptions
     public IDictionary<string, IEnumerable<string>> PolicyScopeMapping { get; set; } = new Dictionary<string, IEnumerable<string>>();
     
     /// <summary>
-    /// Gets or sets the data transfer object assemblies
+    /// Gets or sets the data transfer object assemblies to be included in the Swagger documentation from their XML documentation files
     /// </summary>
-    public IEnumerable<Assembly> DataTransferObjectAssemblies { get; set; } = new List<Assembly>();
+    /// <remarks>
+    /// XML documentation files for these assemblies must be present in the same directory as the assembly
+    /// </remarks>
+    public IEnumerable<Assembly> XmlDocDataTransferObjectAssemblies { get; set; } = new List<Assembly>();
     
     /// <summary>
-    /// A list of assemblies that contain Web API controllers
+    /// A list of assemblies that contain Web API controllers to be included in the Swagger documentation from their XML documentation files
     /// </summary>
-    public IEnumerable<Assembly> OperationAssemblies { get; set; } = new List<Assembly>();
+    /// <remarks>
+    /// XML documentation files for these assemblies must be present in the same directory as the assembly
+    /// </remarks>
+    public IEnumerable<Assembly> XmlDocOperationAssemblies { get; set; } = new List<Assembly>();
 }

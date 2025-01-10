@@ -12,17 +12,17 @@ internal class XmlDocSchemaTransformer(IOptions<OctoOpenApiOptions> options) : I
     public Task TransformAsync(OpenApiSchema schema, OpenApiSchemaTransformerContext context,
         CancellationToken cancellationToken)
     {
-        if (!options.Value.DataTransferObjectAssemblies.Any())
+        if (!options.Value.XmlDocDataTransferObjectAssemblies.Any())
         {
             return Task.CompletedTask;
         }
 
-        if (!options.Value.DataTransferObjectAssemblies.Contains(context.JsonTypeInfo.Type.Assembly))
+        if (!options.Value.XmlDocDataTransferObjectAssemblies.Contains(context.JsonTypeInfo.Type.Assembly))
         {
             return Task.CompletedTask;
         }
 
-        var xmlDocPath = options.Value.DataTransferObjectAssemblies.First().Location.Replace(".dll", ".xml");
+        var xmlDocPath = options.Value.XmlDocDataTransferObjectAssemblies.First().Location.Replace(".dll", ".xml");
         var xmlDoc = new XmlDocument();
         xmlDoc.Load(xmlDocPath);
         
