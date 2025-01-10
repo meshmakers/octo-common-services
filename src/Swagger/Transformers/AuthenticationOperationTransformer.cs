@@ -6,7 +6,7 @@ using Microsoft.OpenApi.Models;
 
 namespace Meshmakers.Octo.Services.Swagger.Transformers;
 
-internal class OperationTransformer(IOptions<OctoOpenApiOptions> options) : IOpenApiOperationTransformer
+internal class AuthenticationOperationTransformer(IOptions<OctoOpenApiOptions> options) : IOpenApiOperationTransformer
 {
     public Task TransformAsync(OpenApiOperation operation, OpenApiOperationTransformerContext context,
         CancellationToken cancellationToken)

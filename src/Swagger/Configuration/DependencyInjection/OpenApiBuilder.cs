@@ -13,7 +13,7 @@ internal class OpenApiBuilder(IServiceCollection serviceCollection) : IOpenApiBu
     {
         Services.AddOpenApi(versionName, options =>
         {
-            options.AddOperationTransformer<OperationTransformer>();
+            options.AddOperationTransformer<AuthenticationOperationTransformer>();
 
             options.AddDocumentTransformer((document, ctx, _) =>
             {
