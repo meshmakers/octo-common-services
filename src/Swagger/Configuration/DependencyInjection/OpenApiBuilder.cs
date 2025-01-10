@@ -29,6 +29,8 @@ internal class OpenApiBuilder(IServiceCollection serviceCollection) : IOpenApiBu
             });
 
             options.AddDocumentTransformer<SecuritySchemeTransformer>();
+            options.AddDocumentTransformer<XmlDocOperationTransformer>();
+            options.AddSchemaTransformer<XmlDocSchemaTransformer>();
         });
 
         return this;

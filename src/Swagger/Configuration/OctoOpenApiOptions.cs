@@ -1,3 +1,5 @@
+using System.Reflection;
+
 namespace Meshmakers.Octo.Services.Swagger.Configuration;
 
 public class OctoOpenApiOptions
@@ -36,4 +38,14 @@ public class OctoOpenApiOptions
     /// Mapping of policy names to scopes
     /// </summary>
     public IDictionary<string, IEnumerable<string>> PolicyScopeMapping { get; set; } = new Dictionary<string, IEnumerable<string>>();
+    
+    /// <summary>
+    /// Gets or sets the data transfer object assemblies
+    /// </summary>
+    public IEnumerable<Assembly> DataTransferObjectAssemblies { get; set; } = new List<Assembly>();
+    
+    /// <summary>
+    /// A list of assemblies that contain Web API controllers
+    /// </summary>
+    public IEnumerable<Assembly> OperationAssemblies { get; set; } = new List<Assembly>();
 }
