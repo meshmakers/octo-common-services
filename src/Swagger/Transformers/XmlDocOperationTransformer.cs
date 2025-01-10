@@ -11,12 +11,12 @@ internal class XmlDocOperationTransformer(IOptions<OctoOpenApiOptions> options) 
     public Task TransformAsync(OpenApiDocument document, OpenApiDocumentTransformerContext context,
         CancellationToken cancellationToken)
     {
-        if (!options.Value.OperationAssemblies.Any())
+        if (!options.Value.XmlDocOperationAssemblies.Any())
         {
             return Task.CompletedTask;
         }
 
-        foreach (var assembly in options.Value.OperationAssemblies)
+        foreach (var assembly in options.Value.XmlDocOperationAssemblies)
         {
             var xmlDocPath = assembly.Location.Replace(".dll", ".xml");
             if (!File.Exists(xmlDocPath))
