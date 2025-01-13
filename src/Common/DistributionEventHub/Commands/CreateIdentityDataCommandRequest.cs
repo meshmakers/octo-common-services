@@ -19,15 +19,18 @@ public record CreateIdentityDataCommandRequest : CommandBaseRequest
     /// <summary>
     ///     Gets or sets the clients to create
     /// </summary>
-    public ICollection<DistClientDto> Clients { get; set; } = null!;
+    // ReSharper disable once CollectionNeverUpdated.Global
+    public ICollection<DistClientDto>? Clients { get; set; }
 
     /// <summary>
     ///     Gets or sets the API scopes to create
     /// </summary>
-    public ICollection<DistApiScopeDto> ApiScopes { get; set; } = null!;
+    // ReSharper disable once CollectionNeverUpdated.Global
+    public ICollection<DistApiScopeDto>? ApiScopes { get; set; }
 
     /// <summary>
     ///     Gets or sets the API resources to create
     /// </summary>
-    public ICollection<DistApiResourcesDto> ApiResources { get; set; } = null!;
+    // ReSharper disable once CollectionNeverUpdated.Global
+    public ICollection<DistApiResourcesDto>? ApiResources { get; set; }
 }
