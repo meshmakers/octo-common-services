@@ -19,10 +19,6 @@
     </ItemGroup>
 
     <ItemGroup>
-        <PackageReference Include="Meshmakers.Octo.Sdk.Common" Version="$(OctoVersion)" />
-    </ItemGroup>
-
-    <ItemGroup>
         <ProjectReference Include="..\Common\Common.csproj" />
     </ItemGroup>
 
