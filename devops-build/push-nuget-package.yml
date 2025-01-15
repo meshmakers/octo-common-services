@@ -7,6 +7,7 @@
       custom: nuget
       arguments: >
         push $(Build.ArtifactStagingDirectory)/**/*.nupkg
+        --skip-duplicate
         -s $(NuGetPublicServer)
         -k $(NugetPublicApiKey)
   - task: DotNetCoreCLI@2
@@ -17,5 +18,6 @@
       custom: nuget
       arguments: >
         push $(Build.ArtifactStagingDirectory)/**/*.nupkg
+        --skip-duplicate 
         -s $(NugetPrivateServer)
         -k $(NuGetPrivateApiKey)          
