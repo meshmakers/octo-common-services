@@ -5,8 +5,8 @@
         <RootNamespace>Meshmakers.Octo.Services.Notifications</RootNamespace>
         <Configurations>Debug;Release;DebugL</Configurations>
         <Platforms>AnyCPU</Platforms>
-        <OctoPublishCkModel>true</OctoPublishCkModel>
-        <OctoGenerateCkDocumentation Condition="$(OctoGenerateCkDocumentation) == ''">false</OctoGenerateCkDocumentation>
+        <OctoPublishCkModel Condition="'$(TargetFramework)' == 'net9.0'">true</OctoPublishCkModel>
+        <OctoGenerateCkDocumentation Condition="'$(TargetFramework)' == 'net9.0'">true</OctoGenerateCkDocumentation>
     </PropertyGroup>
 
     <ItemGroup>

@@ -12,21 +12,19 @@ trigger:
       
 variables:
   - group: ApiKeys
+  - group: OctoDefault
   - name: solutionFile
     value: 'Octo.Common.Services.sln'
-  - name: isRelease
-    value: ${{ startsWith(variables['Build.SourceBranch'], 'refs/tags/r') }}
+  - name: artifactsFrameworkVersion
+    value: 'net9.0'    
   - name: buildConfiguration
     value: 'Release'
   - name: buildPlatform
-    value: 'any cpu'
-  - name: MajorVersion
-    value: '0'
-  - name: MinorVersion
-    value: '1'
-  - name: generateDocumentation
-    value: 'true'
-
+    value: 'Any CPU'
+  - name: isRelease
+    value: ${{ startsWith(variables['Build.SourceBranch'], 'refs/tags/r') }}
+  - name: isMain
+    value: ${{ eq(variables['Build.SourceBranch'], 'refs/heads/main') }}
 
 stages:
  - stage: Build
@@ -61,35 +59,12 @@ stages:
             '**/*Tests.csproj'
             !'**/*SystemTests.csproj'
           testRunTitle: 'CI'
-      - task: PublishSymbols@2
-        displayName: Publish symbols path
-        continueOnError: True
-        inputs:
-          SearchPattern: '**\bin\**\*.pdb'
-          PublishSymbols: false
-          SymbolServerType: TeamServices
-      - task: CopyFiles@2
-        displayName: 'Copy Files from $(Build.SourcesDirectory)/bin/$(BuildConfiguration)/**/*.nupkg to $(build.artifactstagingdirectory)'
-        inputs:
-          SourceFolder: $(Build.SourcesDirectory)
-          Contents: |
-            bin/$(BuildConfiguration)/**/*.nupkg
-          TargetFolder: $(build.artifactstagingdirectory)
-      - task: PowerShell@2
-        displayName: 'Create versioninfo file'
-        inputs:
-          targetType: 'inline'
-          script: |
-              New-Item $(build.artifactstagingdirectory)/versioninfo.txt
-              Set-Content $(build.artifactstagingdirectory)/versioninfo.txt $(Build.BuildNumber)
-      - ${{ if eq(variables.generateDocumentation, true) }}:
-          - template: generate-documentation.yml
-            parameters:
-              ConstructionKits:
-                - '**/Notifications.csproj'
-      - task: PublishBuildArtifacts@1
-        displayName: 'Publish Artifact: local'
-        inputs:
-          ArtifactName: local
+      - template: handle-artifacts.yml
+        parameters:
+          constructionKitLibraryPaths:
+            - 'src/Notifications/bin/$(buildConfiguration)/$(artifactsFrameworkVersion)/octo-ck-libraries/Notifications'
+            - 'bin/$(buildConfiguration)/$(artifactsFrameworkVersion)/octo-ck-libraries/SystemCkModel'
+          apiDocumentationPaths:
+            - '$(Build.SourcesDirectory)/bin/$(buildConfiguration)/$(artifactsFrameworkVersion)/documentation'
       - template: push-nuget-package.yml            
 
