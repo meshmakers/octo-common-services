@@ -63,7 +63,6 @@ stages:
         parameters:
           constructionKitLibraryPaths:
             - 'src/Notifications/bin/$(buildConfiguration)/$(artifactsFrameworkVersion)/octo-ck-libraries/Notifications'
-            - 'bin/$(buildConfiguration)/$(artifactsFrameworkVersion)/octo-ck-libraries/SystemCkModel'
           apiDocumentationPaths:
             - '$(Build.SourcesDirectory)/bin/$(buildConfiguration)/$(artifactsFrameworkVersion)/documentation'
       - template: push-nuget-package.yml            
