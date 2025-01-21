@@ -1,5 +1,6 @@
 using Meshmakers.Octo.Common.DistributionEventHub.Configuration;
 using Meshmakers.Octo.Common.DistributionEventHub.Repository;
+using Meshmakers.Octo.Common.DistributionEventHub.Services;
 using Meshmakers.Octo.Runtime.Contracts.MongoDb.Services;
 using Meshmakers.Octo.Services.Common;
 using Meshmakers.Octo.Services.Common.Cors;
@@ -26,6 +27,7 @@ public static class ServiceCollectionExtensions
     public static void AddOctoServiceInfrastructure(this IServiceCollection services)
     {
         services.AddSingleton<ITenantNotifications, DistributedTenantNotifications>();
+        services.TryAddSingleton<IDistributedCacheService, DistributedCacheService>();
         services.AddSingleton<IRepositoryClient, OctoRepositoryClient>();
         services.AddSingleton<IHttpContextAccessor, HttpContextAccessor>();
         services.AddScoped<IMultiTenancyResolverService, MultiTenancyResolverService>();
