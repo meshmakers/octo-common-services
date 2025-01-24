@@ -1,4 +1,4 @@
-namespace Meshmakers.Octo.Services.Infrastructure.Services;
+namespace Meshmakers.Octo.Services.Notifications.Services;
 
 public interface IMarkdownRenderService
 {

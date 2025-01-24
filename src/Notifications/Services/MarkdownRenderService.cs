@@ -1,15 +1,10 @@
 using Markdig;
 
-namespace Meshmakers.Octo.Services.Infrastructure.Services;
+namespace Meshmakers.Octo.Services.Notifications.Services;
 
 public class MarkdownRenderService : IMarkdownRenderService
 {
-    private readonly MarkdownPipeline _pipeline;
-
-    public MarkdownRenderService()
-    {
-        _pipeline = new MarkdownPipelineBuilder().UseAdvancedExtensions().Build();
-    }
+    private readonly MarkdownPipeline _pipeline = new MarkdownPipelineBuilder().UseAdvancedExtensions().Build();
 
     public string RenderPlainText(string markdown, Dictionary<string, Func<string>> replaceRules)
     {
@@ -47,7 +42,7 @@ public class MarkdownRenderService : IMarkdownRenderService
         var temp = markdown;
         foreach (var replaceRule in replaceRules)
         {
-            temp = temp.Replace(replaceRule.Key, replaceRule.Value());
+            temp = temp.Replace("${" + replaceRule.Key + "}", replaceRule.Value());
         }
 
         return temp;
@@ -55,13 +50,11 @@ public class MarkdownRenderService : IMarkdownRenderService
 
     private string LoadCss(string fileName)
     {
-        var resourceName = $"Meshmakers.Octo.Backend.Infrastructure.Assets.{fileName}";
+        var resourceName = $"Meshmakers.Octo.Services.Notifications.Assets.{fileName}";
 
-        using (var stream = typeof(MarkdownRenderService).Assembly.GetManifestResourceStream(resourceName))
-        using (var reader =
-               new StreamReader(stream ?? throw new KeyNotFoundException($"'{fileName}' not found in resources.")))
-        {
-            return reader.ReadToEnd();
-        }
+        using var stream = typeof(MarkdownRenderService).Assembly.GetManifestResourceStream(resourceName);
+        using var reader =
+            new StreamReader(stream ?? throw new KeyNotFoundException($"'{fileName}' not found in resources."));
+        return reader.ReadToEnd();
     }
 }

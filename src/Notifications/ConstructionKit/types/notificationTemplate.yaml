@@ -8,7 +8,10 @@ types:
       - id: ${thisModel}/SubjectTemplate
         name: SubjectTemplate
       - id: ${thisModel}/BodyTemplate
+        isOptional: true
         name: BodyTemplate
       - id: ${thisModel}/NotificationType
         name: Type
+      - id: ${thisModel}/RenderingType
+        name: RenderingType
 

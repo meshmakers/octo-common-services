@@ -10,7 +10,6 @@
     </PropertyGroup>
 
     <ItemGroup>
-        <PackageReference Include="Markdig" Version="0.40.0" />
         <PackageReference Include="Microsoft.Extensions.Hosting.Abstractions" Version="9.0.1" />
         <PackageReference Include="MongoDB.Driver" Version="3.1.0" />
     </ItemGroup>
@@ -30,6 +29,5 @@
 
     <ItemGroup>
         <None Remove="Assets\materialize.min.css" />
-        <EmbeddedResource Include="Assets\materialize.min.css" />
     </ItemGroup>
 </Project>

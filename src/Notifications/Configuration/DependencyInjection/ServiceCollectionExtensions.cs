@@ -1,5 +1,5 @@
 using Meshmakers.Octo.Services.Notifications;
-using Microsoft.Extensions.Options;
+using Meshmakers.Octo.Services.Notifications.Services;
 
 // ReSharper disable once CheckNamespace
 namespace Microsoft.Extensions.DependencyInjection;
@@ -11,6 +11,7 @@ public static class ServiceCollectionExtensions
     {
         services.AddCkModelSystemNotification();
         services.AddSingleton<IEventRepository, EventRepository>();
+        services.AddSingleton<INotificationService, NotificationService>();
 
         return services;
     }

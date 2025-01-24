@@ -1,7 +1,7 @@
 using Meshmakers.Octo.ConstructionKit.Contracts;
 using Meshmakers.Octo.Services.Notifications.Generated.System.Notification.v1;
 
-namespace Meshmakers.Octo.Services.Notifications;
+namespace Meshmakers.Octo.Services.Notifications.Services;
 
 /// <summary>
 ///     Interface for the event repository.

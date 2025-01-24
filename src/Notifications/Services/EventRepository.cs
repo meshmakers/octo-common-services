@@ -5,7 +5,7 @@ using Meshmakers.Octo.Runtime.Contracts;
 using Meshmakers.Octo.Runtime.Contracts.MongoDb;
 using Meshmakers.Octo.Services.Notifications.Generated.System.Notification.v1;
 
-namespace Meshmakers.Octo.Services.Notifications;
+namespace Meshmakers.Octo.Services.Notifications.Services;
 
 public class EventRepository(ISystemContext systemContext) : IEventRepository
 {
