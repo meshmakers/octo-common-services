@@ -10,7 +10,7 @@ public static class ServiceCollectionExtensions
         this IServiceCollection services)
     {
         services.AddCkModelSystemNotification();
-        services.AddSingleton<IEventRepository, EntityEventRepository>();
+        services.AddSingleton<IEventRepository, EventRepository>();
 
         return services;
     }
