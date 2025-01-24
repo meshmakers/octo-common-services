@@ -1,16 +1,13 @@
 using Meshmakers.Common.Shared;
-using Meshmakers.Octo.Communication.Contracts.DataTransferObjects;
 using Meshmakers.Octo.ConstructionKit.Contracts;
 using Meshmakers.Octo.ConstructionKit.Models.System.Generated.System.v1;
 using Meshmakers.Octo.Runtime.Contracts;
 using Meshmakers.Octo.Runtime.Contracts.MongoDb;
-using Meshmakers.Octo.Runtime.Contracts.MongoDb.Repositories;
-using Meshmakers.Octo.Runtime.Contracts.Repositories.Query;
 using Meshmakers.Octo.Services.Notifications.Generated.System.Notification.v1;
 
 namespace Meshmakers.Octo.Services.Notifications;
 
-public class EntityEventRepository(ISystemContext systemContext) : IEventRepository
+public class EventRepository(ISystemContext systemContext) : IEventRepository
 {
     private async Task AddMessageAsync(string tenantId, RtEvent rtEvent,
         RtEntityId? targetRtId)
@@ -42,23 +39,17 @@ public class EntityEventRepository(ISystemContext systemContext) : IEventReposit
         await session.CommitTransactionAsync().ConfigureAwait(false);
     }
 
-    public Task StoreEventAsync(string tenantId, RtEventLevelsEnum eventLevel, string subject, string? body)
-    {
-        return StoreEventAsync(tenantId, eventLevel, subject, body, null);
-    }
-
-    public async Task StoreEventAsync(string tenantId, RtEventLevelsEnum eventLevel, string subject, string? body,
-        RtEntityId? associatedRtId)
+    public async Task StoreEventAsync(string tenantId, RtEventLevelsEnum eventLevel, string message, 
+        RtEntityId? associatedRtId = null)
     {
         ArgumentValidation.ValidateString(nameof(tenantId), tenantId);
-        ArgumentValidation.ValidateString(nameof(subject), subject);
+        ArgumentValidation.ValidateString(nameof(message), message);
         
         try
         {
             var rtEvent = new RtEvent
             {
-                SubjectText = subject,
-                BodyText = body,
+                Message = message,
                 Level = eventLevel
             };
         
@@ -70,24 +61,18 @@ public class EntityEventRepository(ISystemContext systemContext) : IEventReposit
         }
     }
 
-    public Task<RtStatefulEvent> StoreStatefulEventAsync(string tenantId, RtEventLevelsEnum eventLevel, string subject, string? body)
-    {
-        return StoreStatefulEventAsync(tenantId, eventLevel, subject, body, null);
-    }
-
-    public async Task<RtStatefulEvent> StoreStatefulEventAsync(string tenantId, RtEventLevelsEnum eventLevel, string subject, string? body,
-        RtEntityId? associatedRtId)
+    public async Task<RtStatefulEvent> StoreStatefulEventAsync(string tenantId, RtEventLevelsEnum eventLevel, string message,
+        RtEntityId? associatedRtId = null)
     {
         ArgumentValidation.ValidateString(nameof(tenantId), tenantId);
-        ArgumentValidation.ValidateString(nameof(subject), subject);
+        ArgumentValidation.ValidateString(nameof(message), message);
         
         try
         {
             var rtStatefulEvent = new RtStatefulEvent
             {
                 RtId = OctoObjectId.GenerateNewId(),
-                SubjectText = subject,
-                BodyText = body,
+                Message = message,
                 State = RtEventStatesEnum.Active,
                 Level = eventLevel
             };

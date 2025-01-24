@@ -5,11 +5,10 @@ types:
     isFinal: false
     isAbstract: false
     attributes:
-      - id: ${thisModel}/SubjectText
-        name: SubjectText
-      - id: ${thisModel}/BodyText
-        name: BodyText
+      - id: ${thisModel}/Message
+        name: Message
         isOptional: true
       - id: ${thisModel}/EventLevel
         name: Level
-
+      - id: ${thisModel}/EventSource
+        name: Source

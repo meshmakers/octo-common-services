@@ -1,10 +1,22 @@
 $schema: https://schemas.meshmakers.cloud/construction-kit-elements.schema.json
 enums:
   - enumId: EventLevels
+    description: Defines the level of the event (Information, Warning, Error)
     values:
       - key: 0
-        name: Information
+        description: Debug
+        name: Debug       
       - key: 1
-        name: Warning
+        description: Information
+        name: Information
       - key: 2
+        description: Warning
+        name: Warning
+      - key: 3
+        description: Error
         name: Error
+      - key: 4
+        description: Critical
+        name: Critical
+
+     

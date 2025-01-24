@@ -13,43 +13,21 @@ public interface IEventRepository
     /// </summary>
     /// <param name="tenantId">Tenant identifier</param>
     /// <param name="eventLevel">The level of the event</param>
-    /// <param name="subject">The subject of the E-Mail message</param>
-    /// <param name="body">The body of the event</param>
-    /// <returns></returns>
-    Task StoreEventAsync(string tenantId, RtEventLevelsEnum eventLevel, string subject, string? body);
-
-    /// <summary>
-    ///     Stores an event in the repository.
-    /// </summary>
-    /// <param name="tenantId">Tenant identifier</param>
-    /// <param name="eventLevel">The level of the event</param>
-    /// <param name="subject">The subject of the E-Mail message</param>
-    /// <param name="body">The body of the event</param>
+    /// <param name="message">The message of the event</param>
     /// <param name="associatedRtId">Optional entity identifier the notification event is associated to.</param>
     /// <returns></returns>
-    Task StoreEventAsync(string tenantId, RtEventLevelsEnum eventLevel, string subject, string? body,
-        RtEntityId? associatedRtId);
+    Task StoreEventAsync(string tenantId, RtEventLevelsEnum eventLevel, string message,
+        RtEntityId? associatedRtId = null);
+
 
     /// <summary>
     ///     Stores a stateful event in the repository.
     /// </summary>
     /// <param name="tenantId">Tenant identifier</param>
     /// <param name="eventLevel">The level of the event</param>
-    /// <param name="subject">The subject of the E-Mail message</param>
-    /// <param name="body">The body of the event</param>
-    /// <returns>The stored stateful event</returns>
-    Task<RtStatefulEvent> StoreStatefulEventAsync(string tenantId, RtEventLevelsEnum eventLevel, string subject,
-        string? body);
-
-    /// <summary>
-    ///     Stores a stateful event in the repository.
-    /// </summary>
-    /// <param name="tenantId">Tenant identifier</param>
-    /// <param name="eventLevel">The level of the event</param>
-    /// <param name="subject">The subject of the E-Mail message</param>
-    /// <param name="body">The body of the event</param>
+    /// <param name="message">The message of the event</param>
     /// <param name="associatedRtId">Optional entity identifier the notification event is associated to.</param>
     /// <returns>The stored stateful event</returns>
-    Task<RtStatefulEvent> StoreStatefulEventAsync(string tenantId, RtEventLevelsEnum eventLevel, string subject,
-        string? body, RtEntityId? associatedRtId);
+    Task<RtStatefulEvent> StoreStatefulEventAsync(string tenantId, RtEventLevelsEnum eventLevel, string message,
+        RtEntityId? associatedRtId = null);
 }

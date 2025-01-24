@@ -1,5 +1,11 @@
 "$schema": "https://schemas.meshmakers.cloud/construction-kit-elements.schema.json"
 attributes:
+  - id: SubjectText
+    description: The subject text of the notification
+    valueType: String 
+  - id: BodyText
+    description: The body text of the notification
+    valueType: String
   - id: BodyTemplate
     description: The body of the event as a template
     valueType: String
