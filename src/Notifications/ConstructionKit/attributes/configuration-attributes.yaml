@@ -1,0 +1,7 @@
+"$schema": "https://schemas.meshmakers.cloud/construction-kit-elements.schema.json"
+attributes:
+  - id: CssStyle
+    description: The css style for a rendered html text
+    valueType: String 
+ 
+

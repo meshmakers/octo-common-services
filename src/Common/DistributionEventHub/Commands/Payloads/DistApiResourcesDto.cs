@@ -5,6 +5,7 @@ namespace Meshmakers.Octo.Services.Common.DistributionEventHub.Commands.Payloads
 /// </summary>
 /// <param name="Name">Name of the resource.</param>
 /// <param name="DisplayName">Display name of the resource.</param>
+// ReSharper disable once ClassNeverInstantiated.Global
 public record DistApiResourcesDto(string Name, string DisplayName)
 {
     /// <summary>

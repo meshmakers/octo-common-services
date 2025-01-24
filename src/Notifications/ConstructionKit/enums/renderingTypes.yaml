@@ -1,0 +1,8 @@
+$schema: https://schemas.meshmakers.cloud/construction-kit-elements.schema.json
+enums:
+  - enumId: RenderingTypes
+    values:
+      - key: 0
+        name: Plain
+      - key: 1
+        name: Html

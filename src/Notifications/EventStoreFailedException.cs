@@ -1,6 +1,8 @@
+using Meshmakers.Octo.Services.Common;
+
 namespace Meshmakers.Octo.Services.Notifications;
 
-public class EventStoreFailedException : Exception
+public class EventStoreFailedException : OctoServiceException
 {
     public EventStoreFailedException()
     {

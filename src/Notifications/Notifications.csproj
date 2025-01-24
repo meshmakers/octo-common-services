@@ -11,9 +11,11 @@
 
     <ItemGroup>
         <ProjectReference Include="$(OctoConstructionKitPath)src\Runtime.Contracts.MongoDb\Runtime.Contracts.MongoDb.csproj" />
+        <ProjectReference Include="..\Common\Common.csproj" />
     </ItemGroup>
     
     <ItemGroup>
+        <PackageReference Include="Markdig" Version="0.40.0" />
         <PackageReference Include="Meshmakers.Octo.Communication.Contracts" Version="$(OctoVersion)" />
         <PackageReference Include="Meshmakers.Octo.ConstructionKit.Models.System" Version="$(OctoVersion)" />
         <PackageReference Include="Meshmakers.Octo.ConstructionKit.SourceGeneration" OutputItemType="Analyzer" ReferenceOutputAssembly="false" Version="$(OctoVersion)" PrivateAssets="all" />
@@ -22,5 +24,9 @@
 
     <ItemGroup>
         <ConstructionKitFolder Visible="false" Include="ConstructionKit"/>
+    </ItemGroup>
+
+    <ItemGroup>
+      <EmbeddedResource Include="Assets\materialize.min.css" />
     </ItemGroup>
 </Project>

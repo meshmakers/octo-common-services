@@ -16,5 +16,8 @@ attributes:
     description: Defines the type of the notification (Email, SMS, Push)
     valueType: Enum
     valueCkEnumId: ${thisModel}/NotificationTypes
-    
+  - id: RenderingType
+    description: Defines the rendering type of the notification (Text, Html)
+    valueType: Enum
+    valueCkEnumId: ${thisModel}/RenderingTypes    
 

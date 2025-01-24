@@ -6,6 +6,7 @@ namespace Meshmakers.Octo.Services.Common.DistributionEventHub.Commands.Payloads
 /// <param name="ClientId">Client id.</param>
 /// <param name="ClientName">Client name.</param>
 /// <param name="ClientUri">Client uri.</param>
+// ReSharper disable once ClassNeverInstantiated.Global
 public record DistClientDto(string ClientId, string ClientName, string ClientUri)
 {
     /// <summary>
