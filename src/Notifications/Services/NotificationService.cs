@@ -34,10 +34,8 @@ internal class NotificationService(
 
         var notification = new DistNotificationDto(subject, messageBody, recipient, cc, bcc);
 
-        var request = new SendNotificationsRequest(tenantId)
-        {
-            Notifications = new List<DistNotificationDto> { notification }
-        };
+        var request = new SendNotificationsRequest(tenantId);
+        request.Notifications.Add(notification);
 
         await distributionEventHubService.PublishAsync(request).ConfigureAwait(false);
     }

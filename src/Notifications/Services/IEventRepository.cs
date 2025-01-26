@@ -12,22 +12,111 @@ public interface IEventRepository
     ///     Stores an event in the repository.
     /// </summary>
     /// <param name="tenantId">Tenant identifier</param>
+    /// <param name="source">The source of the event</param>
     /// <param name="eventLevel">The level of the event</param>
     /// <param name="message">The message of the event</param>
-    /// <param name="associatedRtId">Optional entity identifier the notification event is associated to.</param>
+    /// <param name="associatedRtEntityId">Optional entity identifier the notification event is associated to.</param>
     /// <returns></returns>
-    Task StoreEventAsync(string tenantId, RtEventLevelsEnum eventLevel, string message,
-        RtEntityId? associatedRtId = null);
+    Task StoreEventAsync(string tenantId, RtEventSourcesEnum source, RtEventLevelsEnum eventLevel, string message,
+        RtEntityId? associatedRtEntityId = null);
+    
+    /// <summary>
+    ///     Stores an event in the repository.
+    /// </summary>
+    /// <param name="source">The source of the event</param>
+    /// <param name="eventLevel">The level of the event</param>
+    /// <param name="message">The message of the event</param>
+    /// <param name="associatedRtEntityId">Optional entity identifier the notification event is associated to.</param>
+    /// <returns></returns>
+    Task StoreSystemEventAsync(RtEventSourcesEnum source, RtEventLevelsEnum eventLevel, string message,
+        RtEntityId? associatedRtEntityId = null);
 
 
     /// <summary>
     ///     Stores a stateful event in the repository.
     /// </summary>
     /// <param name="tenantId">Tenant identifier</param>
+    /// <param name="source">The source of the event</param>
     /// <param name="eventLevel">The level of the event</param>
     /// <param name="message">The message of the event</param>
-    /// <param name="associatedRtId">Optional entity identifier the notification event is associated to.</param>
+    /// <param name="associatedRtEntityId">Optional entity identifier the notification event is associated to.</param>
     /// <returns>The stored stateful event</returns>
-    Task<RtStatefulEvent> StoreStatefulEventAsync(string tenantId, RtEventLevelsEnum eventLevel, string message,
-        RtEntityId? associatedRtId = null);
+    Task<RtStatefulEvent> StoreStatefulEventAsync(string tenantId, RtEventSourcesEnum source, RtEventLevelsEnum eventLevel, string message,
+        RtEntityId? associatedRtEntityId = null);
+    
+    /// <summary>
+    /// Stores an information event in the repository.
+    /// </summary>
+    /// <param name="tenantId">Tenant identifier</param>
+    /// <param name="source">The source of the event</param>
+    /// <param name="message">The message of the event</param>
+    /// <param name="associatedRtEntityId">Optional entity identifier the notification event is associated to.</param>
+    /// <returns></returns>
+    Task StoreInformationEvent(string tenantId, RtEventSourcesEnum source, string message, RtEntityId? associatedRtEntityId = null);
+    
+    /// <summary>
+    /// Stores a warning event in the repository.
+    /// </summary>
+    /// <param name="tenantId">Tenant identifier</param>
+    /// <param name="source">The source of the event</param>
+    /// <param name="message">The message of the event</param>
+    /// <param name="associatedRtEntityId">Optional entity identifier the notification event is associated to.</param>
+    /// <returns></returns>
+    Task StoreWarningEvent(string tenantId, RtEventSourcesEnum source, string message, RtEntityId? associatedRtEntityId = null);
+    
+    /// <summary>
+    /// Stores an error event in the repository.
+    /// </summary>
+    /// <param name="tenantId">Tenant identifier</param>
+    /// <param name="source">The source of the event</param>
+    /// <param name="message">The message of the event</param>
+    /// <param name="associatedRtEntityId">Optional entity identifier the notification event is associated to.</param>
+    /// <returns></returns>
+    Task StoreErrorEvent(string tenantId, RtEventSourcesEnum source, string message, RtEntityId? associatedRtEntityId = null);
+    
+    /// <summary>
+    /// Stores a critical event in the repository.
+    /// </summary>
+    /// <param name="tenantId">Tenant identifier</param>
+    /// <param name="source">The source of the event</param>
+    /// <param name="message">The message of the event</param>
+    /// <param name="associatedRtEntityId">Optional entity identifier the notification event is associated to.</param>
+    /// <returns></returns>
+    Task StoreCriticalEvent(string tenantId, RtEventSourcesEnum source, string message, RtEntityId? associatedRtEntityId = null);
+    
+    /// <summary>
+    /// Stores an information event in the repository of the system tenant.
+    /// </summary>
+    /// <param name="source">The source of the event</param>
+    /// <param name="message">The message of the event</param>
+    /// <param name="associatedRtEntityId">Optional entity identifier the notification event is associated to.</param>
+    /// <returns></returns>
+    Task StoreSystemInformationEvent(RtEventSourcesEnum source, string message, RtEntityId? associatedRtEntityId = null);
+    
+    /// <summary>
+    /// Stores a warning event in the repository of the system tenant.
+    /// </summary>
+    /// <param name="source">The source of the event</param>
+    /// <param name="message">The message of the event</param>
+    /// <param name="associatedRtEntityId">Optional entity identifier the notification event is associated to.</param>
+    /// <returns></returns>
+    Task StoreSystemWarningEvent(RtEventSourcesEnum source, string message, RtEntityId? associatedRtEntityId = null);
+    
+    /// <summary>
+    /// Stores an error event in the repository of the system tenant.
+    /// </summary>
+    /// <param name="source">The source of the event</param>
+    /// <param name="message">The message of the event</param>
+    /// <param name="associatedRtEntityId">Optional entity identifier the notification event is associated to.</param>
+    /// <returns></returns>
+    Task StoreSystemErrorEvent(RtEventSourcesEnum source, string message, RtEntityId? associatedRtEntityId = null);
+
+    /// <summary>
+    /// Stores a critical event in the repository of the system tenant.
+    /// </summary>
+    /// <param name="source">The source of the event</param>
+    /// <param name="message">The message of the event</param>
+    /// <param name="associatedRtEntityId">Optional entity identifier the notification event is associated to.</param>
+    /// <returns></returns>
+    Task StoreSystemCriticalEvent(RtEventSourcesEnum source, string message, RtEntityId? associatedRtEntityId = null);
 }

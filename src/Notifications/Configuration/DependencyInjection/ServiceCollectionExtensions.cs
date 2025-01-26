@@ -1,4 +1,3 @@
-using Meshmakers.Octo.Services.Notifications;
 using Meshmakers.Octo.Services.Notifications.Services;
 
 // ReSharper disable once CheckNamespace
@@ -10,8 +9,9 @@ public static class ServiceCollectionExtensions
         this IServiceCollection services)
     {
         services.AddCkModelSystemNotification();
-        services.AddSingleton<IEventRepository, EventRepository>();
-        services.AddSingleton<INotificationService, NotificationService>();
+        services.AddTransient<IEventRepository, EventRepository>();
+        services.AddScoped<INotificationService, NotificationService>();
+        services.AddScoped<IMarkdownRenderService, MarkdownRenderService>();
 
         return services;
     }

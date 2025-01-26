@@ -14,11 +14,18 @@ public record SendNotificationsRequest : CommandBaseRequest
     public SendNotificationsRequest(string tenantId)
         : base(tenantId)
     {
+        Notifications = new List<DistNotificationDto>();
+        SendAt = DateTime.UtcNow;
     }
+    
+    /// <summary>
+    /// Gets or sets the send at date
+    /// </summary>
+    public DateTime SendAt { get; }
 
     /// <summary>
     ///     Gets or sets the clients to create
     /// </summary>
     // ReSharper disable once CollectionNeverUpdated.Global
-    public required ICollection<DistNotificationDto> Notifications { get; set; }
+    public ICollection<DistNotificationDto> Notifications { get; }
 }
