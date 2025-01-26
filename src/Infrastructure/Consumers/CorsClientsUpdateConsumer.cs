@@ -9,6 +9,7 @@ namespace Meshmakers.Octo.Services.Infrastructure.Consumers;
 /// <summary>
 ///     Consumer for <see cref="CorsClientsUpdate" /> messages.
 /// </summary>
+// ReSharper disable once ClassNeverInstantiated.Global
 public class CorsClientsUpdateConsumer : IDistributedConsumer<CorsClientsUpdate>
 {
     private readonly CorsPolicyProvider _corsPolicyProvider;

@@ -7,14 +7,14 @@ using Microsoft.Extensions.Logging;
 namespace Meshmakers.Octo.Services.Infrastructure.Consumers;
 
 // ReSharper disable once ClassNeverInstantiated.Global
-internal class PosCreateTenantConsumer(
-    ILogger<PosCreateTenantConsumer> logger,
-    IDefaultConfigurationCreatorService defaultConfigurationCreatorService)
-    : IDistributedConsumer<PosCreateTenant>
+internal class PosUpdateConfigurationConsumer(
+    ILogger<PosUpdateConfigurationConsumer> logger,
+    ITenantConfigurationService tenantConfigurationService)
+    : IDistributedConsumer<PosUpdateConfiguration>
 {
     private static readonly ConcurrentDictionary<string, bool> TenantsInHandling = new();
 
-    public async Task ConsumeAsync(IDistributedContext<PosCreateTenant> context)
+    public async Task ConsumeAsync(IDistributedContext<PosUpdateConfiguration> context)
     {
         logger.LogInformation("Pos create tenant received: '{TenantId}'", context.Message.TenantId);
 
@@ -26,7 +26,7 @@ internal class PosCreateTenantConsumer(
 
         try
         {
-            await defaultConfigurationCreatorService.SetupAsync(context.Message.TenantId).ConfigureAwait(false);
+            await tenantConfigurationService.UpdateAsync(context.Message.TenantId, context.Message.ConfigurationName).ConfigureAwait(false);
         }
         finally
         {

@@ -4,16 +4,18 @@ using Meshmakers.Octo.ConstructionKit.Contracts.Services;
 using Meshmakers.Octo.Services.Common.DistributionEventHub.Messages;
 using Microsoft.Extensions.Logging;
 using PreUpdateTenant = Meshmakers.Octo.Services.Common.DistributionEventHub.Messages.PreUpdateTenant;
+// ReSharper disable InconsistentlySynchronizedField
 
 namespace Meshmakers.Octo.Services.Infrastructure.Consumers;
 
+// ReSharper disable once ClassNeverInstantiated.Global
 internal class CacheTenantConsumer 
     : IDistributedConsumer<PreUpdateTenant>,
         IDistributedConsumer<PreDeleteTenant>
 {
     private readonly ICkCacheService _ckCacheService;
     private readonly ILogger<CacheTenantConsumer> _logger;
-    private static readonly object Lock = new();
+    private static readonly Lock Lock = new();
 
     /// <summary>
     ///     Constructor.
