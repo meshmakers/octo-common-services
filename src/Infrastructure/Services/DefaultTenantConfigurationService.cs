@@ -8,7 +8,7 @@ public abstract class DefaultTenantConfigurationService(ISystemContext systemCon
 {
     private readonly Dictionary<Tuple<string, string>, RtConfiguration> _configurations = new();
 
-    protected async Task<T> GetOrRetrieveConfiguration<T>(string tenantId, string configurationName, T defaultValue) where T: RtConfiguration, new()
+    protected async Task<T> GetOrRetrieveConfiguration<T>(string tenantId, string configurationName) where T: RtConfiguration, new()
     {
         var key = new Tuple<string, string>(tenantId, configurationName);
         if (_configurations.TryGetValue(key, out var configuration))
@@ -32,7 +32,11 @@ public abstract class DefaultTenantConfigurationService(ISystemContext systemCon
             
             await session.CommitTransactionAsync().ConfigureAwait(false);
             
-            var result = resultSet.Items.FirstOrDefault() ?? defaultValue;
+            var result = resultSet.Items.FirstOrDefault();
+            if (result == null)
+            {
+                throw ConfigurationException.ConfigurationNotFound(tenantId, configurationName);
+            }
             _configurations.Add(key, result);
             return result;
         }

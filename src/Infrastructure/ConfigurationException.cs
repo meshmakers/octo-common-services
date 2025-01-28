@@ -23,4 +23,9 @@ public class ConfigurationException : OctoServiceException
     {
         return new ConfigurationException($"Unable to retrieve configuration '{configurationName}' for tenant '{tenantId}'", exception);
     }
+
+    public static Exception ConfigurationNotFound(string tenantId, string configurationName)
+    {
+        return new ConfigurationException($"Configuration '{configurationName}' not found for tenant '{tenantId}'");
+    }
 }
