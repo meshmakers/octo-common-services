@@ -28,7 +28,4 @@
         <ProjectReference Include="$(OctoConstructionKitPath)src\Runtime.Contracts.MongoDb\Runtime.Contracts.MongoDb.csproj" />
     </ItemGroup>
 
-    <ItemGroup>
-        <None Remove="Assets\materialize.min.css" />
-    </ItemGroup>
 </Project>
