@@ -9,4 +9,11 @@ public interface IMultiTenancyResolverService
     /// </summary>
     /// <returns>The current tenant repository for the request.</returns>
     ITenantRepository GetTenantRepository();
+
+
+    /// <summary>
+    /// Returns the tenant id for the current request.
+    /// </summary>
+    /// <returns>The tenant id for the current request.</returns>
+    string GetTenantId();
 }

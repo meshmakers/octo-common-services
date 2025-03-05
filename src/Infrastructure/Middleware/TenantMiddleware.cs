@@ -1,18 +1,10 @@
 using Meshmakers.Octo.Runtime.Contracts.MongoDb;
 using Meshmakers.Octo.Services.Common;
-using Microsoft.AspNetCore.Http;
 
 namespace Meshmakers.Octo.Services.Infrastructure.Middleware;
 
-public class TenantMiddleware
+public class TenantMiddleware(RequestDelegate next)
 {
-    private readonly RequestDelegate _next;
-
-    public TenantMiddleware(RequestDelegate next)
-    {
-        _next = next;
-    }
-
     public async Task InvokeAsync(HttpContext context, ISystemContext systemContext)
     {
         // Load tenant repository
@@ -24,16 +16,18 @@ public class TenantMiddleware
         {
             var tenantRepository = await systemContext.FindTenantRepositoryAsync(tenantId).ConfigureAwait(false);
             context.Items[BackendCommon.TenantRepositoryName] = tenantRepository;
+            context.Items[BackendCommon.TenantIdName] = tenantRepository.TenantId;
         }
         else
         {
             var tenantRepository = systemContext.GetTenantRepository();
             context.Items[BackendCommon.TenantRepositoryName] = tenantRepository;
+            context.Items[BackendCommon.TenantIdName] = tenantRepository.TenantId;
         }
 
         await systemSession.CommitTransactionAsync().ConfigureAwait(false);
 
         // Call the next delegate/middleware in the pipeline
-        await _next(context).ConfigureAwait(false);
+        await next(context).ConfigureAwait(false);
     }
 }

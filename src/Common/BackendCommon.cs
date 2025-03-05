@@ -21,7 +21,12 @@ public static class BackendCommon
     public const string TenantIdRoute = "tenantId";
 
     /// <summary>
-    ///     Returns the tenant repository name
+    ///     Returns the tenant repository name used as a key in the http context items
     /// </summary>
     public const string TenantRepositoryName = "tenantRepository";
+
+    /// <summary>
+    /// Returns the tenant id name used as a key in the http context items
+    /// </summary>
+    public const string TenantIdName = "tenantId";
 }
