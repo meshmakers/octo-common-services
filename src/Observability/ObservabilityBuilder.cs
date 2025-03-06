@@ -41,7 +41,13 @@ internal class ObservabilityBuilder(IConfigurationManager config, IServiceCollec
             }
         });
 
-        var healthChecksBuilder = Services.AddHealthChecks();
+        Services.AddHostedService<StartupBackgroundService>();
+        Services.AddSingleton<StartupHealthCheck>();
+
+        var healthChecksBuilder = Services.AddHealthChecks()
+            .AddCheck<StartupHealthCheck>(
+            "Startup",
+            tags: ["ready"]);
         if (OperatingSystem.IsWindows() || OperatingSystem.IsLinux())
         {
             healthChecksBuilder

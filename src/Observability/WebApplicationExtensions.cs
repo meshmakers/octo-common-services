@@ -19,5 +19,13 @@ public static class WebApplicationExtensions
         {
             ResponseWriter = ResponseWriter.WriteResponse
         });
+        app.MapHealthChecks("/healthz/ready", new HealthCheckOptions
+        {
+            Predicate = healthCheck => healthCheck.Tags.Contains("ready")
+        });
+        app.MapHealthChecks("/healthz/live", new HealthCheckOptions
+        {
+            Predicate = _ => false
+        });
     }
 }
