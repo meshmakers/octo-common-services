@@ -6,4 +6,5 @@ namespace Meshmakers.Octo.Services.Common.DistributionEventHub.Commands;
 /// <param name="IsSuccessStartingExecution">Indicates if the execution STARTED successful</param>
 /// <param name="ErrorMessage">An error message if the execution start failed</param>
 /// <param name="PipelineExecutionId">The id of the pipeline execution</param>
-public record ExecuteMeshPipelineResponse(bool IsSuccessStartingExecution, string? ErrorMessage, Guid? PipelineExecutionId);
+/// <param name="ExecutionStartTime">Start time of the execution</param>
+public record ExecuteMeshPipelineResponse(bool IsSuccessStartingExecution, string? ErrorMessage, Guid? PipelineExecutionId, DateTime? ExecutionStartTime);
