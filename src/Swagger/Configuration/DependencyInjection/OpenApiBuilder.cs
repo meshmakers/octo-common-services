@@ -31,6 +31,10 @@ internal class OpenApiBuilder(IServiceCollection serviceCollection) : IOpenApiBu
             options.AddDocumentTransformer<SecuritySchemeTransformer>();
             options.AddDocumentTransformer<XmlDocOperationTransformer>();
             options.AddSchemaTransformer<XmlDocSchemaTransformer>();
+
+            // We ignore all operations that do not have an HTTP method, as they are not relevant for the API
+            // This situation occurs at reporting services, because Telerik provides obsolete methods that have no HTTP method
+            options.ShouldInclude = operation => operation.HttpMethod != null;
         });
 
         return this;
