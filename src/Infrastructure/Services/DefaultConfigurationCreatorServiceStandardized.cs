@@ -1,6 +1,8 @@
 using Meshmakers.Octo.Common.DistributionEventHub.Services;
 using Meshmakers.Octo.Runtime.Contracts.MongoDb;
 using Meshmakers.Octo.Runtime.Contracts.MongoDb.Repositories;
+using Meshmakers.Octo.Runtime.Contracts.Repositories.Query;
+using Meshmakers.Octo.Runtime.Contracts.RepositoryEntities;
 using Meshmakers.Octo.Services.Common.DistributionEventHub.Commands;
 
 namespace Meshmakers.Octo.Services.Infrastructure.Services;
@@ -50,7 +52,8 @@ public abstract class DefaultConfigurationCreatorServiceStandardized : DefaultCo
         ISystemContext systemContext,
         ICommandClient<CreateIdentityDataCommandRequest> createIdentityDataCommandClient,
         string identityDataVersionKey,
-        int expectedIdentityDataVersion, string? schemaVersionKey = null, bool? autoEnable = false, int? expectedSchemaVersion = null,
+        int expectedIdentityDataVersion, string? schemaVersionKey = null, bool? autoEnable = false,
+        int? expectedSchemaVersion = null,
         string? defaultDataVersionKey = null, int? expectedDefaultDataVersion = null)
         : base(logger)
     {
@@ -183,14 +186,20 @@ public abstract class DefaultConfigurationCreatorServiceStandardized : DefaultCo
         await CheckSetupIdentityDataAsync(session, tenantContext).ConfigureAwait(false);
 
         // Check if we need to import the CK model
-        await CheckImportCkModelAsync(session, tenantContext).ConfigureAwait(false);
+        var isEnabled = await CheckImportCkModelAsync(session, tenantContext).ConfigureAwait(false);
 
-        // Check if we need to import default data for the service
-        await CheckSetupDefaultDataAsync(session, tenantContext).ConfigureAwait(false);
+        if (isEnabled)
+        {
+            // Check if we need to import default data for the service
+            await CheckSetupDefaultDataAsync(session, tenantContext).ConfigureAwait(false);
+        }
 
         await session.CommitTransactionAsync().ConfigureAwait(false);
 
-        await StartTenantAsync(tenantId).ConfigureAwait(false);
+        if (isEnabled)
+        {
+            await StartTenantAsync(tenantId).ConfigureAwait(false);
+        }
     }
 
     /// <summary>
@@ -297,6 +306,33 @@ public abstract class DefaultConfigurationCreatorServiceStandardized : DefaultCo
         return configurationVersion != null;
     }
 
+    /// <summary>
+    /// Creates or updates an entity based on its well-known name
+    /// </summary>
+    /// <param name="session">Admin session</param>
+    /// <param name="tenantContext">Tenant context</param>
+    /// <param name="rtEntity">Entity to create or update</param>
+    /// <typeparam name="TEntity">Type of the entity</typeparam>
+    protected async Task CreateOrUpdateAsync<TEntity>(IOctoAdminSession session, ITenantContext tenantContext,
+        RtEntity rtEntity) where TEntity : RtEntity, new()
+    {
+        var tenantRepository = tenantContext.GetTenantRepositoryAsAdmin();
+
+        DataQueryOperation operation = DataQueryOperation.Create();
+        operation.FieldEquals(nameof(RtEntity.RtWellKnownName), rtEntity.RtWellKnownName);
+
+        var result = await tenantRepository.GetRtEntitiesByTypeAsync<TEntity>(session, operation).ConfigureAwait(false);
+        if (!result.Items.Any())
+        {
+            await tenantRepository.InsertOneRtEntityAsync(session, rtEntity).ConfigureAwait(false);
+        }
+        else
+        {
+            await tenantRepository.UpdateOneRtEntityByIdAsync(session, result.Items.First().RtId, rtEntity)
+                .ConfigureAwait(false);
+        }
+    }
+
     private async Task CheckSetupIdentityDataAsync(IOctoAdminSession session, ITenantContext tenantContext)
     {
         // Identity configuration is next
@@ -346,7 +382,8 @@ public abstract class DefaultConfigurationCreatorServiceStandardized : DefaultCo
         }
     }
 
-    private async Task<bool> CheckImportCkModelAsync(IOctoAdminSession session, ITenantContext tenantContext, bool forceUpdate = false)
+    private async Task<bool> CheckImportCkModelAsync(IOctoAdminSession session, ITenantContext tenantContext,
+        bool forceUpdate = false)
     {
         // Check if we need to import a construction kit model
         if (_schemaVersionKey == null || _expectedSchemaVersion == null)
@@ -379,7 +416,8 @@ public abstract class DefaultConfigurationCreatorServiceStandardized : DefaultCo
         return true;
     }
 
-    private async Task CheckSetupDefaultDataAsync(IOctoAdminSession session, ITenantContext tenantContext, bool forceUpdate = false)
+    private async Task CheckSetupDefaultDataAsync(IOctoAdminSession session, ITenantContext tenantContext,
+        bool forceUpdate = false)
     {
         // Check if we need to import the default data
         if (_defaultDataVersionKey == null || _expectedDefaultDataVersion == null)
