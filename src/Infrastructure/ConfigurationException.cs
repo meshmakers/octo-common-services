@@ -28,4 +28,14 @@ public class ConfigurationException : OctoServiceException
     {
         return new ConfigurationException($"Configuration '{configurationName}' not found for tenant '{tenantId}'");
     }
+
+    internal static Exception TenantAlreadyEnabled(string tenantId)
+    {
+        return new ConfigurationException($"Tenant '{tenantId}' is already enabled.");
+    }
+
+    internal static Exception TenantAlreadyDisabled(string tenantId)
+    {
+        return new ConfigurationException($"Tenant '{tenantId}' is already disabled.");
+    }
 }
