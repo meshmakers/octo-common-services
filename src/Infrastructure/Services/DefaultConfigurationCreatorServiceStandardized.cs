@@ -437,7 +437,7 @@ public abstract class DefaultConfigurationCreatorServiceStandardized : DefaultCo
             return;
         }
 
-        if (configurationVersion == null || configurationVersion.Version < _expectedSchemaVersion)
+        if (configurationVersion == null || configurationVersion.Version < _expectedDefaultDataVersion)
         {
             _logger.LogInformation("Creating default data for tenant '{TenantId}'", tenantContext.TenantId);
 
