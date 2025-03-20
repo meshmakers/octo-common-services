@@ -218,7 +218,11 @@ public abstract class DefaultConfigurationCreatorServiceStandardized : DefaultCo
     /// <param name="session">Admin session</param>
     /// <param name="tenantContext">Tenant context</param>
     /// <returns></returns>
-    protected abstract Task CreateUpdateDefaultDataAsync(IOctoAdminSession session, ITenantContext tenantContext);
+    protected virtual Task CreateUpdateDefaultDataAsync(IOctoAdminSession session, ITenantContext tenantContext)
+    {
+        // Left intentionally empty for the derived classes to implement
+        return Task.CompletedTask;
+    }
 
     private async Task CheckSetupIdentityDataAsync(IOctoAdminSession session, ITenantContext tenantContext)
     {
