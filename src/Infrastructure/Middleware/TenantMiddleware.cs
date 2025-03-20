@@ -32,7 +32,8 @@ public class TenantMiddleware(RequestDelegate next)
         // but allow access to system api endpoints
         if (configurationService.CanBeEnabled()
             && !await configurationService.IsEnabledAsync(tenantId ?? systemContext.TenantId).ConfigureAwait(false)
-            && (!context.Request.Path.Value?.StartsWith("/system") ?? false))
+            && (!context.Request.Path.Value?.StartsWith("/system") ?? false)
+            && (!context.Request.Path.Value?.StartsWith("/healthz") ?? false))
         {
             await systemSession.CommitTransactionAsync().ConfigureAwait(false);
             context.Response.StatusCode = StatusCodes.Status403Forbidden;
