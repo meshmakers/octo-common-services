@@ -20,8 +20,8 @@ public abstract class DefaultConfigurationCreatorServiceStandardized : DefaultCo
     private readonly ILogger<DefaultConfigurationCreatorServiceStandardized> _logger;
     private readonly ISystemContext _systemContext;
     private readonly ICommandClient<CreateIdentityDataCommandRequest> _createIdentityDataCommandClient;
-    private readonly string _schemaVersionKey;
-    private readonly int _expectedSchemaVersion;
+    private readonly string? _schemaVersionKey;
+    private readonly int? _expectedSchemaVersion;
     private readonly string _identityDataVersionKey;
     private readonly int _expectedIdentityDataVersion;
     private readonly string? _defaultDataVersionKey;
@@ -43,8 +43,9 @@ public abstract class DefaultConfigurationCreatorServiceStandardized : DefaultCo
         ILogger<DefaultConfigurationCreatorServiceStandardized> logger,
         ISystemContext systemContext,
         ICommandClient<CreateIdentityDataCommandRequest> createIdentityDataCommandClient,
-        string schemaVersionKey, int expectedSchemaVersion, string identityDataVersionKey,
-        int expectedIdentityDataVersion, string? defaultDataVersionKey = null, int? expectedDefaultDataVersion = null)
+        string identityDataVersionKey,
+        int expectedIdentityDataVersion, string? schemaVersionKey = null, int? expectedSchemaVersion = null,
+        string? defaultDataVersionKey = null, int? expectedDefaultDataVersion = null)
         : base(logger)
     {
         _logger = logger;
@@ -61,6 +62,11 @@ public abstract class DefaultConfigurationCreatorServiceStandardized : DefaultCo
     /// <inheritdoc />
     public async Task EnableAsync(string tenantId)
     {
+        if (_schemaVersionKey == null || _expectedSchemaVersion == null)
+        {
+            throw ConfigurationException.TenantCannotBeEnabledDisabled(tenantId);
+        }
+
         var tenantContext = await _systemContext.FindTenantContextAsync(tenantId).ConfigureAwait(false);
 
         using var session = await tenantContext.GetAdminSessionAsync().ConfigureAwait(false);
@@ -78,7 +84,7 @@ public abstract class DefaultConfigurationCreatorServiceStandardized : DefaultCo
         await ImportCkModelAsync(session, tenantContext).ConfigureAwait(false);
 
         await tenantContext.SetConfigurationAsync(session, _schemaVersionKey,
-            new DefaultConfigurationVersion { Version = _expectedSchemaVersion }).ConfigureAwait(false);
+            new DefaultConfigurationVersion { Version = _expectedSchemaVersion.Value }).ConfigureAwait(false);
 
         await session.CommitTransactionAsync().ConfigureAwait(false);
 
@@ -88,6 +94,11 @@ public abstract class DefaultConfigurationCreatorServiceStandardized : DefaultCo
     /// <inheritdoc />
     public async Task DisableAsync(string tenantId)
     {
+        if (_schemaVersionKey == null || _expectedSchemaVersion == null)
+        {
+            throw ConfigurationException.TenantCannotBeEnabledDisabled(tenantId);
+        }
+
         var tenantContext = await _systemContext.FindTenantContextAsync(tenantId).ConfigureAwait(false);
 
         using var session = await tenantContext.GetAdminSessionAsync().ConfigureAwait(false);
@@ -112,6 +123,11 @@ public abstract class DefaultConfigurationCreatorServiceStandardized : DefaultCo
     /// <inheritdoc />
     public async Task<bool> IsEnabledAsync(string tenantId)
     {
+        if (_schemaVersionKey == null || _expectedSchemaVersion == null)
+        {
+            throw ConfigurationException.TenantCannotBeEnabledDisabled(tenantId);
+        }
+
         var tenantContext = await _systemContext.FindTenantContextAsync(tenantId).ConfigureAwait(false);
 
         using var session = await tenantContext.GetAdminSessionAsync().ConfigureAwait(false);
@@ -178,7 +194,7 @@ public abstract class DefaultConfigurationCreatorServiceStandardized : DefaultCo
     /// </summary>
     /// <param name="tenantId">The tenant id</param>
     /// <returns></returns>
-    protected virtual  Task StopTenantAsync(string tenantId)
+    protected virtual Task StopTenantAsync(string tenantId)
     {
         _logger.LogInformation("Unloading tenant '{TenantId}'", tenantId);
 
@@ -190,19 +206,28 @@ public abstract class DefaultConfigurationCreatorServiceStandardized : DefaultCo
     /// Creates the identity API scope
     /// </summary>
     /// <param name="createIdentityDataCommandRequest">Request to create identity data</param>
-    protected abstract void CreateApiScopes(CreateIdentityDataCommandRequest createIdentityDataCommandRequest);
+    protected virtual void CreateApiScopes(CreateIdentityDataCommandRequest createIdentityDataCommandRequest)
+    {
+        // Left intentionally empty for the derived classes to implement
+    }
 
     /// <summary>
     /// Creates the identity API resources
     /// </summary>
     /// <param name="createIdentityDataCommandRequest">Request to create identity data</param>
-    protected abstract void CreateApiResources(CreateIdentityDataCommandRequest createIdentityDataCommandRequest);
+    protected virtual void CreateApiResources(CreateIdentityDataCommandRequest createIdentityDataCommandRequest)
+    {
+        // Left intentionally empty for the derived classes to implement
+    }
 
     /// <summary>
     /// Creates the identity API clients
     /// </summary>
     /// <param name="createIdentityDataCommandRequest">Request to create identity data</param>
-    protected abstract void CreateClients(CreateIdentityDataCommandRequest createIdentityDataCommandRequest);
+    protected virtual void CreateClients(CreateIdentityDataCommandRequest createIdentityDataCommandRequest)
+    {
+        // Left intentionally empty for the derived classes to implement
+    }
 
     /// <summary>
     /// Imports the CK model of the service if necessary
@@ -210,7 +235,11 @@ public abstract class DefaultConfigurationCreatorServiceStandardized : DefaultCo
     /// <param name="session">Admin session</param>
     /// <param name="tenantContext">Tenant context</param>
     /// <returns></returns>
-    protected abstract Task ImportCkModelAsync(IOctoAdminSession session, ITenantContext tenantContext);
+    protected virtual Task ImportCkModelAsync(IOctoAdminSession session, ITenantContext tenantContext)
+    {
+        // Left intentionally empty for the derived classes to implement
+        return Task.CompletedTask;
+    }
 
     /// <summary>
     /// Method to create or update the default data for the service
@@ -275,6 +304,12 @@ public abstract class DefaultConfigurationCreatorServiceStandardized : DefaultCo
 
     private async Task CheckImportCkModelAsync(IOctoAdminSession session, ITenantContext tenantContext)
     {
+        // Check if we need to import construction kit model
+        if (_schemaVersionKey == null || _expectedSchemaVersion == null)
+        {
+            return;
+        }
+
         _logger.LogInformation("Setting up import ck model for tenant '{TenantId}'", tenantContext.TenantId);
 
         // If there is a configuration version, check if we need to update the configuration
@@ -294,7 +329,7 @@ public abstract class DefaultConfigurationCreatorServiceStandardized : DefaultCo
             await ImportCkModelAsync(session, tenantContext).ConfigureAwait(false);
 
             await tenantContext.SetConfigurationAsync(session, _schemaVersionKey,
-                new DefaultConfigurationVersion { Version = _expectedSchemaVersion }).ConfigureAwait(false);
+                new DefaultConfigurationVersion { Version = _expectedSchemaVersion.Value }).ConfigureAwait(false);
         }
     }
 
@@ -328,5 +363,4 @@ public abstract class DefaultConfigurationCreatorServiceStandardized : DefaultCo
                 new DefaultConfigurationVersion { Version = _expectedDefaultDataVersion.Value }).ConfigureAwait(false);
         }
     }
-
 }

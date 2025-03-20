@@ -38,4 +38,9 @@ public class ConfigurationException : OctoServiceException
     {
         return new ConfigurationException($"Tenant '{tenantId}' is already disabled.");
     }
+
+    internal static Exception TenantCannotBeEnabledDisabled(string tenantId)
+    {
+        return new ConfigurationException($"Tenant '{tenantId}' cannot be enabled/disabled because there is no schema defined.");
+    }
 }
