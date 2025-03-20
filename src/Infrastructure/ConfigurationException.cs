@@ -43,4 +43,9 @@ public class ConfigurationException : OctoServiceException
     {
         return new ConfigurationException($"Tenant '{tenantId}' cannot be enabled/disabled because there is no schema defined.");
     }
+
+    public static Exception TenantIsAutoEnabled(string tenantId)
+    {
+        return new ConfigurationException($"Tenant '{tenantId}' is auto enabled.");
+    }
 }

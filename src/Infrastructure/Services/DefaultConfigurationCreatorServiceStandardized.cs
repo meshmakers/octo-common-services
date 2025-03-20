@@ -13,6 +13,10 @@ namespace Meshmakers.Octo.Services.Infrastructure.Services;
 /// Identity data for Identity Service using Distribution Event Hub, import CK model and create default data. There are methods
 /// <see cref="StartTenantAsync"/> and <see cref="StopTenantAsync"/> which can be overridden to start and stop additional services
 /// specific to the service.
+///
+/// There are two modes: A service is enabled for a tenant manually or automatically. If a service is enabled manually
+/// during startup, only identity data is created. If a service is enabled automatically, the schema version and
+/// default data get created.
 /// </remarks>
 public abstract class DefaultConfigurationCreatorServiceStandardized : DefaultConfigurationCreatorServiceBase,
     IConfigurationService
@@ -21,6 +25,7 @@ public abstract class DefaultConfigurationCreatorServiceStandardized : DefaultCo
     private readonly ISystemContext _systemContext;
     private readonly ICommandClient<CreateIdentityDataCommandRequest> _createIdentityDataCommandClient;
     private readonly string? _schemaVersionKey;
+    private readonly bool? _autoEnable;
     private readonly int? _expectedSchemaVersion;
     private readonly string _identityDataVersionKey;
     private readonly int _expectedIdentityDataVersion;
@@ -34,6 +39,7 @@ public abstract class DefaultConfigurationCreatorServiceStandardized : DefaultCo
     /// <param name="systemContext">System context of repository</param>
     /// <param name="createIdentityDataCommandClient">The command client to create identity data</param>
     /// <param name="schemaVersionKey">The configuration key for the schema version</param>
+    /// <param name="autoEnable">When true, all tenants are automatically enabled</param>
     /// <param name="expectedSchemaVersion">The expected value of the schema version</param>
     /// <param name="identityDataVersionKey">The configuration key for the identity data version</param>
     /// <param name="expectedIdentityDataVersion">The expected value of the identity data version</param>
@@ -44,7 +50,7 @@ public abstract class DefaultConfigurationCreatorServiceStandardized : DefaultCo
         ISystemContext systemContext,
         ICommandClient<CreateIdentityDataCommandRequest> createIdentityDataCommandClient,
         string identityDataVersionKey,
-        int expectedIdentityDataVersion, string? schemaVersionKey = null, int? expectedSchemaVersion = null,
+        int expectedIdentityDataVersion, string? schemaVersionKey = null, bool? autoEnable = false, int? expectedSchemaVersion = null,
         string? defaultDataVersionKey = null, int? expectedDefaultDataVersion = null)
         : base(logger)
     {
@@ -52,6 +58,7 @@ public abstract class DefaultConfigurationCreatorServiceStandardized : DefaultCo
         _systemContext = systemContext;
         _createIdentityDataCommandClient = createIdentityDataCommandClient;
         _schemaVersionKey = schemaVersionKey;
+        _autoEnable = autoEnable;
         _expectedSchemaVersion = expectedSchemaVersion;
         _identityDataVersionKey = identityDataVersionKey;
         _expectedIdentityDataVersion = expectedIdentityDataVersion;
@@ -65,6 +72,11 @@ public abstract class DefaultConfigurationCreatorServiceStandardized : DefaultCo
         if (_schemaVersionKey == null || _expectedSchemaVersion == null)
         {
             throw ConfigurationException.TenantCannotBeEnabledDisabled(tenantId);
+        }
+
+        if (_autoEnable.GetValueOrDefault())
+        {
+            throw ConfigurationException.TenantIsAutoEnabled(tenantId);
         }
 
         var tenantContext = await _systemContext.FindTenantContextAsync(tenantId).ConfigureAwait(false);
@@ -99,6 +111,11 @@ public abstract class DefaultConfigurationCreatorServiceStandardized : DefaultCo
             throw ConfigurationException.TenantCannotBeEnabledDisabled(tenantId);
         }
 
+        if (_autoEnable.GetValueOrDefault())
+        {
+            throw ConfigurationException.TenantIsAutoEnabled(tenantId);
+        }
+
         var tenantContext = await _systemContext.FindTenantContextAsync(tenantId).ConfigureAwait(false);
 
         using var session = await tenantContext.GetAdminSessionAsync().ConfigureAwait(false);
@@ -126,6 +143,11 @@ public abstract class DefaultConfigurationCreatorServiceStandardized : DefaultCo
         if (_schemaVersionKey == null || _expectedSchemaVersion == null)
         {
             throw ConfigurationException.TenantCannotBeEnabledDisabled(tenantId);
+        }
+
+        if (_autoEnable.GetValueOrDefault())
+        {
+            throw ConfigurationException.TenantIsAutoEnabled(tenantId);
         }
 
         var tenantContext = await _systemContext.FindTenantContextAsync(tenantId).ConfigureAwait(false);
@@ -343,12 +365,13 @@ public abstract class DefaultConfigurationCreatorServiceStandardized : DefaultCo
         var configurationVersion =
             await tenantContext.GetConfigurationAsync<DefaultConfigurationVersion>(session,
                 _schemaVersionKey, null).ConfigureAwait(false);
-        if (configurationVersion == null)
+        if (configurationVersion == null && !_autoEnable.GetValueOrDefault())
         {
+            _logger.LogInformation("Tenant '{TenantId}' is not enabled", tenantContext.TenantId);
             return;
         }
 
-        if (configurationVersion.Version < _expectedSchemaVersion)
+        if (configurationVersion == null || configurationVersion.Version < _expectedSchemaVersion)
         {
             _logger.LogInformation("Importing ck model for tenant '{TenantId}'", tenantContext.TenantId);
 
@@ -373,12 +396,13 @@ public abstract class DefaultConfigurationCreatorServiceStandardized : DefaultCo
         var configurationVersion =
             await tenantContext.GetConfigurationAsync<DefaultConfigurationVersion>(session,
                 _defaultDataVersionKey, null).ConfigureAwait(false);
-        if (configurationVersion == null)
+        if (configurationVersion == null && !_autoEnable.GetValueOrDefault())
         {
+            _logger.LogInformation("Tenant '{TenantId}' is not enabled", tenantContext.TenantId);
             return;
         }
 
-        if (configurationVersion.Version < _expectedSchemaVersion)
+        if (configurationVersion == null || configurationVersion.Version < _expectedSchemaVersion)
         {
             _logger.LogInformation("Creating default data for tenant '{TenantId}'", tenantContext.TenantId);
 
