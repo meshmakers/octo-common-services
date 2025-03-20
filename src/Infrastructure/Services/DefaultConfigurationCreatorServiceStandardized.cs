@@ -318,7 +318,6 @@ public abstract class DefaultConfigurationCreatorServiceStandardized : DefaultCo
                 _schemaVersionKey, null).ConfigureAwait(false);
         if (configurationVersion == null)
         {
-            await session.CommitTransactionAsync().ConfigureAwait(false);
             return;
         }
 
@@ -349,7 +348,6 @@ public abstract class DefaultConfigurationCreatorServiceStandardized : DefaultCo
                 _defaultDataVersionKey, null).ConfigureAwait(false);
         if (configurationVersion == null)
         {
-            await session.CommitTransactionAsync().ConfigureAwait(false);
             return;
         }
 
