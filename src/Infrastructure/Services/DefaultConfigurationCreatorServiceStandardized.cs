@@ -84,22 +84,17 @@ public abstract class DefaultConfigurationCreatorServiceStandardized : DefaultCo
         using var session = await tenantContext.GetAdminSessionAsync().ConfigureAwait(false);
         session.StartTransaction();
 
-        // If there is a configuration version, check if we need to update the configuration
-        var schemaVersion =
-            await tenantContext.GetConfigurationAsync(session, _schemaVersionKey,
-                new DefaultConfigurationVersion { Version = -1 }).ConfigureAwait(false);
-        if (schemaVersion?.Version == _expectedSchemaVersion)
+        if (!await CheckImportCkModelAsync(session, tenantContext, true).ConfigureAwait(false))
         {
             throw ConfigurationException.TenantAlreadyEnabled(tenantId);
         }
 
-        await ImportCkModelAsync(session, tenantContext).ConfigureAwait(false);
-
-        await tenantContext.SetConfigurationAsync(session, _schemaVersionKey,
-            new DefaultConfigurationVersion { Version = _expectedSchemaVersion.Value }).ConfigureAwait(false);
+        // Check for default data
+        await CheckSetupDefaultDataAsync(session, tenantContext, true).ConfigureAwait(false);
 
         await session.CommitTransactionAsync().ConfigureAwait(false);
 
+        // start the tenant
         await StartTenantAsync(tenantId).ConfigureAwait(false);
     }
 
@@ -351,12 +346,12 @@ public abstract class DefaultConfigurationCreatorServiceStandardized : DefaultCo
         }
     }
 
-    private async Task CheckImportCkModelAsync(IOctoAdminSession session, ITenantContext tenantContext)
+    private async Task<bool> CheckImportCkModelAsync(IOctoAdminSession session, ITenantContext tenantContext, bool forceUpdate = false)
     {
         // Check if we need to import a construction kit model
         if (_schemaVersionKey == null || _expectedSchemaVersion == null)
         {
-            return;
+            return false;
         }
 
         _logger.LogInformation("Setting up import ck model for tenant '{TenantId}'", tenantContext.TenantId);
@@ -365,10 +360,10 @@ public abstract class DefaultConfigurationCreatorServiceStandardized : DefaultCo
         var configurationVersion =
             await tenantContext.GetConfigurationAsync<DefaultConfigurationVersion>(session,
                 _schemaVersionKey, null).ConfigureAwait(false);
-        if (configurationVersion == null && !_autoEnable.GetValueOrDefault())
+        if (configurationVersion == null && !_autoEnable.GetValueOrDefault() && !forceUpdate)
         {
             _logger.LogInformation("Tenant '{TenantId}' is not enabled", tenantContext.TenantId);
-            return;
+            return false;
         }
 
         if (configurationVersion == null || configurationVersion.Version < _expectedSchemaVersion)
@@ -380,9 +375,11 @@ public abstract class DefaultConfigurationCreatorServiceStandardized : DefaultCo
             await tenantContext.SetConfigurationAsync(session, _schemaVersionKey,
                 new DefaultConfigurationVersion { Version = _expectedSchemaVersion.Value }).ConfigureAwait(false);
         }
+
+        return true;
     }
 
-    private async Task CheckSetupDefaultDataAsync(IOctoAdminSession session, ITenantContext tenantContext)
+    private async Task CheckSetupDefaultDataAsync(IOctoAdminSession session, ITenantContext tenantContext, bool forceUpdate = false)
     {
         // Check if we need to import the default data
         if (_defaultDataVersionKey == null || _expectedDefaultDataVersion == null)
@@ -396,7 +393,7 @@ public abstract class DefaultConfigurationCreatorServiceStandardized : DefaultCo
         var configurationVersion =
             await tenantContext.GetConfigurationAsync<DefaultConfigurationVersion>(session,
                 _defaultDataVersionKey, null).ConfigureAwait(false);
-        if (configurationVersion == null && !_autoEnable.GetValueOrDefault())
+        if (configurationVersion == null && !_autoEnable.GetValueOrDefault() && !forceUpdate)
         {
             _logger.LogInformation("Tenant '{TenantId}' is not enabled", tenantContext.TenantId);
             return;
