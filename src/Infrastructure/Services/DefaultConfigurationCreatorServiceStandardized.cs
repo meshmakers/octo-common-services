@@ -165,6 +165,14 @@ public abstract class DefaultConfigurationCreatorServiceStandardized : DefaultCo
         return configurationVersion.Version == _expectedSchemaVersion;
     }
 
+    /// <inheritdoc />
+    public bool CanBeEnabled()
+    {
+        return _schemaVersionKey != null
+               && _expectedSchemaVersion != null
+               && !_autoEnable.GetValueOrDefault();
+    }
+
     protected override async Task SetupTenantAsync(string tenantId)
     {
         // Do nothing if the system tenant is not existing.

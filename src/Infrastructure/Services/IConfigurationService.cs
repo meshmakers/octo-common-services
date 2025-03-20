@@ -25,4 +25,10 @@ public interface IConfigurationService : IDefaultConfigurationCreatorService
     /// <param name="tenantId">ID of the tenant</param>
     /// <returns>True if the current schema is enabled</returns>
     Task<bool> IsEnabledAsync(string tenantId);
+
+    /// <summary>
+    /// Returns true if the service can be enabled or disabled by tenant.
+    /// </summary>
+    /// <returns>True, when the service can be enabled or disabled by tenant</returns>
+    bool CanBeEnabled();
 }

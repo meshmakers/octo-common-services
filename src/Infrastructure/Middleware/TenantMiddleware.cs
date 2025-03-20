@@ -1,11 +1,13 @@
 using Meshmakers.Octo.Runtime.Contracts.MongoDb;
 using Meshmakers.Octo.Services.Common;
+using Meshmakers.Octo.Services.Infrastructure.Services;
 
 namespace Meshmakers.Octo.Services.Infrastructure.Middleware;
 
 public class TenantMiddleware(RequestDelegate next)
 {
-    public async Task InvokeAsync(HttpContext context, ISystemContext systemContext)
+    public async Task InvokeAsync(HttpContext context, ISystemContext systemContext,
+        IConfigurationService configurationService)
     {
         // Load tenant repository
         var tenantId = context.GetTenantId();
@@ -23,6 +25,18 @@ public class TenantMiddleware(RequestDelegate next)
             var tenantRepository = systemContext.GetTenantRepository();
             context.Items[BackendCommon.TenantRepositoryName] = tenantRepository;
             context.Items[BackendCommon.TenantIdName] = tenantRepository.TenantId;
+        }
+
+
+        // Check if the service can be enabled, check if the service is enabled for the tenant,
+        // but allow access to system api endpoints
+        if (configurationService.CanBeEnabled()
+            && !await configurationService.IsEnabledAsync(tenantId ?? systemContext.TenantId).ConfigureAwait(false)
+            && (!context.Request.Path.Value?.StartsWith("/system") ?? false))
+        {
+            await systemSession.CommitTransactionAsync().ConfigureAwait(false);
+            context.Response.StatusCode = StatusCodes.Status403Forbidden;
+            return;
         }
 
         await systemSession.CommitTransactionAsync().ConfigureAwait(false);
