@@ -253,6 +253,33 @@ public abstract class DefaultConfigurationCreatorServiceStandardized : DefaultCo
         return Task.CompletedTask;
     }
 
+    /// <summary>
+    /// Checks if the schema is available for the tenant
+    /// </summary>
+    /// <param name="tenantId">The tenant id</param>
+    /// <returns>True if the schema is available, false otherwise</returns>
+    protected async Task<bool> IsSchemaAvailableForTenant(string tenantId)
+    {
+        // Check if we need to import a construction kit model
+        if (_schemaVersionKey == null || _expectedSchemaVersion == null)
+        {
+            return false;
+        }
+
+        var tenantContext = await _systemContext.FindTenantContextAsync(tenantId).ConfigureAwait(false);
+
+        using var session = await tenantContext.GetAdminSessionAsync().ConfigureAwait(false);
+        session.StartTransaction();
+
+        var configurationVersion =
+            await tenantContext.GetConfigurationAsync<DefaultConfigurationVersion>(session,
+                _schemaVersionKey, null).ConfigureAwait(false);
+
+        await session.CommitTransactionAsync().ConfigureAwait(false);
+
+        return configurationVersion != null;
+    }
+
     private async Task CheckSetupIdentityDataAsync(IOctoAdminSession session, ITenantContext tenantContext)
     {
         // Identity configuration is next
@@ -304,7 +331,7 @@ public abstract class DefaultConfigurationCreatorServiceStandardized : DefaultCo
 
     private async Task CheckImportCkModelAsync(IOctoAdminSession session, ITenantContext tenantContext)
     {
-        // Check if we need to import construction kit model
+        // Check if we need to import a construction kit model
         if (_schemaVersionKey == null || _expectedSchemaVersion == null)
         {
             return;
