@@ -2,7 +2,7 @@
 using Dapper;
 using Meshmakers.Octo.ConstructionKit.Contracts;
 
-namespace Meshmakers.Octo.Services.Common.StreamData.Dapper;
+namespace Meshmakers.Octo.StreamData.Dapper;
 
 /// <summary>
 /// Allows dapper to handle CkId types

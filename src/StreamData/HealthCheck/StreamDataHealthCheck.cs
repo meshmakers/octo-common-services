@@ -1,7 +1,7 @@
-﻿using Meshmakers.Octo.Services.Common.StreamData.Client;
+﻿using Meshmakers.Octo.StreamData.Client;
 using Microsoft.Extensions.Diagnostics.HealthChecks;
 
-namespace Meshmakers.Octo.Services.Common.StreamData.HealthCheck;
+namespace Meshmakers.Octo.StreamData.HealthCheck;
 
 /// <summary>
 /// Health check for stream data database

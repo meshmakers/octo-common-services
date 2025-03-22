@@ -1,6 +1,6 @@
-using Meshmakers.Octo.Services.Common.StreamData.Dtos;
+using Meshmakers.Octo.StreamData.Dtos;
 
-namespace Meshmakers.Octo.Services.Common.StreamData;
+namespace Meshmakers.Octo.StreamData;
 
 /// <summary>
 /// Provides data access to a stream data database

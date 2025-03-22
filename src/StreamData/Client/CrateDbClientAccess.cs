@@ -1,10 +1,10 @@
-﻿using Meshmakers.Octo.Services.Common.StreamData.Configuration;
+﻿using Meshmakers.Octo.StreamData.Configuration;
 using Microsoft.Extensions.Caching.Memory;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using Npgsql;
 
-namespace Meshmakers.Octo.Services.Common.StreamData.Client;
+namespace Meshmakers.Octo.StreamData.Client;
 
 internal interface ICrateDbConnectionAccess
 {

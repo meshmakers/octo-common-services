@@ -1,10 +1,10 @@
 ﻿<Project Sdk="Microsoft.NET.Sdk">
 
     <PropertyGroup>
-        <AssemblyName>Meshmakers.Octo.Services.StreamData</AssemblyName>
+        <AssemblyName>Meshmakers.Octo.StreamData</AssemblyName>
         <Description>Stream data related shared classes</Description>
-        <PackageId>Meshmakers.Octo.Services.Common.StreamData</PackageId>
-        <RootNamespace>Meshmakers.Octo.Services.Common.StreamData</RootNamespace>
+        <PackageId>Meshmakers.Octo.StreamData</PackageId>
+        <RootNamespace>Meshmakers.Octo.StreamData</RootNamespace>
         <OutputPath>..\..\bin\$(Configuration)\</OutputPath>
         <DocumentationFile>..\..\bin\$(Configuration)\$(AssemblyName).xml</DocumentationFile>
         <Configurations>Debug;Release;DebugL</Configurations>
@@ -19,7 +19,7 @@
     </ItemGroup>
 
     <ItemGroup>
-        <ProjectReference Include="..\Common\Common.csproj" />
+        <ProjectReference Include="..\Infrastructure\Infrastructure.csproj" />
     </ItemGroup>
 
     <ItemGroup>

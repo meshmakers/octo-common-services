@@ -1,6 +1,6 @@
 using System.Globalization;
-using Meshmakers.Octo.Services.Common.StreamData.Dtos;
-using Meshmakers.Octo.Services.Common.StreamData.QueryBuilder;
+using Meshmakers.Octo.StreamData.Dtos;
+using Meshmakers.Octo.StreamData.QueryBuilder;
 
 namespace TimeSeries.Tests;
 

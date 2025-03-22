@@ -1,7 +1,7 @@
 using Meshmakers.Octo.ConstructionKit.Contracts;
-using Meshmakers.Octo.Services.Common.StreamData.Dapper;
+using Meshmakers.Octo.StreamData.Dapper;
 
-namespace Meshmakers.Octo.Services.Common.StreamData;
+namespace Meshmakers.Octo.StreamData;
 
 
 /// <summary>

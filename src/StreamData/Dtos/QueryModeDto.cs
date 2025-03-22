@@ -1,4 +1,4 @@
-﻿namespace Meshmakers.Octo.Services.Common.StreamData.Dtos;
+﻿namespace Meshmakers.Octo.StreamData.Dtos;
 
 /// <summary>
 /// Defines the kind of query to be executed

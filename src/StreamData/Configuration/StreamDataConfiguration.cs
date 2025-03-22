@@ -1,4 +1,4 @@
-﻿namespace Meshmakers.Octo.Services.Common.StreamData.Configuration;
+﻿namespace Meshmakers.Octo.StreamData.Configuration;
 
 /// <summary>
 /// Configuration for the stream data database.

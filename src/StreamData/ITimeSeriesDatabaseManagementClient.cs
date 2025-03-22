@@ -1,4 +1,4 @@
-namespace Meshmakers.Octo.Services.Common.StreamData;
+namespace Meshmakers.Octo.StreamData;
 
 /// <summary>
 /// Provides management operations to a stream data database

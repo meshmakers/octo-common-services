@@ -1,6 +1,6 @@
 ﻿using Microsoft.Extensions.Diagnostics.HealthChecks;
 
-namespace Meshmakers.Octo.Services.Common.StreamData.Client;
+namespace Meshmakers.Octo.StreamData.Client;
 
 /// <summary>
 /// Client for checking the health of database connection.

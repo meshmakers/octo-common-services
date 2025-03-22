@@ -1,4 +1,4 @@
-﻿namespace Meshmakers.Octo.Services.Common.StreamData;
+﻿namespace Meshmakers.Octo.StreamData;
 
 /// <summary>
 /// Constants for the stream data service.

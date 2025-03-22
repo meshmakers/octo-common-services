@@ -1,4 +1,4 @@
-﻿namespace Meshmakers.Octo.Services.Common.StreamData.Dtos;
+﻿namespace Meshmakers.Octo.StreamData.Dtos;
 
 /// <summary>
 /// 

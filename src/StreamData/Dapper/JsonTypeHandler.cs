@@ -2,7 +2,7 @@
 using System.Text.Json;
 using Dapper;
 
-namespace Meshmakers.Octo.Services.Common.StreamData.Dapper;
+namespace Meshmakers.Octo.StreamData.Dapper;
 
 /// <summary>
 /// Allows dapper to handle JSON types

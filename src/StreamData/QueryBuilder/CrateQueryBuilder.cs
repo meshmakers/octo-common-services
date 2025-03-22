@@ -1,6 +1,6 @@
-﻿using Meshmakers.Octo.Services.Common.StreamData.Dtos;
+﻿using Meshmakers.Octo.StreamData.Dtos;
 
-namespace Meshmakers.Octo.Services.Common.StreamData.QueryBuilder;
+namespace Meshmakers.Octo.StreamData.QueryBuilder;
 
 /// <summary>
 /// Query Builder

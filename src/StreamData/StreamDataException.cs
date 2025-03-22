@@ -1,6 +1,6 @@
 ﻿using System.Diagnostics;
 
-namespace Meshmakers.Octo.Services.Common.StreamData;
+namespace Meshmakers.Octo.StreamData;
 
 
 

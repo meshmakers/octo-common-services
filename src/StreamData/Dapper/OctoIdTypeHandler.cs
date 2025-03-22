@@ -2,7 +2,7 @@
 using Dapper;
 using Meshmakers.Octo.ConstructionKit.Contracts;
 
-namespace Meshmakers.Octo.Services.Common.StreamData.Dapper;
+namespace Meshmakers.Octo.StreamData.Dapper;
 
 internal class OctoIdTypeHandler : SqlMapper.TypeHandler<OctoObjectId>
 {
