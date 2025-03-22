@@ -1,8 +1,8 @@
 using Meshmakers.Octo.Common.DistributionEventHub.Services;
 using Meshmakers.Octo.Runtime.Contracts.MongoDb;
 using Meshmakers.Octo.Runtime.Contracts.Repositories.Query;
-using Meshmakers.Octo.Services.Common.DistributionEventHub.Commands;
-using Meshmakers.Octo.Services.Common.DistributionEventHub.Commands.Payloads;
+using Meshmakers.Octo.Services.Contracts.DistributionEventHub.Commands;
+using Meshmakers.Octo.Services.Contracts.DistributionEventHub.Commands.Payloads;
 using Meshmakers.Octo.Services.Notifications.Generated.System.Notification.v1;
 
 namespace Meshmakers.Octo.Services.Notifications.Services;

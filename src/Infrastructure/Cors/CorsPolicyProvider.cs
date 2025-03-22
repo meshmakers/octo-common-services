@@ -7,7 +7,7 @@ namespace Meshmakers.Octo.Services.Infrastructure.Cors;
 /// <summary>
 ///     Implements a CORS policy provider that allows all known clients stored in Octo database
 /// </summary>
-public class CorsPolicyProvider : ICorsPolicyProvider
+internal class CorsPolicyProvider : ICorsPolicyProvider
 {
     private static readonly Logger Logger = LogManager.GetCurrentClassLogger();
 

@@ -28,9 +28,19 @@ public static class ApplicationBuilderExtensions
     /// </summary>
     /// <param name="app"></param>
     /// <returns></returns>
-    public static IApplicationBuilder UseAuthorizationUserInfo(this IApplicationBuilder app)
+    public static IApplicationBuilder UseOctoAuthorizationUserInfo(this IApplicationBuilder app)
     {
         return app.UseMiddleware<UserInfoMiddleware>();
+    }
+
+    /// <summary>
+    ///     Adds authentication using jwt tokens from the request
+    /// </summary>
+    /// <param name="app"></param>
+    /// <returns></returns>
+    public static IApplicationBuilder UseOctoCookieBasedAuthentication(this IApplicationBuilder app)
+    {
+        return app.UseMiddleware<CookieBasedAuthenticationMiddleware>();
     }
 
     /// <summary>

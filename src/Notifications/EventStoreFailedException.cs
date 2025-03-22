@@ -1,4 +1,4 @@
-using Meshmakers.Octo.Services.Common;
+using Meshmakers.Octo.Services.Infrastructure;
 
 namespace Meshmakers.Octo.Services.Notifications;
 

@@ -11,7 +11,8 @@
 
     <ItemGroup>
         <ProjectReference Include="$(OctoConstructionKitPath)src\Runtime.Contracts.MongoDb\Runtime.Contracts.MongoDb.csproj" />
-        <ProjectReference Include="..\Common\Common.csproj" />
+        <ProjectReference Include="..\Contracts\Contracts.csproj" />
+        <ProjectReference Include="..\Infrastructure\Infrastructure.csproj" />
     </ItemGroup>
     
     <ItemGroup>

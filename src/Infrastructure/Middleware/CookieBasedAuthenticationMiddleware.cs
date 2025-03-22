@@ -4,7 +4,7 @@
 ///     Allows to transform a jwt token to a cookie based auth
 /// </summary>
 // ReSharper disable once ClassNeverInstantiated.Global
-internal class CookieBasedAuthorizationMiddleware
+internal class CookieBasedAuthenticationMiddleware
 {
     private const string CookieName = "OctoIdentityAccessToken";
     private const string AuthorizationHeaderName = "Authorization";
@@ -15,7 +15,7 @@ internal class CookieBasedAuthorizationMiddleware
     ///     Constructor
     /// </summary>
     /// <param name="next"></param>
-    public CookieBasedAuthorizationMiddleware(RequestDelegate next)
+    public CookieBasedAuthenticationMiddleware(RequestDelegate next)
     {
         _next = next;
     }
@@ -54,6 +54,6 @@ internal class CookieBasedAuthorizationMiddleware
             }
         }
 
-        await _next(context);
+        await _next(context).ConfigureAwait(false);
     }
 }
