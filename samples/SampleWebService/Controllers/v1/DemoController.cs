@@ -1,5 +1,5 @@
 using Asp.Versioning;
-using Meshmakers.Octo.Services.Common.ApiErrors;
+using Meshmakers.Octo.Services.Contracts.ApiErrors;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
