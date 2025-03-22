@@ -2,7 +2,7 @@ using Meshmakers.Octo.ConstructionKit.Contracts;
 using Meshmakers.Octo.Runtime.Contracts.MongoDb.Repositories;
 using Meshmakers.Octo.Runtime.Contracts.Repositories.Query;
 using Meshmakers.Octo.Runtime.Contracts.RepositoryEntities;
-using Meshmakers.Octo.Services.Common.Cors;
+using Meshmakers.Octo.Services.Infrastructure.Cors;
 
 namespace Meshmakers.Octo.Services.Infrastructure.Services;
 

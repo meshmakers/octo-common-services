@@ -2,10 +2,11 @@ using Meshmakers.Octo.Common.DistributionEventHub.Configuration;
 using Meshmakers.Octo.Common.DistributionEventHub.Repository;
 using Meshmakers.Octo.Common.DistributionEventHub.Services;
 using Meshmakers.Octo.Runtime.Contracts.MongoDb.Services;
-using Meshmakers.Octo.Services.Common;
-using Meshmakers.Octo.Services.Common.Cors;
-using Meshmakers.Octo.Services.Common.DistributionEventHub.Messages;
+using Meshmakers.Octo.Sdk.ServiceClient.Authorization;
+using Meshmakers.Octo.Services.Contracts.DistributionEventHub.Messages;
+using Meshmakers.Octo.Services.Infrastructure;
 using Meshmakers.Octo.Services.Infrastructure.Consumers;
+using Meshmakers.Octo.Services.Infrastructure.Cors;
 using Meshmakers.Octo.Services.Infrastructure.DistributionEventHub;
 using Meshmakers.Octo.Services.Infrastructure.Services;
 using Microsoft.AspNetCore.Cors.Infrastructure;
@@ -61,5 +62,15 @@ public static class ServiceCollectionExtensions
         });
 
         services.AddInitializationService<DefaultConfigurationInitializationService>();
+    }
+
+    /// <summary>
+    ///     Adds user info middleware components
+    /// </summary>
+    /// <param name="services"></param>
+    public static void AddAuthorizationUserInfo(this IServiceCollection services)
+    {
+        services.AddSingleton<IUserInfoCache, UserInfoCache>();
+        services.AddSingleton<IAuthorizationClient, AuthorizationClient>();
     }
 }

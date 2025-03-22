@@ -1,46 +1,61 @@
 using Meshmakers.Octo.Runtime.Contracts.MongoDb;
-using Meshmakers.Octo.Services.Common;
 using Meshmakers.Octo.Services.Infrastructure.Services;
 
 namespace Meshmakers.Octo.Services.Infrastructure.Middleware;
 
-public class TenantMiddleware(RequestDelegate next)
+internal class TenantMiddleware(RequestDelegate next)
 {
+    /// <summary>
+    /// Represents the system endpoints
+    /// </summary>
+    private static readonly List<string> SystemEndpoints =
+    [
+        "/system",
+        "/signin-oidc",
+        "/healthz"
+    ];
+
     public async Task InvokeAsync(HttpContext context, ISystemContext systemContext,
         IConfigurationService configurationService)
     {
+        // Check if the request is a system endpoint
+        if (context.Request.Path.Value != null && SystemEndpoints.Contains(context.Request.Path.Value))
+        {
+            await next(context).ConfigureAwait(false);
+            return;
+        }
+
         // Load tenant repository
         var tenantId = context.GetTenantId();
-        using var systemSession = await systemContext.GetAdminSessionAsync().ConfigureAwait(false);
-        systemSession.StartTransaction();
 
         if (!string.IsNullOrWhiteSpace(tenantId))
         {
-            var tenantRepository = await systemContext.FindTenantRepositoryAsync(tenantId).ConfigureAwait(false);
-            context.Items[BackendCommon.TenantRepositoryName] = tenantRepository;
-            context.Items[BackendCommon.TenantIdName] = tenantRepository.TenantId;
+            // Check if the tenant exists
+            var tenantRepository = await systemContext.TryFindTenantRepositoryAsync(tenantId).ConfigureAwait(false);
+            if (tenantRepository == null)
+            {
+                context.Response.StatusCode = StatusCodes.Status404NotFound;
+                return;
+            }
+
+            // Check if the service can be enabled, check if the service is enabled for the tenant,
+            // but allow access to system api endpoints
+            if (configurationService.CanBeEnabled()
+                && !await configurationService.IsEnabledAsync(tenantId).ConfigureAwait(false))
+            {
+                context.Response.StatusCode = StatusCodes.Status403Forbidden;
+                return;
+            }
+
+            context.Items[InfrastructureCommon.TenantRepositoryName] = tenantRepository;
+            context.Items[InfrastructureCommon.TenantIdName] = tenantRepository.TenantId;
         }
         else
         {
             var tenantRepository = systemContext.GetTenantRepository();
-            context.Items[BackendCommon.TenantRepositoryName] = tenantRepository;
-            context.Items[BackendCommon.TenantIdName] = tenantRepository.TenantId;
+            context.Items[InfrastructureCommon.TenantRepositoryName] = tenantRepository;
+            context.Items[InfrastructureCommon.TenantIdName] = tenantRepository.TenantId;
         }
-
-
-        // Check if the service can be enabled, check if the service is enabled for the tenant,
-        // but allow access to system api endpoints
-        if (configurationService.CanBeEnabled()
-            && !await configurationService.IsEnabledAsync(tenantId ?? systemContext.TenantId).ConfigureAwait(false)
-            && (!context.Request.Path.Value?.StartsWith("/system") ?? false)
-            && (!context.Request.Path.Value?.StartsWith("/healthz") ?? false))
-        {
-            await systemSession.CommitTransactionAsync().ConfigureAwait(false);
-            context.Response.StatusCode = StatusCodes.Status403Forbidden;
-            return;
-        }
-
-        await systemSession.CommitTransactionAsync().ConfigureAwait(false);
 
         // Call the next delegate/middleware in the pipeline
         await next(context).ConfigureAwait(false);

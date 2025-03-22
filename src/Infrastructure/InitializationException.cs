@@ -1,5 +1,3 @@
-using Meshmakers.Octo.Services.Common;
-
 namespace Meshmakers.Octo.Services.Infrastructure;
 
 public class InitializationException : OctoServiceException

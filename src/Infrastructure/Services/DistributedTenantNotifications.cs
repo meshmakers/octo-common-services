@@ -1,6 +1,6 @@
 using Meshmakers.Octo.Common.DistributionEventHub.Services;
 using Meshmakers.Octo.Runtime.Contracts.MongoDb.Services;
-using Meshmakers.Octo.Services.Common.DistributionEventHub.Messages;
+using Meshmakers.Octo.Services.Contracts.DistributionEventHub.Messages;
 
 namespace Meshmakers.Octo.Services.Infrastructure.Services;
 

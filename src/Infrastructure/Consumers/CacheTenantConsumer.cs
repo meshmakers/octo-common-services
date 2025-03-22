@@ -1,9 +1,9 @@
 using Meshmakers.Common.Shared;
 using Meshmakers.Octo.Common.DistributionEventHub.Consumers;
 using Meshmakers.Octo.ConstructionKit.Contracts.Services;
-using Meshmakers.Octo.Services.Common.DistributionEventHub.Messages;
+using Meshmakers.Octo.Services.Contracts.DistributionEventHub.Messages;
 using Microsoft.Extensions.Logging;
-using PreUpdateTenant = Meshmakers.Octo.Services.Common.DistributionEventHub.Messages.PreUpdateTenant;
+using PreUpdateTenant = Meshmakers.Octo.Services.Contracts.DistributionEventHub.Messages.PreUpdateTenant;
 // ReSharper disable InconsistentlySynchronizedField
 
 namespace Meshmakers.Octo.Services.Infrastructure.Consumers;

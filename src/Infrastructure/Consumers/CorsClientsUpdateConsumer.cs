@@ -1,7 +1,7 @@
 using Meshmakers.Common.Shared;
 using Meshmakers.Octo.Common.DistributionEventHub.Consumers;
-using Meshmakers.Octo.Services.Common.Cors;
-using Meshmakers.Octo.Services.Common.DistributionEventHub.Messages;
+using Meshmakers.Octo.Services.Contracts.DistributionEventHub.Messages;
+using Meshmakers.Octo.Services.Infrastructure.Cors;
 using Microsoft.Extensions.Logging;
 
 namespace Meshmakers.Octo.Services.Infrastructure.Consumers;

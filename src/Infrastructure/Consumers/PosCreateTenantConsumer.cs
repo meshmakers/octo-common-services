@@ -1,6 +1,6 @@
 using System.Collections.Concurrent;
 using Meshmakers.Octo.Common.DistributionEventHub.Consumers;
-using Meshmakers.Octo.Services.Common.DistributionEventHub.Messages;
+using Meshmakers.Octo.Services.Contracts.DistributionEventHub.Messages;
 using Meshmakers.Octo.Services.Infrastructure.Services;
 using Microsoft.Extensions.Logging;
 

@@ -1,6 +1,5 @@
 using Meshmakers.Octo.Runtime.Contracts.MongoDb;
 using Meshmakers.Octo.Runtime.Contracts.MongoDb.Repositories;
-using Meshmakers.Octo.Services.Common;
 
 namespace Meshmakers.Octo.Services.Infrastructure;
 

@@ -1,0 +1,39 @@
+﻿<Project Sdk="Microsoft.NET.Sdk.Web">
+
+    <PropertyGroup>
+        <AssemblyName>Meshmakers.Octo.Services.Contracts</AssemblyName>
+        <Description>Shared Middleware contracts for OctoMesh Services</Description>
+        <GeneratePackageOnBuild>true</GeneratePackageOnBuild>
+        <PackageId>Meshmakers.Octo.Services.Contracts</PackageId>
+        <RootNamespace>Meshmakers.Octo.Services.Contracts</RootNamespace>
+        <OutputPath>..\..\bin\$(Configuration)\</OutputPath>
+        <DocumentationFile>..\..\bin\$(Configuration)\$(AssemblyName).xml</DocumentationFile>
+        <Configurations>Debug;Release;DebugL</Configurations>
+        <Platforms>AnyCPU</Platforms>
+        <OutputType>Library</OutputType>
+        <IsPackable>true</IsPackable>
+    </PropertyGroup>
+
+    <ItemGroup>
+        <PackageReference Include="Meshmakers.Octo.Common.DistributionEventHub" Version="$(OctoVersion)" />
+        <PackageReference Include="Meshmakers.Octo.Sdk.ServiceClient" Version="$(OctoVersion)" />
+        <PackageReference Include="Newtonsoft.Json" Version="13.0.3" />
+        <PackageReference Include="NLog" Version="5.4.0" />
+    </ItemGroup>
+
+    <ItemGroup>
+        <None Include="..\..\assets\meshmakers64.png">
+            <Pack>True</Pack>
+            <PackagePath />
+            <Link>meshmakers64.png</Link>
+        </None>
+    </ItemGroup>
+
+    <ItemGroup>
+        <None Include="..\..\LICENSE">
+            <Pack>True</Pack>
+            <PackagePath />
+            <Link>LICENSE</Link>
+        </None>
+    </ItemGroup>
+</Project>
