@@ -1,4 +1,4 @@
-﻿namespace Meshmakers.Octo.StreamData.QueryBuilder;
+﻿namespace Meshmakers.Octo.Services.StreamData.QueryBuilder;
 
 /// <summary>
 /// Query Builder Exception

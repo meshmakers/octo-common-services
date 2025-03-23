@@ -1,4 +1,4 @@
-﻿namespace Meshmakers.Octo.StreamData.Dtos;
+﻿namespace Meshmakers.Octo.Services.StreamData.Dtos;
 
 /// <summary>
 /// Aggregation Functions

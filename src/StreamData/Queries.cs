@@ -1,5 +1,5 @@
 ﻿
-namespace Meshmakers.Octo.StreamData;
+namespace Meshmakers.Octo.Services.StreamData;
 
 internal static class Queries
 {

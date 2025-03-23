@@ -1,5 +1,5 @@
 
-namespace Meshmakers.Octo.StreamData.Dapper;
+namespace Meshmakers.Octo.Services.StreamData.Dapper;
 
 
 /// <summary>

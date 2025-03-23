@@ -1,10 +1,10 @@
 ﻿using Meshmakers.Octo.Services.Infrastructure;
-using Meshmakers.Octo.StreamData.Client;
-using Meshmakers.Octo.StreamData.Configuration;
+using Meshmakers.Octo.Services.StreamData.Client;
+using Meshmakers.Octo.Services.StreamData.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Options;
 
-namespace Meshmakers.Octo.StreamData.Extensions;
+namespace Meshmakers.Octo.Services.StreamData.Extensions;
 
 /// <summary>
 /// Extension methods for the service collection.

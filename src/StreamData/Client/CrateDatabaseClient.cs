@@ -1,13 +1,13 @@
 ﻿using Dapper;
 using Meshmakers.Octo.ConstructionKit.Contracts;
-using Meshmakers.Octo.StreamData.Dapper;
-using Meshmakers.Octo.StreamData.Dtos;
+using Meshmakers.Octo.Services.StreamData.Dapper;
+using Meshmakers.Octo.Services.StreamData.Dtos;
 using Microsoft.Extensions.Diagnostics.HealthChecks;
 using Microsoft.Extensions.Logging;
 using Npgsql;
 using NpgsqlTypes;
 
-namespace Meshmakers.Octo.StreamData.Client;
+namespace Meshmakers.Octo.Services.StreamData.Client;
 
 /// <summary>
 /// Client for interacting with the stream data database.

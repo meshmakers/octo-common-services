@@ -1,8 +1,8 @@
-﻿using Meshmakers.Octo.StreamData.HealthCheck;
+﻿using Meshmakers.Octo.Services.StreamData.HealthCheck;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Diagnostics.HealthChecks;
 
-namespace Meshmakers.Octo.StreamData.Extensions;
+namespace Meshmakers.Octo.Services.StreamData.Extensions;
 
 /// <summary>
 /// Extension methods for the health check builder.

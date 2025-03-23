@@ -1,7 +1,7 @@
 ﻿using System.Text;
-using Meshmakers.Octo.StreamData.Dtos;
+using Meshmakers.Octo.Services.StreamData.Dtos;
 
-namespace Meshmakers.Octo.StreamData.QueryBuilder;
+namespace Meshmakers.Octo.Services.StreamData.QueryBuilder;
 
 /// <summary>
 /// Crate Query Compiler
