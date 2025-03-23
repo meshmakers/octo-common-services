@@ -7,6 +7,11 @@
         <Platforms>AnyCPU</Platforms>
         <OctoPublishCkModel Condition="'$(TargetFramework)' == 'net9.0'">true</OctoPublishCkModel>
         <OctoGenerateCkDocumentation Condition="'$(TargetFramework)' == 'net9.0'">true</OctoGenerateCkDocumentation>
+
+        <GeneratePackageOnBuild>true</GeneratePackageOnBuild>
+        <Description>System Construction Kit for Notification and Events</Description>
+        <PackageId>Meshmakers.Octo.Services.Notifications</PackageId>
+        <OutputPath>..\..\bin\$(Configuration)\</OutputPath>
     </PropertyGroup>
 
     <ItemGroup>
