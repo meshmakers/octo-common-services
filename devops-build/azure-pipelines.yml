@@ -62,6 +62,6 @@ stages:
       - template: handle-artifacts.yml
         parameters:
           constructionKitLibraryPaths:
-            - 'src/Notifications/bin/$(buildConfiguration)/$(artifactsFrameworkVersion)/octo-ck-libraries/Notifications'
+            - 'bin/$(buildConfiguration)/$(artifactsFrameworkVersion)/octo-ck-libraries/Notifications'
       - template: push-nuget-package.yml            
 
