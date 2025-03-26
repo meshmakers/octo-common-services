@@ -39,8 +39,7 @@ internal class CookieBasedAuthenticationMiddleware
                         context.Request.Headers.Append(AuthorizationHeaderName, new[] { $"{BearerPrefix} {tokenStringValues[0]}" });
                     }
                 }
-
-                if (context.Request.Cookies.TryGetValue(CookieName, out var token))
+                else if (context.Request.Cookies.TryGetValue(CookieName, out var token))
                 {
                     if (!string.IsNullOrWhiteSpace(token))
                     {
