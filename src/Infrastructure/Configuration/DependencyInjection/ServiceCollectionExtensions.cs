@@ -35,6 +35,7 @@ public static class ServiceCollectionExtensions
         services.AddScoped<IKnownOriginsProvider, KnownOriginsProvider>();
         services.AddScoped<IDiagnosticsService, DiagnosticsService>();
         services.AddSingletonMultipleInterfaces<CorsPolicyProvider, ICorsPolicyProvider>();
+        services.AddExceptionHandler<OctoExceptionHandler>();
     }
 
     /// <summary>

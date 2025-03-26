@@ -322,7 +322,7 @@ public abstract class DefaultConfigurationCreatorServiceStandardized : DefaultCo
     /// <param name="rtEntity">Entity to create or update</param>
     /// <typeparam name="TEntity">Type of the entity</typeparam>
     protected async Task CreateOrUpdateAsync<TEntity>(IOctoAdminSession session, ITenantContext tenantContext,
-        RtEntity rtEntity) where TEntity : RtEntity, new()
+        TEntity rtEntity) where TEntity : RtEntity, new()
     {
         var tenantRepository = tenantContext.GetTenantRepositoryAsAdmin();
 
