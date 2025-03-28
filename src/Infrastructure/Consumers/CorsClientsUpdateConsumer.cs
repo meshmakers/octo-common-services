@@ -31,9 +31,7 @@ internal class CorsClientsUpdateConsumer : IDistributedConsumer<CorsClientsUpdat
     {
         _logger.LogInformation("Cors client update for tenant received: {Text}", context.Message.TenantId);
 
-        var key = context.Message.TenantId.NormalizeString();
-
-        _corsPolicyProvider.InvalidateData(key);
+        _corsPolicyProvider.InvalidateData(context.Message.TenantId);
 
         return Task.CompletedTask;
     }
