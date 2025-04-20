@@ -3,7 +3,7 @@ using MongoDB.Bson;
 
 namespace Meshmakers.Octo.Services.Infrastructure.DistributionEventHub;
 
-internal class DownloadStreamHandler(Runtime.Contracts.MongoDb.Repositories.IDownloadStreamHandler streamHandler)
+internal class DownloadStreamHandler(Runtime.Contracts.Repositories.IDownloadStreamHandler streamHandler)
     : IDownloadStreamHandler
 {
     public void Dispose()
@@ -11,7 +11,7 @@ internal class DownloadStreamHandler(Runtime.Contracts.MongoDb.Repositories.IDow
         streamHandler.Dispose();
     }
 
-    public string Id => streamHandler.Id.ToString();
+    public string Id => streamHandler.BinaryId.ToString();
     public string ContentType => streamHandler.ContentType;
     public DateTime UploadDateTime => streamHandler.UploadDateTime;
     public Stream Stream => streamHandler.Stream;

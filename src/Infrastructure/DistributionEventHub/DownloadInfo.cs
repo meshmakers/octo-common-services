@@ -1,14 +1,14 @@
 using Meshmakers.Octo.Common.DistributionEventHub.Repository;
-using MongoDB.Bson;
+using Meshmakers.Octo.Runtime.Contracts.RepositoryEntities;
 
 namespace Meshmakers.Octo.Services.Infrastructure.DistributionEventHub;
 
-internal class DownloadInfo(Runtime.Contracts.MongoDb.Repositories.IDownloadInfo downloadInfo)
+internal class DownloadInfo(IBinaryInfo binaryInfo)
     : IDownloadInfo
 {
-    public string ContentType => downloadInfo.ContentType;
-    public string BinaryId => new (downloadInfo.BinaryId.ToString());
-    public string Filename => downloadInfo.Filename;
-    public DateTime UploadDateTime => downloadInfo.UploadDateTime;
-    public long Length => downloadInfo.Length;
+    public string ContentType => binaryInfo.ContentType;
+    public string BinaryId => new (binaryInfo.BinaryId.ToString());
+    public string Filename => binaryInfo.Filename;
+    public DateTime UploadDateTime => binaryInfo.UploadDateTime;
+    public long Length => binaryInfo.Size;
 }

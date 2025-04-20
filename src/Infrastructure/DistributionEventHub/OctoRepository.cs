@@ -9,9 +9,7 @@ namespace Meshmakers.Octo.Services.Infrastructure.DistributionEventHub;
 
 internal class OctoRepository(ITenantRepository tenantRepository) : IRepository
 {
-    private const string ExpiryDateTime = "expiryDateTime";
-
-    public IRepositoryCollection<TKey, TDocument> GetCollection<TKey, TDocument>(string? suffix = null) 
+    public IRepositoryCollection<TKey, TDocument> GetCollection<TKey, TDocument>(string? suffix = null)
         where TKey : notnull where TDocument : class, new()
     {
         // TODO: This has to be implemented to support sagas. Maybe we need for that extensions to bot construction kit.
@@ -21,62 +19,110 @@ internal class OctoRepository(ITenantRepository tenantRepository) : IRepository
     public async Task<string> UploadBinaryAsync(Stream stream, string contentType, string fileName, DateTime? expiry,
         CancellationToken cancellationToken = new())
     {
-        var dictionary = new Dictionary<string, object>();
-        if (expiry != null)
-        {
-            dictionary.Add(ExpiryDateTime, expiry);
-        }
-        var id = await tenantRepository.UploadLargeBinaryAsync(fileName, contentType, stream, dictionary, cancellationToken).ConfigureAwait(false);
+        using var session = await tenantRepository.GetSessionAsync().ConfigureAwait(false);
+        session.StartTransaction();
+
+        var id = await tenantRepository
+            .UploadTemporaryLargeBinaryAsync(session, fileName, contentType, expiry ?? DateTime.UtcNow.AddHours(1), stream, cancellationToken)
+            .ConfigureAwait(false);
+
+        await session.CommitTransactionAsync().ConfigureAwait(false);
+
         return id.ToString();
     }
 
     public async Task<string> UploadWithReplaceByFileNameBinaryAsync(Stream stream, string contentType, string fileName,
         CancellationToken cancellationToken = new())
     {
-        var dictionary = new Dictionary<string, object>();
-        var id = await tenantRepository.ReplaceLargeBinaryAsync(fileName, contentType,
-            stream, dictionary, cancellationToken).ConfigureAwait(false);
+        var session = await tenantRepository.GetSessionAsync().ConfigureAwait(false);
+        session.StartTransaction();
+
+        var id = await tenantRepository.ReplaceTemporaryLargeBinaryAsync(session, fileName, contentType,
+            stream, cancellationToken).ConfigureAwait(false);
+
+        await session.CommitTransactionAsync().ConfigureAwait(false);
+
         return id.ToString();
     }
 
     public async Task DeleteBinaryAsync(string cacheStreamKey, CancellationToken cancellationToken = new())
     {
-        await tenantRepository.DeleteLargeBinaryAsync(new OctoObjectId(cacheStreamKey), cancellationToken).ConfigureAwait(false);
+        var session = await tenantRepository.GetSessionAsync().ConfigureAwait(false);
+        session.StartTransaction();
+
+        await tenantRepository
+            .DeleteTemporaryLargeBinaryAsync(session, new OctoObjectId(cacheStreamKey), cancellationToken)
+            .ConfigureAwait(false);
+
+        await session.CommitTransactionAsync().ConfigureAwait(false);
     }
 
-    public async Task<IDownloadInfo?> GetBinaryByIdAsync(string cacheStreamKey, CancellationToken cancellationToken = new())
+    public async Task<IDownloadInfo?> GetBinaryByIdAsync(string cacheStreamKey,
+        CancellationToken cancellationToken = new())
     {
-        var result = await tenantRepository.GetLargeBinaryAsync(new OctoObjectId(cacheStreamKey), cancellationToken)
+        var session = await tenantRepository.GetSessionAsync().ConfigureAwait(false);
+        session.StartTransaction();
+
+        var result = await tenantRepository
+            .GetTemporaryLargeBinaryAsync(session, new OctoObjectId(cacheStreamKey), cancellationToken)
             .ConfigureAwait(false);
+
+        await session.CommitTransactionAsync().ConfigureAwait(false);
+
         if (result == null)
         {
             return null;
         }
+
         return new DownloadInfo(result);
     }
 
-    public async Task<IDownloadInfo?> GetBinaryByFileNameAsync(string fileName, CancellationToken cancellationToken = new())
+    public async Task<IDownloadInfo?> GetBinaryByFileNameAsync(string fileName,
+        CancellationToken cancellationToken = new())
     {
-        var result = await tenantRepository.GetLargeBinaryAsync(fileName, cancellationToken)
+        var session = await tenantRepository.GetSessionAsync().ConfigureAwait(false);
+        session.StartTransaction();
+
+        var result = await tenantRepository.GetTemporaryLargeBinaryAsync(session, fileName, cancellationToken)
             .ConfigureAwait(false);
+
+        await session.CommitTransactionAsync().ConfigureAwait(false);
+
         if (result == null)
         {
             return null;
         }
+
         return new DownloadInfo(result);
     }
 
-    public async Task<IDownloadStreamHandler?> DownloadBinaryAsync(ObjectId id, CancellationToken cancellationToken = new())
+    public async Task<IDownloadStreamHandler?> DownloadBinaryAsync(ObjectId id,
+        CancellationToken cancellationToken = new())
     {
-        var result = await tenantRepository.DownloadLargeBinaryAsync(new OctoObjectId(id.ToString()), cancellationToken)
+        var session = await tenantRepository.GetSessionAsync().ConfigureAwait(false);
+        session.StartTransaction();
+
+        var result = await tenantRepository
+            .DownloadLargeBinaryAsync(session, new OctoObjectId(id.ToString()), cancellationToken)
             .ConfigureAwait(false);
+
+        await session.CommitTransactionAsync().ConfigureAwait(false);
+
         return new DownloadStreamHandler(result);
     }
 
-    public async Task<IDownloadStreamHandler?> DownloadBinaryAsync(string cacheStreamKey, CancellationToken cancellationToken = new())
+    public async Task<IDownloadStreamHandler?> DownloadBinaryAsync(string cacheStreamKey,
+        CancellationToken cancellationToken = new())
     {
-        var result = await tenantRepository.DownloadLargeBinaryAsync(new OctoObjectId(cacheStreamKey), cancellationToken)
+        var session = await tenantRepository.GetSessionAsync().ConfigureAwait(false);
+        session.StartTransaction();
+
+        var result = await tenantRepository
+            .DownloadLargeBinaryAsync(session, new OctoObjectId(cacheStreamKey), cancellationToken)
             .ConfigureAwait(false);
+
+        await session.CommitTransactionAsync().ConfigureAwait(false);
+
         return new DownloadStreamHandler(result);
     }
 }
