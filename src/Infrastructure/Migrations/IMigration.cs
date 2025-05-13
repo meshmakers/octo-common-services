@@ -1,3 +1,6 @@
+using Meshmakers.Octo.Runtime.Contracts.MongoDb;
+using Meshmakers.Octo.Runtime.Contracts.MongoDb.Repositories;
+
 namespace Meshmakers.Octo.Services.Infrastructure.Migrations;
 
 /// <summary>
@@ -8,8 +11,10 @@ public interface IMigration
     /// <summary>
     /// Run the migration process.
     /// </summary>
-    /// <returns></returns>
-    Task<MigrationResult> MigrateAsync();
+    /// <param name="adminSession">The admin session for the migration.</param>
+    /// <param name="tenantContext">The tenant context for the migration.</param>
+    /// <returns>The result of the migration operation.</returns>
+    Task<MigrationResult> MigrateAsync(IOctoAdminSession adminSession, ITenantContext tenantContext);
 }
 
 public class MigrationResult
