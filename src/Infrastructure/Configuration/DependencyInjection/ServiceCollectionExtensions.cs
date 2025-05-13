@@ -5,12 +5,12 @@ using Meshmakers.Octo.Runtime.Contracts.MongoDb.Services;
 using Meshmakers.Octo.Sdk.ServiceClient.Authorization;
 using Meshmakers.Octo.Services.Contracts.DistributionEventHub.Messages;
 using Meshmakers.Octo.Services.Infrastructure;
+using Meshmakers.Octo.Services.Infrastructure.Configuration.DependencyInjection;
 using Meshmakers.Octo.Services.Infrastructure.Consumers;
 using Meshmakers.Octo.Services.Infrastructure.Cors;
 using Meshmakers.Octo.Services.Infrastructure.DistributionEventHub;
 using Meshmakers.Octo.Services.Infrastructure.Services;
 using Microsoft.AspNetCore.Cors.Infrastructure;
-using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 
 // ReSharper disable once CheckNamespace
@@ -25,7 +25,7 @@ public static class ServiceCollectionExtensions
     ///     Adds infrastructure components to all octo services
     /// </summary>
     /// <param name="services"></param>
-    public static void AddOctoServiceInfrastructure(this IServiceCollection services)
+    public static IOctoInfrastructureBuilder AddOctoServiceInfrastructure(this IServiceCollection services)
     {
         services.AddSingleton<ITenantNotifications, DistributedTenantNotifications>();
         services.TryAddSingleton<IDistributedCacheService, DistributedCacheService>();
@@ -36,6 +36,7 @@ public static class ServiceCollectionExtensions
         services.AddScoped<IDiagnosticsService, DiagnosticsService>();
         services.AddSingletonMultipleInterfaces<CorsPolicyProvider, ICorsPolicyProvider>();
         services.AddExceptionHandler<OctoExceptionHandler>();
+        return new OctoInfrastructureBuilder(services);
     }
 
     /// <summary>
@@ -44,10 +45,10 @@ public static class ServiceCollectionExtensions
     /// <param name="services"></param>
     /// <param name="uniqueBrokerServiceAddress">A unique address for the distribution event hub</param>
     /// <param name="configureDistributionEventHub">Optional configuration of the distribution event hub</param>
-    public static void AddOctoServiceInfrastructure(this IServiceCollection services, string uniqueBrokerServiceAddress,
+    public static IOctoInfrastructureBuilder AddOctoServiceInfrastructure(this IServiceCollection services, string uniqueBrokerServiceAddress,
         Action<IDistributionEventHubConfiguration>? configureDistributionEventHub = null)
     {
-        AddOctoServiceInfrastructure(services);
+        var builder = AddOctoServiceInfrastructure(services);
 
         // Adding dependent octo modules
         services.AddDistributionEventHub(c =>
@@ -63,15 +64,17 @@ public static class ServiceCollectionExtensions
         });
 
         services.AddInitializationService<DefaultConfigurationInitializationService>();
+
+        return builder;
     }
 
     /// <summary>
     ///     Adds user info middleware components
     /// </summary>
-    /// <param name="services"></param>
-    public static void AddAuthorizationUserInfo(this IServiceCollection services)
+    /// <param name="builder"></param>
+    public static void AddAuthorizationUserInfo(this IOctoInfrastructureBuilder builder)
     {
-        services.AddSingleton<IUserInfoCache, UserInfoCache>();
-        services.AddSingleton<IAuthorizationClient, AuthorizationClient>();
+        builder.Services.AddSingleton<IUserInfoCache, UserInfoCache>();
+        builder.Services.AddSingleton<IAuthorizationClient, AuthorizationClient>();
     }
 }

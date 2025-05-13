@@ -61,6 +61,16 @@ public class MigrationLoaderTests
         Assert.Equal(2, config2Migrations[1].Attribute.ToVersion);
     }
 
+    [Fact]
+    public void GetMigrationContextsPerConfig_EmptyMigrations_ReturnsEmpty()
+    {
+        var loader = new MigrationLoader();
+
+        var contexts = loader.GetMigrationContextsPerConfig([]);
+
+        Assert.Empty(contexts);
+    }
+
     private static IEnumerable<IMigration> GetCorrectMigrationsUnsorted()
     {
         return [new Config2Migration2(), new Config2Migration1(), new Config1Migration1(), new Config1Migration2()];

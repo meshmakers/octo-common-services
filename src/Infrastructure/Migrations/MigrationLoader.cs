@@ -24,7 +24,8 @@ public class MigrationLoader : IMigrationLoader
     public IEnumerable<MigrationTypeContext> GetTypeContexts(Assembly assembly)
     {
         return assembly.GetTypes()
-            .Where(x => x.GetCustomAttribute<MigrationAttribute>() != null && typeof(IMigration).IsAssignableFrom(x))
+            .Where(x => x.GetCustomAttribute<MigrationAttribute>() != null && 
+                        typeof(IMigration).IsAssignableFrom(x) && !x.IsAbstract)
             .Select(x => new MigrationTypeContext(x, x.GetCustomAttribute<MigrationAttribute>()!));
     }
 

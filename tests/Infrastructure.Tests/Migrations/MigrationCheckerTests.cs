@@ -47,18 +47,6 @@ public class MigrationCheckerTests
         MigrationChecker.VerifyConsistency(loader, Assembly.GetExecutingAssembly());
     }
     
-    
-    [Fact]
-    public void VerifyConsistency_NoMigrationsFound_Throws()
-    {
-        var loader = A.Fake<IMigrationLoader>();
-        A.CallTo(() => loader.GetTypeContexts(A<Assembly>.Ignored))
-            .Returns(new List<MigrationTypeContext>());
-        
-        
-        Assert.Throws<MigrationException>(() => MigrationChecker.VerifyConsistency(loader, Assembly.GetExecutingAssembly()));
-    }
-
     [Fact]
     public void VerifyConsistency_NoInitialMigrationFound_Throws()
     {

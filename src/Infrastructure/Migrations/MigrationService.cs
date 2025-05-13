@@ -9,26 +9,20 @@ namespace Meshmakers.Octo.Services.Infrastructure.Migrations
         private readonly IEnumerable<IMigration> _migrationTypes;
         private readonly IMigrationLoader _loader;
         private readonly ILogger<MigrationService> _logger;
-        private readonly IOctoAdminSession _adminSession;
-        private readonly ITenantContext _tenantContext;
 
         public MigrationService(
             IDbConfigVersionManager versionManager,
             IEnumerable<IMigration> migrationTypes,
             IMigrationLoader loader,
-            ILogger<MigrationService> logger,
-            IOctoAdminSession adminSession,
-            ITenantContext tenantContext)
+            ILogger<MigrationService> logger)
         {
             _versionManager = versionManager;
             _migrationTypes = migrationTypes;
             _loader = loader;
             _logger = logger;
-            _adminSession = adminSession;
-            _tenantContext = tenantContext;
         }
 
-        public async Task ExecuteMigrationsAsync()
+        public async Task ExecuteMigrationsAsync(IOctoAdminSession adminSession, ITenantContext tenantContext)
         {
             _logger.LogInformation("Starting execution of migrations.");
 
@@ -38,7 +32,7 @@ namespace Meshmakers.Octo.Services.Infrastructure.Migrations
             {
                 _logger.LogDebug("Processing config '{ConfigName}' with {MigrationCount} migration(s).", configName, migrationContexts.Length);
 
-                var currentVersion = await _versionManager.GetCurrentVersionAsync(configName, _adminSession, _tenantContext).ConfigureAwait(false);
+                var currentVersion = await _versionManager.GetCurrentVersionAsync(configName, adminSession, tenantContext).ConfigureAwait(false);
                 _logger.LogDebug("Current version for config '{ConfigName}' is {CurrentVersion}.", configName, currentVersion);
 
                 var pending = migrationContexts
@@ -64,7 +58,7 @@ namespace Meshmakers.Octo.Services.Infrastructure.Migrations
                             $"Migration '{migrationName}' ({desc}) has invalid FromVersion {m.Attribute.FromVersion} for config {configName}. Expected {currentVersion}.");
                     }
 
-                    var result = await m.Migration.MigrateAsync(_adminSession, _tenantContext).ConfigureAwait(false);
+                    var result = await m.Migration.MigrateAsync(adminSession, tenantContext).ConfigureAwait(false);
 
                     if (result.HasError)
                     {
@@ -80,7 +74,7 @@ namespace Meshmakers.Octo.Services.Infrastructure.Migrations
                     _logger.LogInformation("Migration '{MigrationName}' ({Description}) applied successfully. Updating version to {NewVersion}.",
                         migrationName, desc, currentVersion);
 
-                    await _versionManager.UpdateVersionAsync(configName, currentVersion, _adminSession, _tenantContext).ConfigureAwait(false);
+                    await _versionManager.UpdateVersionAsync(configName, currentVersion, adminSession, tenantContext).ConfigureAwait(false);
                 }
 
                 _logger.LogInformation("All migrations for config '{ConfigName}' applied successfully. Final version is {FinalVersion}.", configName, currentVersion);

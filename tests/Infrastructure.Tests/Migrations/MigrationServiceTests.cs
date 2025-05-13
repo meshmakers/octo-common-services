@@ -23,7 +23,7 @@ public class MigrationServiceTests
         _logger = A.Fake<ILogger<MigrationService>>();
         _adminSession = A.Fake<IOctoAdminSession>();
         _tenantContext = A.Fake<ITenantContext>();
-        _service = new(_versionManager, [], _loader, _logger, _adminSession, _tenantContext);
+        _service = new(_versionManager, [], _loader, _logger);
     }
 
     [Fact]
@@ -41,7 +41,7 @@ public class MigrationServiceTests
         A.CallTo(() => migration.MigrateAsync(_adminSession, _tenantContext))
             .Returns(new MigrationResult());
 
-        await _service.ExecuteMigrationsAsync();
+        await _service.ExecuteMigrationsAsync(_adminSession, _tenantContext);
 
         A.CallTo(() => _versionManager.UpdateVersionAsync("Config1", 1, _adminSession, _tenantContext))
             .MustHaveHappenedOnceExactly();
@@ -68,7 +68,7 @@ public class MigrationServiceTests
         A.CallTo(() => migration2.MigrateAsync(_adminSession, _tenantContext))
             .Returns(new MigrationResult());
 
-        await _service.ExecuteMigrationsAsync();
+        await _service.ExecuteMigrationsAsync(_adminSession, _tenantContext);
 
         A.CallTo(() => _versionManager.UpdateVersionAsync("Config1", 1, _adminSession, _tenantContext))
             .MustHaveHappenedOnceExactly();
@@ -89,7 +89,7 @@ public class MigrationServiceTests
         A.CallTo(() => _loader.GetMigrationContextsPerConfig(A<IEnumerable<IMigration>>._))
             .Returns([configContext]);
 
-        await Assert.ThrowsAsync<InvalidOperationException>(() => _service.ExecuteMigrationsAsync());
+        await Assert.ThrowsAsync<InvalidOperationException>(() => _service.ExecuteMigrationsAsync(_adminSession, _tenantContext));
     }
 
     [Fact]
@@ -107,7 +107,7 @@ public class MigrationServiceTests
         A.CallTo(() => migration.MigrateAsync(_adminSession, _tenantContext))
             .Returns(MigrationResult.Failure("Errors"));
 
-        var exception = await Assert.ThrowsAsync<InvalidOperationException>(() => _service.ExecuteMigrationsAsync());
+        var exception = await Assert.ThrowsAsync<InvalidOperationException>(() => _service.ExecuteMigrationsAsync(_adminSession, _tenantContext));
         Assert.Contains("Errors", exception.Message);
     }
 
@@ -124,10 +124,22 @@ public class MigrationServiceTests
         A.CallTo(() => _loader.GetMigrationContextsPerConfig(A<IEnumerable<IMigration>>._))
             .Returns([configContext]);
 
-        await _service.ExecuteMigrationsAsync();
+        await _service.ExecuteMigrationsAsync(_adminSession, _tenantContext);
 
         A.CallTo(() => migration.MigrateAsync(_adminSession, _tenantContext))
             .MustNotHaveHappened();
+        A.CallTo(() => _versionManager.UpdateVersionAsync(A<string>._, A<int>._, A<IOctoAdminSession>._, A<ITenantContext>._))
+            .MustNotHaveHappened();
+    }
+    
+    [Fact]
+    public async Task ExecuteMigrationsAsync_NoMigrations_DoesNotThrow()
+    {
+        A.CallTo(() => _loader.GetMigrationContextsPerConfig(A<IEnumerable<IMigration>>._))
+            .Returns([]);
+
+        await _service.ExecuteMigrationsAsync(_adminSession, _tenantContext);
+
         A.CallTo(() => _versionManager.UpdateVersionAsync(A<string>._, A<int>._, A<IOctoAdminSession>._, A<ITenantContext>._))
             .MustNotHaveHappened();
     }

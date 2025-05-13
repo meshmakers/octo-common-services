@@ -1,10 +1,11 @@
 using System.Reflection;
+using Meshmakers.Octo.Services.Infrastructure.Configuration.DependencyInjection;
 
 namespace Meshmakers.Octo.Services.Infrastructure.Migrations;
 
 public static class ServiceCollectionExtensions
 {
-    public static IServiceCollection AddMigrations(this IServiceCollection services, Assembly assembly)
+    public static IOctoInfrastructureBuilder AddMigrations(this IOctoInfrastructureBuilder builder, Assembly assembly)
     {
         var loader = new MigrationLoader();
 
@@ -16,12 +17,13 @@ public static class ServiceCollectionExtensions
         // Register each migration type
         foreach (var context in typeContexts)
         {
-            services.AddTransient(typeof(IMigration), context.MigrationType);
+            builder.Services.AddTransient(typeof(IMigration), context.MigrationType);
         }
 
-        services.AddSingleton<MigrationService>();
-        services.AddSingleton<MigrationLoader>();
+        builder.Services.AddTransient<MigrationService>();
+        builder.Services.AddTransient<IMigrationLoader, MigrationLoader>();
+        builder.Services.AddTransient<IDbConfigVersionManager, DbConfigVersionManager>();
 
-        return services;
+        return builder;
     }
 }

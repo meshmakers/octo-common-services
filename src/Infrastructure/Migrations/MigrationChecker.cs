@@ -8,11 +8,6 @@ public static class MigrationChecker
     {
         var typeContexts = loader.GetTypeContexts(assembly).ToList();
 
-        if (typeContexts.Count == 0)
-        {
-            throw MigrationException.NoMigrationsFound(assembly);
-        }
-
         foreach (var contextByConfig in typeContexts.GroupBy(x => x.MigrationAttribute.ConfigName))
         {
             if (contextByConfig.All(x => x.MigrationAttribute.FromVersion != 0))
