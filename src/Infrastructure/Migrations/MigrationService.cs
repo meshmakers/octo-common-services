@@ -24,39 +24,35 @@ namespace Meshmakers.Octo.Services.Infrastructure.Migrations
 
         public async Task ExecuteMigrationsAsync(IOctoAdminSession adminSession, ITenantContext tenantContext)
         {
-            _logger.LogInformation("Starting execution of migrations.");
+            _logger.LogInformation("Starting execution of migrations for tenant '{TenantId}'.", tenantContext.TenantId);
 
             var migrationsPerConfig = _loader.GetMigrationContextsPerConfig(_migrationTypes);
 
             foreach (var (configName, migrationContexts) in migrationsPerConfig)
             {
-                _logger.LogDebug("Processing config '{ConfigName}' with {MigrationCount} migration(s).", configName, migrationContexts.Length);
+                _logger.LogDebug("Processing config '{ConfigName}' with {MigrationCount} migration(s).", configName,
+                    migrationContexts.Length);
 
-                var currentVersion = await _versionManager.GetCurrentVersionAsync(configName, adminSession, tenantContext).ConfigureAwait(false);
-                _logger.LogDebug("Current version for config '{ConfigName}' is {CurrentVersion}.", configName, currentVersion);
+                var currentVersion = await _versionManager
+                    .GetCurrentVersionAsync(configName, adminSession, tenantContext).ConfigureAwait(false);
+                _logger.LogDebug("Current version for config '{ConfigName}' is {CurrentVersion}.", configName,
+                    currentVersion);
 
                 var pending = migrationContexts
                     .Where(x => x.Attribute.FromVersion >= currentVersion)
                     .ToList();
 
-                _logger.LogInformation("{PendingCount} pending migration(s) found for config '{ConfigName}'.", pending.Count, configName);
+                _logger.LogInformation("{PendingCount} pending migration(s) found for config '{ConfigName}'.",
+                    pending.Count, configName);
 
                 foreach (var m in pending)
                 {
                     var migrationName = m.Migration.GetType().Name;
                     var desc = m.Attribute.Description ?? string.Empty;
 
-                    _logger.LogDebug("Preparing to apply migration '{MigrationName}' ({Description}) for config '{ConfigName}' from version {FromVersion} to {ToVersion}.",
+                    _logger.LogDebug(
+                        "Preparing to apply migration '{MigrationName}' ({Description}) for config '{ConfigName}' from version {FromVersion} to {ToVersion}.",
                         migrationName, desc, configName, m.Attribute.FromVersion, m.Attribute.ToVersion);
-
-                    if (m.Attribute.FromVersion != currentVersion)
-                    {
-                        _logger.LogError("Version mismatch for migration '{MigrationName}' ({Description}). Expected from version {ExpectedVersion}, but found {ActualVersion}.",
-                            migrationName, desc, currentVersion, m.Attribute.FromVersion);
-
-                        throw new InvalidOperationException(
-                            $"Migration '{migrationName}' ({desc}) has invalid FromVersion {m.Attribute.FromVersion} for config {configName}. Expected {currentVersion}.");
-                    }
 
                     var result = await m.Migration.MigrateAsync(adminSession, tenantContext).ConfigureAwait(false);
 
@@ -71,16 +67,21 @@ namespace Meshmakers.Octo.Services.Infrastructure.Migrations
 
                     currentVersion = m.Attribute.ToVersion;
 
-                    _logger.LogInformation("Migration '{MigrationName}' ({Description}) applied successfully. Updating version to {NewVersion}.",
+                    _logger.LogInformation(
+                        "Migration '{MigrationName}' ({Description}) applied successfully. Updating version to {NewVersion}.",
                         migrationName, desc, currentVersion);
 
-                    await _versionManager.UpdateVersionAsync(configName, currentVersion, adminSession, tenantContext).ConfigureAwait(false);
+                    await _versionManager.UpdateVersionAsync(configName, currentVersion, adminSession, tenantContext)
+                        .ConfigureAwait(false);
                 }
 
-                _logger.LogInformation("All migrations for config '{ConfigName}' applied successfully. Final version is {FinalVersion}.", configName, currentVersion);
+                _logger.LogInformation(
+                    "All migrations for config '{ConfigName}' applied successfully. Final version is {FinalVersion}.",
+                    configName, currentVersion);
             }
 
-            _logger.LogInformation("All migrations executed successfully.");
+            _logger.LogInformation("All migrations for tenant '{TenantId}' completed successfully.",
+                tenantContext.TenantId);
         }
     }
 }

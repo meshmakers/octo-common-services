@@ -4,6 +4,7 @@ using Meshmakers.Octo.Runtime.Contracts.MongoDb.Repositories;
 using Meshmakers.Octo.Runtime.Contracts.Repositories.Query;
 using Meshmakers.Octo.Runtime.Contracts.RepositoryEntities;
 using Meshmakers.Octo.Services.Contracts.DistributionEventHub.Commands;
+using Meshmakers.Octo.Services.Infrastructure.Migrations;
 
 namespace Meshmakers.Octo.Services.Infrastructure.Services;
 
@@ -26,13 +27,12 @@ public abstract class DefaultConfigurationCreatorServiceStandardized : DefaultCo
     private readonly ILogger<DefaultConfigurationCreatorServiceStandardized> _logger;
     private readonly ISystemContext _systemContext;
     private readonly ICommandClient<CreateIdentityDataCommandRequest> _createIdentityDataCommandClient;
+    private readonly MigrationService? _migrationService;
     private readonly string? _schemaVersionKey;
     private readonly bool? _autoEnable;
     private readonly int? _expectedSchemaVersion;
     private readonly string _identityDataVersionKey;
     private readonly int _expectedIdentityDataVersion;
-    private readonly string? _defaultDataVersionKey;
-    private readonly int? _expectedDefaultDataVersion;
 
     /// <summary>
     ///     Constructor
@@ -40,33 +40,33 @@ public abstract class DefaultConfigurationCreatorServiceStandardized : DefaultCo
     /// <param name="logger">Logger</param>
     /// <param name="systemContext">System context of repository</param>
     /// <param name="createIdentityDataCommandClient">The command client to create identity data</param>
+    /// <param name="identityDataVersionKey">The configuration key for the identity data version</param>
+    /// <param name="expectedIdentityDataVersion">The expected value of the identity data version</param>
+    /// <param name="migrationService">The migration service</param>
     /// <param name="schemaVersionKey">The configuration key for the schema version</param>
     /// <param name="autoEnable">When true, all tenants are automatically enabled</param>
     /// <param name="expectedSchemaVersion">The expected value of the schema version</param>
-    /// <param name="identityDataVersionKey">The configuration key for the identity data version</param>
-    /// <param name="expectedIdentityDataVersion">The expected value of the identity data version</param>
-    /// <param name="defaultDataVersionKey">The configuration key for the default data version</param>
-    /// <param name="expectedDefaultDataVersion">The expected value of the default data version</param>
     protected DefaultConfigurationCreatorServiceStandardized(
         ILogger<DefaultConfigurationCreatorServiceStandardized> logger,
         ISystemContext systemContext,
         ICommandClient<CreateIdentityDataCommandRequest> createIdentityDataCommandClient,
         string identityDataVersionKey,
-        int expectedIdentityDataVersion, string? schemaVersionKey = null, bool? autoEnable = false,
-        int? expectedSchemaVersion = null,
-        string? defaultDataVersionKey = null, int? expectedDefaultDataVersion = null)
+        int expectedIdentityDataVersion,
+        MigrationService? migrationService = null,
+        string? schemaVersionKey = null,
+        bool? autoEnable = false,
+        int? expectedSchemaVersion = null)
         : base(logger)
     {
         _logger = logger;
         _systemContext = systemContext;
         _createIdentityDataCommandClient = createIdentityDataCommandClient;
+        _migrationService = migrationService;
         _schemaVersionKey = schemaVersionKey;
         _autoEnable = autoEnable;
         _expectedSchemaVersion = expectedSchemaVersion;
         _identityDataVersionKey = identityDataVersionKey;
         _expectedIdentityDataVersion = expectedIdentityDataVersion;
-        _defaultDataVersionKey = defaultDataVersionKey;
-        _expectedDefaultDataVersion = expectedDefaultDataVersion;
     }
 
     /// <inheritdoc />
@@ -92,13 +92,10 @@ public abstract class DefaultConfigurationCreatorServiceStandardized : DefaultCo
             throw ConfigurationException.TenantAlreadyEnabled(tenantId);
         }
 
-        // Check for default data
-        await CheckSetupDefaultDataAsync(session, tenantContext, true).ConfigureAwait(false);
-
         await session.CommitTransactionAsync().ConfigureAwait(false);
 
         // start the tenant
-        await StartTenantAsync(tenantId).ConfigureAwait(false);
+        await StartTenantAsyncInternal(tenantContext).ConfigureAwait(false);
     }
 
     /// <inheritdoc />
@@ -194,20 +191,12 @@ public abstract class DefaultConfigurationCreatorServiceStandardized : DefaultCo
         await CheckSetupIdentityDataAsync(session, tenantContext).ConfigureAwait(false);
 
         // Check if we need to import the CK model
-        var isEnabled = await CheckImportCkModelAsync(session, tenantContext).ConfigureAwait(false);
-
-        if (isEnabled)
-        {
-            // Check if we need to import default data for the service
-            await CheckSetupDefaultDataAsync(session, tenantContext).ConfigureAwait(false);
-        }
-
+        await CheckImportCkModelAsync(session, tenantContext).ConfigureAwait(false);
+        
+        // we have to commit the transaction anyway
         await session.CommitTransactionAsync().ConfigureAwait(false);
 
-        if (isEnabled)
-        {
-            await StartTenantAsync(tenantId).ConfigureAwait(false);
-        }
+        await StartTenantAsyncInternal(tenantContext).ConfigureAwait(false);
     }
 
     /// <summary>
@@ -424,35 +413,32 @@ public abstract class DefaultConfigurationCreatorServiceStandardized : DefaultCo
         return true;
     }
 
-    private async Task CheckSetupDefaultDataAsync(IOctoAdminSession session, ITenantContext tenantContext,
-        bool forceUpdate = false)
+    private async Task RunMigrations(ITenantContext tenantContext)
     {
-        // Check if we need to import the default data
-        if (_defaultDataVersionKey == null || _expectedDefaultDataVersion == null)
+        // it is totally fine when the migration service is null. That means this service has no migrations
+        if (_migrationService == null)
         {
             return;
         }
 
-        _logger.LogInformation("Setting up default data for tenant '{TenantId}'", tenantContext.TenantId);
-
-        // If there is a configuration version, check if we need to update the configuration
-        var configurationVersion =
-            await tenantContext.GetConfigurationAsync<DefaultConfigurationVersion>(session,
-                _defaultDataVersionKey, null).ConfigureAwait(false);
-        if (configurationVersion == null && !_autoEnable.GetValueOrDefault() && !forceUpdate)
+        using var session = await tenantContext.GetAdminSessionAsync().ConfigureAwait(false);
+        session.StartTransaction();
+        try
         {
-            _logger.LogInformation("Tenant '{TenantId}' is not enabled", tenantContext.TenantId);
-            return;
+            await _migrationService.ExecuteMigrationsAsync(session, tenantContext).ConfigureAwait(false);
+            await session.CommitTransactionAsync().ConfigureAwait(false);
         }
-
-        if (configurationVersion == null || configurationVersion.Version < _expectedDefaultDataVersion)
+        catch (Exception ex)
         {
-            _logger.LogInformation("Creating default data for tenant '{TenantId}'", tenantContext.TenantId);
-
-            await CreateUpdateDefaultDataAsync(session, tenantContext).ConfigureAwait(false);
-
-            await tenantContext.SetConfigurationAsync(session, _defaultDataVersionKey,
-                new DefaultConfigurationVersion { Version = _expectedDefaultDataVersion.Value }).ConfigureAwait(false);
+            _logger.LogError(ex, "Error while running migrations. Aborting transaction");
+            await session.AbortTransactionAsync().ConfigureAwait(false);
+            throw;
         }
+    }
+
+    private async Task StartTenantAsyncInternal(ITenantContext context)
+    {
+        await RunMigrations(context).ConfigureAwait(false);
+        await StartTenantAsync(context.TenantId).ConfigureAwait(false);
     }
 }
