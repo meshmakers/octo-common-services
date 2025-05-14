@@ -265,18 +265,6 @@ public abstract class DefaultConfigurationCreatorServiceStandardized : DefaultCo
     }
 
     /// <summary>
-    /// Method to create or update the default data for the service
-    /// </summary>
-    /// <param name="session">Admin session</param>
-    /// <param name="tenantContext">Tenant context</param>
-    /// <returns></returns>
-    protected virtual Task CreateUpdateDefaultDataAsync(IOctoAdminSession session, ITenantContext tenantContext)
-    {
-        // Left intentionally empty for the derived classes to implement
-        return Task.CompletedTask;
-    }
-
-    /// <summary>
     /// Checks if the schema is available for the tenant
     /// </summary>
     /// <param name="tenantId">The tenant id</param>
