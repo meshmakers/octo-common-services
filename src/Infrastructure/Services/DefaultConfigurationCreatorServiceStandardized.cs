@@ -190,10 +190,11 @@ public abstract class DefaultConfigurationCreatorServiceStandardized : DefaultCo
 
         // Check if we need to import the CK model
         var isEnabled = await CheckImportCkModelAsync(session, tenantContext).ConfigureAwait(false);
-        
+
+        await session.CommitTransactionAsync().ConfigureAwait(false);
+
         if (isEnabled)
         {
-            await session.CommitTransactionAsync().ConfigureAwait(false);
             await StartTenantAsyncInternal(tenantContext).ConfigureAwait(false);
         }
     }
