@@ -1,6 +1,5 @@
 ﻿using Meshmakers.Octo.Runtime.Contracts.MongoDb;
 using Meshmakers.Octo.Services.Infrastructure.Initialization;
-using Microsoft.Extensions.Logging;
 
 namespace Meshmakers.Octo.Services.Infrastructure.Services;
 
