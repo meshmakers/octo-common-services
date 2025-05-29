@@ -21,7 +21,7 @@
     </ItemGroup>
     
     <ItemGroup>
-        <PackageReference Include="Markdig" Version="0.41.0" />
+        <PackageReference Include="Markdig" Version="0.41.1" />
         <PackageReference Include="Meshmakers.Octo.Communication.Contracts" Version="$(OctoVersion)" />
         <PackageReference Include="Meshmakers.Octo.ConstructionKit.Models.System" Version="$(OctoVersion)" />
         <PackageReference Include="Meshmakers.Octo.ConstructionKit.SourceGeneration" OutputItemType="Analyzer" ReferenceOutputAssembly="false" Version="$(OctoVersion)" PrivateAssets="all" />
