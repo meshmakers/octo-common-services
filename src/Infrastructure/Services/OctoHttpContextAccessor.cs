@@ -1,11 +1,15 @@
 using Meshmakers.Octo.Runtime.Contracts.MongoDb;
 using Meshmakers.Octo.Runtime.Contracts.MongoDb.Repositories;
 
-namespace Meshmakers.Octo.Services.Infrastructure;
+namespace Meshmakers.Octo.Services.Infrastructure.Services;
 
-public static class HttpContextAccessorExtensions
+/// <summary>
+/// Class to access the current HTTP context and retrieve tenant information.
+/// </summary>
+/// <param name="httpContextAccessor">HTTP context accessor to access the current HTTP context.</param>
+public class OctoHttpContextAccessor(IHttpContextAccessor httpContextAccessor) : IOctoHttpContextAccessor
 {
-    public static async Task<ITenantRepository> GetTenantRepositoryAsync(this IHttpContextAccessor httpContextAccessor)
+    public async Task<ITenantRepository> GetTenantRepositoryAsync()
     {
         if (httpContextAccessor.HttpContext == null)
         {
@@ -13,12 +17,12 @@ public static class HttpContextAccessorExtensions
         }
 
         var systemContext = httpContextAccessor.HttpContext.RequestServices.GetRequiredService<ISystemContext>();
-        var tenantRepository = await systemContext.FindTenantRepositoryAsync(httpContextAccessor.GetTenantId()).ConfigureAwait(false);
+        var tenantRepository = await systemContext.FindTenantRepositoryAsync(GetTenantId()).ConfigureAwait(false);
 
         return tenantRepository;
     }
 
-    public static string GetTenantId(this IHttpContextAccessor httpContextAccessor)
+    public string GetTenantId()
     {
         if (httpContextAccessor.HttpContext == null)
         {
