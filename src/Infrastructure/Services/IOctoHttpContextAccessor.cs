@@ -18,4 +18,11 @@ public interface IOctoHttpContextAccessor
     /// </summary>
     /// <returns></returns>
     string GetTenantId();
+
+    /// <summary>
+    /// Gets a required service from the current HTTP context's service provider.
+    /// </summary>
+    /// <typeparam name="T">Notnull type of the service to retrieve.</typeparam>
+    /// <returns>The required service instance.</returns>
+    T GetRequiredService<T>() where T : notnull;
 }

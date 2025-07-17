@@ -13,7 +13,7 @@ public class OctoHttpContextAccessor(IHttpContextAccessor httpContextAccessor) :
     {
         if (httpContextAccessor.HttpContext == null)
         {
-            throw new OctoServiceException("Service scope is not created.");
+            throw OctoServiceException.HttpContextNotCreated();
         }
 
         var systemContext = httpContextAccessor.HttpContext.RequestServices.GetRequiredService<ISystemContext>();
@@ -26,14 +26,24 @@ public class OctoHttpContextAccessor(IHttpContextAccessor httpContextAccessor) :
     {
         if (httpContextAccessor.HttpContext == null)
         {
-            throw new OctoServiceException("Service scope is not created.");
+            throw OctoServiceException.HttpContextNotCreated();
         }
 
         var tenantId = httpContextAccessor.HttpContext.GetTenantId();
         if (string.IsNullOrEmpty(tenantId))
         {
-            throw new OctoServiceException("TenantId is not found in the request.");
+            throw OctoServiceException.TenantIdNotFound();
         }
         return tenantId;
+    }
+
+    public T GetRequiredService<T>() where T : notnull
+    {
+        if (httpContextAccessor.HttpContext == null)
+        {
+            throw OctoServiceException.HttpContextNotCreated();
+        }
+
+        return httpContextAccessor.HttpContext.RequestServices.GetRequiredService<T>();
     }
 }
