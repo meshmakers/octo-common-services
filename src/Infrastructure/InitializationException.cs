@@ -18,4 +18,10 @@ public class InitializationException : OctoServiceException
     {
         return new InitializationException($"Importing CK model failed for system context tenant '{tenantId}'. {messages}");
     }
+
+    public static Exception EnsureLicenseKey(string service, string licenseKey)
+    {
+        return new InitializationException(
+            $"The license key for {service} is not set. Please set the environment variable '{licenseKey}' to a valid license key.");
+    }
 }
