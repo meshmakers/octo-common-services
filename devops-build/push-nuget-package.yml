@@ -12,7 +12,7 @@
         -k $(NugetPublicApiKey)
   - task: DotNetCoreCLI@2
     displayName: Push Nuget Package to private nuget server
-    condition: or(eq(variables.isMain, true), eq(variables.isRelease, true))
+    condition: or(eq(variables.isMain, true), eq(variables.isTest, true), eq(variables.isRelease, true))
     inputs:
       command: custom
       custom: nuget

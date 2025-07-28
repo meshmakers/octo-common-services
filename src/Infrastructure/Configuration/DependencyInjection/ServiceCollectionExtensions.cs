@@ -31,6 +31,7 @@ public static class ServiceCollectionExtensions
         services.TryAddSingleton<IDistributedCacheService, DistributedCacheService>();
         services.AddSingleton<IRepositoryClient, OctoRepositoryClient>();
         services.AddSingleton<IHttpContextAccessor, HttpContextAccessor>();
+        services.AddSingleton<IOctoHttpContextAccessor, OctoHttpContextAccessor>();
         services.AddScoped<IMultiTenancyResolverService, MultiTenancyResolverService>();
         services.AddScoped<IKnownOriginsProvider, KnownOriginsProvider>();
         services.AddScoped<IDiagnosticsService, DiagnosticsService>();
