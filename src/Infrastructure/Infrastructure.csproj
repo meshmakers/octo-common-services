@@ -16,7 +16,7 @@
 
     <ItemGroup>
         <PackageReference Include="Microsoft.Extensions.Hosting.Abstractions" Version="9.0.7" />
-        <PackageReference Include="MongoDB.Driver" Version="3.4.0" />
+        <PackageReference Include="MongoDB.Driver" Version="3.4.2" />
         <PackageReference Include="Meshmakers.Octo.ConstructionKit.Models.System" Version="$(OctoVersion)" />
     </ItemGroup>
 
