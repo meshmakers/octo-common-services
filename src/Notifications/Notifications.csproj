@@ -3,6 +3,7 @@
     <PropertyGroup>
         <AssemblyName>Meshmakers.Octo.Services.Notifications</AssemblyName>
         <RootNamespace>Meshmakers.Octo.Services.Notifications</RootNamespace>
+        <GeneratePackageOnBuild>true</GeneratePackageOnBuild>
         <Configurations>Debug;Release;DebugL</Configurations>
         <Platforms>AnyCPU</Platforms>
         <OctoPublishCkModel Condition="'$(TargetFramework)' == 'net9.0'">true</OctoPublishCkModel>
