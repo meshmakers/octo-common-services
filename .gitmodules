@@ -1,5 +1,1 @@
 
-[submodule "src/octo-construction-kit-engine-mongodb"]
-	path = src/octo-construction-kit-engine-mongodb
-	url = git@github.com:meshmakers/octo-construction-kit-engine-mongodb.git
-	branch = main
