@@ -2,6 +2,7 @@
 
     <PropertyGroup>
         <AssemblyName>Meshmakers.Octo.Services.Observability</AssemblyName>
+        <GeneratePackageOnBuild>true</GeneratePackageOnBuild>
         <PackageId>Meshmakers.Octo.Services.Observability</PackageId>
         <RootNamespace>Meshmakers.Octo.Services.Observability</RootNamespace>
         <Configurations>Debug;Release;DebugL</Configurations>
