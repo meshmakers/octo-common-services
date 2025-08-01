@@ -18,6 +18,7 @@
         <PackageReference Include="Microsoft.Extensions.Hosting.Abstractions" Version="9.0.7" />
         <PackageReference Include="MongoDB.Driver" Version="3.4.2" />
         <PackageReference Include="Meshmakers.Octo.ConstructionKit.Models.System" Version="$(OctoVersion)" />
+        <PackageReference Include="Meshmakers.Octo.Runtime.Contracts.MongoDb" Version="$(OctoVersion)" />
     </ItemGroup>
 
     <ItemGroup>
@@ -35,7 +36,6 @@
 
     <ItemGroup>
         <ProjectReference Include="..\Contracts\Contracts.csproj" />
-        <ProjectReference Include="$(OctoConstructionKitPath)src\Runtime.Contracts.MongoDb\Runtime.Contracts.MongoDb.csproj" />
     </ItemGroup>
 
 </Project>
