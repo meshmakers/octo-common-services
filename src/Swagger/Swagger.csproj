@@ -10,17 +10,22 @@
     </PropertyGroup>
 
     <ItemGroup>
-        <PackageReference Include="Asp.Versioning.Mvc.ApiExplorer" Version="8.1.0" />
-        <PackageReference Include="Microsoft.AspNetCore.OpenApi" Version="9.0.7" />
-        <PackageReference Include="Swashbuckle.AspNetCore.SwaggerUI" Version="9.0.3" />
-        <PackageReference Include="Meshmakers.Octo.Communication.Contracts" Version="$(OctoVersion)" />
+        <PackageReference Include="Asp.Versioning.Mvc.ApiExplorer" Version="8.1.0"/>
+        <PackageReference Include="Microsoft.AspNetCore.OpenApi" Version="9.0.7"/>
+        <PackageReference Include="Swashbuckle.AspNetCore.SwaggerUI" Version="9.0.3"/>
+        <PackageReference Include="Meshmakers.Octo.Communication.Contracts" Version="$(OctoVersion)"/>
     </ItemGroup>
 
     <ItemGroup>
         <None Include="..\..\assets\meshmakers64.png">
             <Pack>True</Pack>
-            <PackagePath />
+            <PackagePath/>
             <Link>meshmakers64.png</Link>
+        </None>
+        <None Include="..\..\LICENSE">
+            <Pack>True</Pack>
+            <PackagePath/>
+            <Link>LICENSE</Link>
         </None>
     </ItemGroup>
 </Project>

@@ -7,21 +7,32 @@
         <RootNamespace>Meshmakers.Octo.Services.Observability</RootNamespace>
         <Configurations>Debug;Release;DebugL</Configurations>
         <Platforms>AnyCPU</Platforms>
+        <NoWarn>1701;1702;NU5104</NoWarn>
     </PropertyGroup>
-    
-<ItemGroup>
-    <PackageReference Include="OpenTelemetry.Exporter.Console" Version="1.12.0" />
-    <PackageReference Include="OpenTelemetry.Exporter.OpenTelemetryProtocol" Version="1.12.0" />
-    <PackageReference Include="OpenTelemetry.Exporter.Prometheus.AspNetCore" Version="1.10.0-beta.1" />
-    <PackageReference Include="OpenTelemetry.Extensions.Hosting" Version="1.12.0" />
-    <PackageReference Include="OpenTelemetry.Instrumentation.AspNetCore" Version="1.12.0" />
-    <PackageReference Include="OpenTelemetry.Instrumentation.Http" Version="1.12.0" />
-    <PackageReference Include="Microsoft.Extensions.Diagnostics.HealthChecks" Version="9.0.7" />
-    <PackageReference Include="Microsoft.Extensions.Diagnostics.HealthChecks.Abstractions" Version="9.0.7" />
-    <PackageReference Include="Microsoft.Extensions.Diagnostics.HealthChecks.ResourceUtilization" Version="9.7.0" />
-    <PackageReference Include="Microsoft.Extensions.Diagnostics.ResourceMonitoring" Version="9.7.0" />
-</ItemGroup>
-    
-<ItemGroup>
-</ItemGroup>
+
+    <ItemGroup>
+        <PackageReference Include="OpenTelemetry.Exporter.Console" Version="1.12.0"/>
+        <PackageReference Include="OpenTelemetry.Exporter.OpenTelemetryProtocol" Version="1.12.0"/>
+        <PackageReference Include="OpenTelemetry.Exporter.Prometheus.AspNetCore" Version="1.10.0-beta.1" />
+        <PackageReference Include="OpenTelemetry.Extensions.Hosting" Version="1.12.0"/>
+        <PackageReference Include="OpenTelemetry.Instrumentation.AspNetCore" Version="1.12.0"/>
+        <PackageReference Include="OpenTelemetry.Instrumentation.Http" Version="1.12.0"/>
+        <PackageReference Include="Microsoft.Extensions.Diagnostics.HealthChecks" Version="9.0.7"/>
+        <PackageReference Include="Microsoft.Extensions.Diagnostics.HealthChecks.Abstractions" Version="9.0.7"/>
+        <PackageReference Include="Microsoft.Extensions.Diagnostics.HealthChecks.ResourceUtilization" Version="9.7.0"/>
+        <PackageReference Include="Microsoft.Extensions.Diagnostics.ResourceMonitoring" Version="9.7.0"/>
+    </ItemGroup>
+
+    <ItemGroup>
+        <None Include="..\..\assets\meshmakers64.png">
+            <Pack>True</Pack>
+            <PackagePath/>
+            <Link>meshmakers64.png</Link>
+        </None>
+        <None Include="..\..\LICENSE">
+            <Pack>True</Pack>
+            <PackagePath/>
+            <Link>LICENSE</Link>
+        </None>
+    </ItemGroup>
 </Project>
