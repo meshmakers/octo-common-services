@@ -4,13 +4,7 @@ Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Infrastructure", "src\Infra
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Swagger", "src\Swagger\Swagger.csproj", "{8DD675F2-788C-4F13-8DE1-65BA308F788A}"
 EndProject
-Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "octo-construction-kit", "octo-construction-kit", "{6B1B3474-50D5-44B1-B995-0079AC61200F}"
-EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Notifications", "src\Notifications\Notifications.csproj", "{07ED01EF-E969-47A8-9525-6D83DFC08F5E}"
-EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Runtime.Contracts.MongoDb", "src\octo-construction-kit-engine-mongodb\src\Runtime.Contracts.MongoDb\Runtime.Contracts.MongoDb.csproj", "{625EA1E4-C048-404F-B2A9-6C0D5FD3F77C}"
-EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Runtime.Engine.MongoDb", "src\octo-construction-kit-engine-mongodb\src\Runtime.Engine.MongoDb\Runtime.Engine.MongoDb.csproj", "{08405DDA-54B6-4F07-B052-DA9E82379597}"
 EndProject
 Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "Tests", "Tests", "{BDFC5A91-8DA8-4B15-AD00-CBC6DC000D95}"
 EndProject
@@ -51,18 +45,6 @@ Global
 		{07ED01EF-E969-47A8-9525-6D83DFC08F5E}.Release|Any CPU.Build.0 = Release|Any CPU
 		{07ED01EF-E969-47A8-9525-6D83DFC08F5E}.DebugL|Any CPU.ActiveCfg = DebugL|Any CPU
 		{07ED01EF-E969-47A8-9525-6D83DFC08F5E}.DebugL|Any CPU.Build.0 = DebugL|Any CPU
-		{625EA1E4-C048-404F-B2A9-6C0D5FD3F77C}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
-		{625EA1E4-C048-404F-B2A9-6C0D5FD3F77C}.Debug|Any CPU.Build.0 = Debug|Any CPU
-		{625EA1E4-C048-404F-B2A9-6C0D5FD3F77C}.Release|Any CPU.ActiveCfg = Release|Any CPU
-		{625EA1E4-C048-404F-B2A9-6C0D5FD3F77C}.Release|Any CPU.Build.0 = Release|Any CPU
-		{625EA1E4-C048-404F-B2A9-6C0D5FD3F77C}.DebugL|Any CPU.ActiveCfg = DebugL|Any CPU
-		{625EA1E4-C048-404F-B2A9-6C0D5FD3F77C}.DebugL|Any CPU.Build.0 = DebugL|Any CPU
-		{08405DDA-54B6-4F07-B052-DA9E82379597}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
-		{08405DDA-54B6-4F07-B052-DA9E82379597}.Debug|Any CPU.Build.0 = Debug|Any CPU
-		{08405DDA-54B6-4F07-B052-DA9E82379597}.Release|Any CPU.ActiveCfg = Release|Any CPU
-		{08405DDA-54B6-4F07-B052-DA9E82379597}.Release|Any CPU.Build.0 = Release|Any CPU
-		{08405DDA-54B6-4F07-B052-DA9E82379597}.DebugL|Any CPU.ActiveCfg = DebugL|Any CPU
-		{08405DDA-54B6-4F07-B052-DA9E82379597}.DebugL|Any CPU.Build.0 = DebugL|Any CPU
 		{FFF1C613-175D-4922-9ADD-FE04E5F20DBF}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
 		{FFF1C613-175D-4922-9ADD-FE04E5F20DBF}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{FFF1C613-175D-4922-9ADD-FE04E5F20DBF}.Release|Any CPU.ActiveCfg = Release|Any CPU
@@ -95,8 +77,6 @@ Global
 		{7CE414C6-7BA5-4DB3-9A4E-407CF56669C7}.DebugL|Any CPU.Build.0 = DebugL|Any CPU
 	EndGlobalSection
 	GlobalSection(NestedProjects) = preSolution
-		{625EA1E4-C048-404F-B2A9-6C0D5FD3F77C} = {6B1B3474-50D5-44B1-B995-0079AC61200F}
-		{08405DDA-54B6-4F07-B052-DA9E82379597} = {6B1B3474-50D5-44B1-B995-0079AC61200F}
 		{5AB290E0-342F-4766-9EB7-35286817A393} = {BDFC5A91-8DA8-4B15-AD00-CBC6DC000D95}
 		{C614A3C8-3EC9-408C-B719-D34727C87C5E} = {3989D960-9EE2-4358-A27E-5D003668999E}
 	EndGlobalSection
