@@ -1,5 +1,5 @@
 using Asp.Versioning;
-using Meshmakers.Octo.Services.Contracts.ApiErrors;
+using Meshmakers.Octo.Communication.Contracts.DataTransferObjects.ApiErrors;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
@@ -17,7 +17,7 @@ public class DemoController(ILogger<DemoController> logger) : ControllerBase
     [EndpointSummary("Get demo values")]
     [EndpointDescription("Some description")]
     [ProducesResponseType(typeof(DemoValueV1[]), 200)]
-    [ProducesResponseType(typeof(ApiError), 400)]
+    [ProducesResponseType(typeof(ApiErrorDto), 400)]
     public IEnumerable<DemoValueV1> Get()
     {
         logger.LogInformation("Getting demo values v1");
