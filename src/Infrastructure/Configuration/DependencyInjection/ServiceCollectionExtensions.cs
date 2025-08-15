@@ -59,8 +59,9 @@ public static class ServiceCollectionExtensions
             configureDistributionEventHub?.Invoke(c);
 
             c.AddBroadcastEventConsumer<CorsClientsUpdateConsumer, CorsClientsUpdate>();
-            c.AddBroadcastEventConsumer<CacheTenantConsumer, PreUpdateTenant>();
-            c.AddBroadcastEventConsumer<CacheTenantConsumer, PreDeleteTenant>();
+            c.AddBroadcastEventConsumer<PreUpdatePreDeleteTenantConsumer, PreUpdateTenant>();
+            c.AddBroadcastEventConsumer<PreUpdatePreDeleteTenantConsumer, PreDeleteTenant>();
+            c.AddBroadcastEventConsumer<PosUpdateConfigurationConsumer, PosUpdateConfiguration>();
             c.AddBroadcastEventConsumer<PosCreateTenantConsumer, PosCreateTenant>();
         });
 
