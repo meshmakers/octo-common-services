@@ -61,7 +61,6 @@ public static class ServiceCollectionExtensions
             c.AddBroadcastEventConsumer<CorsClientsUpdateConsumer, CorsClientsUpdate>();
             c.AddBroadcastEventConsumer<PreUpdatePreDeleteTenantConsumer, PreUpdateTenant>();
             c.AddBroadcastEventConsumer<PreUpdatePreDeleteTenantConsumer, PreDeleteTenant>();
-            c.AddBroadcastEventConsumer<PosUpdateConfigurationConsumer, PosUpdateConfiguration>();
             c.AddBroadcastEventConsumer<PosCreateTenantConsumer, PosCreateTenant>();
         });
 
