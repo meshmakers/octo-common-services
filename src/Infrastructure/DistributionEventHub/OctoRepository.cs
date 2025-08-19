@@ -57,6 +57,26 @@ internal class OctoRepository(ITenantRepository tenantRepository) : IRepository
         await session.CommitTransactionAsync().ConfigureAwait(false);
     }
 
+    public async Task DeleteAllBinariesWithExpiryAsync(CancellationToken cancellationToken = new())
+    {
+        var session = await tenantRepository.GetSessionAsync().ConfigureAwait(false);
+        session.StartTransaction();
+
+        await tenantRepository
+            .DeleteAllTemporaryLargeBinariesAsync(session, cancellationToken)
+            .ConfigureAwait(false);
+    }
+
+    public async Task DeleteAllExpiredBinariesAsync(DateTime expiry, CancellationToken cancellationToken = new())
+    {
+        var session = await tenantRepository.GetSessionAsync().ConfigureAwait(false);
+        session.StartTransaction();
+
+        await tenantRepository
+            .DeleteExpiredTemporaryLargeBinariesAsync(session, expiry, cancellationToken)
+            .ConfigureAwait(false);
+    }
+
     public async Task<IDownloadInfo?> GetBinaryByIdAsync(string cacheStreamKey,
         CancellationToken cancellationToken = new())
     {
