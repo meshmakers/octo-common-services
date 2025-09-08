@@ -26,4 +26,10 @@ public static class ServiceCollectionExtensions
 
         return builder;
     }
+    public static IOctoInfrastructureBuilder AddMigrations(this IServiceCollection services, Assembly assembly)
+    {
+        var builder = new OctoInfrastructureBuilder(services);
+        builder.AddMigrations(assembly);
+        return builder;
+    }
 }
