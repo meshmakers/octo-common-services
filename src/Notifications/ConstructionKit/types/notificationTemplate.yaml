@@ -5,13 +5,13 @@ types:
     isFinal: false
     isAbstract: false
     attributes:
-      - id: ${thisModel}/SubjectTemplate
+      - id: ${this}/SubjectTemplate
         name: SubjectTemplate
-      - id: ${thisModel}/BodyTemplate
+      - id: ${this}/BodyTemplate
         isOptional: true
         name: BodyTemplate
-      - id: ${thisModel}/NotificationType
+      - id: ${this}/NotificationType
         name: Type
-      - id: ${thisModel}/RenderingType
+      - id: ${this}/RenderingType
         name: RenderingType
 

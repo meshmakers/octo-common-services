@@ -4,5 +4,5 @@ types:
     derivedFromCkTypeId: ${System}/Configuration
     isFinal: true
     attributes:
-      - id: ${thisModel}/CssStyle
+      - id: ${this}/CssStyle
         name: CssStyle

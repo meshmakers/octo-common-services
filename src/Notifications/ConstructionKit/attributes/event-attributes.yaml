@@ -6,13 +6,13 @@ attributes:
   - id: EventLevel
     description: Defines the level of the event (Information, Warning, Error)
     valueType: Enum
-    valueCkEnumId: ${thisModel}/EventLevels
+    valueCkEnumId: ${this}/EventLevels
   - id: EventState
     description: Defines the state of the event (Active, Inactive)
     valueType: Enum
-    valueCkEnumId: ${thisModel}/EventStates
+    valueCkEnumId: ${this}/EventStates
   - id: EventSource
     description: Defines event sources
     valueType: Enum
-    valueCkEnumId: ${thisModel}/EventSources    
+    valueCkEnumId: ${this}/EventSources    
 
