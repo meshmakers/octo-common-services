@@ -26,9 +26,8 @@ public abstract class DefaultConfigurationCreatorServiceStandardized : DefaultCo
     private readonly ISystemContext _systemContext;
     private readonly ICommandClient<CreateIdentityDataCommandRequest> _createIdentityDataCommandClient;
     private readonly MigrationService? _migrationService;
-    private readonly string? _schemaVersionKey;
+    private readonly string? _serviceEnabledKey;
     private readonly bool? _autoEnable;
-    private readonly int? _expectedSchemaVersion;
     private readonly string _identityDataVersionKey;
     private readonly int _expectedIdentityDataVersion;
 
@@ -41,9 +40,8 @@ public abstract class DefaultConfigurationCreatorServiceStandardized : DefaultCo
     /// <param name="identityDataVersionKey">The configuration key for the identity data version</param>
     /// <param name="expectedIdentityDataVersion">The expected value of the identity data version</param>
     /// <param name="migrationService">The migration service</param>
-    /// <param name="schemaVersionKey">The configuration key for the schema version</param>
+    /// <param name="serviceEnabledKey">The configuration key if the service is enabled for a tenant</param>
     /// <param name="autoEnable">When true, all tenants are automatically enabled</param>
-    /// <param name="expectedSchemaVersion">The expected value of the schema version</param>
     protected DefaultConfigurationCreatorServiceStandardized(
         ILogger<DefaultConfigurationCreatorServiceStandardized> logger,
         ISystemContext systemContext,
@@ -51,18 +49,16 @@ public abstract class DefaultConfigurationCreatorServiceStandardized : DefaultCo
         string identityDataVersionKey,
         int expectedIdentityDataVersion,
         MigrationService? migrationService = null,
-        string? schemaVersionKey = null,
-        bool? autoEnable = false,
-        int? expectedSchemaVersion = null)
+        string? serviceEnabledKey = null,
+        bool? autoEnable = false)
         : base(logger)
     {
         _logger = logger;
         _systemContext = systemContext;
         _createIdentityDataCommandClient = createIdentityDataCommandClient;
         _migrationService = migrationService;
-        _schemaVersionKey = schemaVersionKey;
+        _serviceEnabledKey = serviceEnabledKey;
         _autoEnable = autoEnable;
-        _expectedSchemaVersion = expectedSchemaVersion;
         _identityDataVersionKey = identityDataVersionKey;
         _expectedIdentityDataVersion = expectedIdentityDataVersion;
     }
@@ -70,7 +66,7 @@ public abstract class DefaultConfigurationCreatorServiceStandardized : DefaultCo
     /// <inheritdoc />
     public async Task EnableAsync(string tenantId)
     {
-        if (_schemaVersionKey == null || _expectedSchemaVersion == null)
+        if (_serviceEnabledKey == null)
         {
             throw ConfigurationException.TenantCannotBeEnabledDisabled(tenantId);
         }
@@ -80,15 +76,20 @@ public abstract class DefaultConfigurationCreatorServiceStandardized : DefaultCo
             throw ConfigurationException.TenantIsAutoEnabled(tenantId);
         }
 
+        if (await IsEnabledAsync(tenantId).ConfigureAwait(false))
+        {
+            throw ConfigurationException.TenantAlreadyEnabled(tenantId);
+        }
+
         var tenantContext = await _systemContext.FindTenantContextAsync(tenantId).ConfigureAwait(false);
 
         using var session = await tenantContext.GetAdminSessionAsync().ConfigureAwait(false);
         session.StartTransaction();
 
-        if (!await CheckImportCkModelAsync(session, tenantContext, true).ConfigureAwait(false))
-        {
-            throw ConfigurationException.TenantAlreadyEnabled(tenantId);
-        }
+        await tenantContext.SetConfigurationAsync(session, _serviceEnabledKey,
+            new DefaultConfigurationEnabled { IsEnabled = true }).ConfigureAwait(false);
+
+        await ImportCkModelAsync(session, tenantContext).ConfigureAwait(false);
 
         await session.CommitTransactionAsync().ConfigureAwait(false);
 
@@ -99,7 +100,7 @@ public abstract class DefaultConfigurationCreatorServiceStandardized : DefaultCo
     /// <inheritdoc />
     public async Task DisableAsync(string tenantId)
     {
-        if (_schemaVersionKey == null || _expectedSchemaVersion == null)
+        if (_serviceEnabledKey == null)
         {
             throw ConfigurationException.TenantCannotBeEnabledDisabled(tenantId);
         }
@@ -115,15 +116,15 @@ public abstract class DefaultConfigurationCreatorServiceStandardized : DefaultCo
         session.StartTransaction();
 
         // If there is a configuration version, check if we need to update the configuration
-        var configurationVersion =
-            await tenantContext.GetConfigurationAsync(session, _schemaVersionKey,
-                new DefaultConfigurationVersion { Version = -1 }).ConfigureAwait(false);
-        if (configurationVersion == null || configurationVersion.Version == -1)
+        var configurationEnabled =
+            await tenantContext.GetConfigurationAsync(session, _serviceEnabledKey,
+                new DefaultConfigurationEnabled { IsEnabled = false }).ConfigureAwait(false);
+        if (configurationEnabled == null || !configurationEnabled.IsEnabled)
         {
             throw ConfigurationException.TenantAlreadyDisabled(tenantId);
         }
 
-        await tenantContext.DeleteConfigurationAsync(session, _schemaVersionKey).ConfigureAwait(false);
+        await tenantContext.DeleteConfigurationAsync(session, _serviceEnabledKey).ConfigureAwait(false);
 
         await session.CommitTransactionAsync().ConfigureAwait(false);
 
@@ -133,7 +134,7 @@ public abstract class DefaultConfigurationCreatorServiceStandardized : DefaultCo
     /// <inheritdoc />
     public async Task<bool> IsEnabledAsync(string tenantId)
     {
-        if (_schemaVersionKey == null || _expectedSchemaVersion == null)
+        if (_serviceEnabledKey == null)
         {
             throw ConfigurationException.TenantCannotBeEnabledDisabled(tenantId);
         }
@@ -150,21 +151,20 @@ public abstract class DefaultConfigurationCreatorServiceStandardized : DefaultCo
 
         // If there is a configuration version, check if we need to update the configuration
         var configurationVersion =
-            await tenantContext.GetConfigurationAsync(session, _schemaVersionKey,
-                new DefaultConfigurationVersion { Version = -1 }).ConfigureAwait(false);
+            await tenantContext.GetConfigurationAsync(session, _serviceEnabledKey,
+                new DefaultConfigurationEnabled { IsEnabled = false }).ConfigureAwait(false);
         if (configurationVersion == null)
         {
             return false;
         }
 
-        return configurationVersion.Version == _expectedSchemaVersion;
+        return configurationVersion.IsEnabled;
     }
 
     /// <inheritdoc />
     public bool CanBeEnabled()
     {
-        return _schemaVersionKey != null
-               && _expectedSchemaVersion != null
+        return _serviceEnabledKey != null
                && !_autoEnable.GetValueOrDefault();
     }
 
@@ -189,14 +189,11 @@ public abstract class DefaultConfigurationCreatorServiceStandardized : DefaultCo
         await CheckSetupIdentityDataAsync(session, tenantContext).ConfigureAwait(false);
 
         // Check if we need to import the CK model
-        var isEnabled = await CheckImportCkModelAsync(session, tenantContext).ConfigureAwait(false);
+        await ImportCkModelAsync(session, tenantContext).ConfigureAwait(false);
 
         await session.CommitTransactionAsync().ConfigureAwait(false);
 
-        if (isEnabled)
-        {
-            await StartTenantAsyncInternal(tenantContext).ConfigureAwait(false);
-        }
+        await StartTenantAsyncInternal(tenantContext).ConfigureAwait(false);
     }
 
     /// <summary>
@@ -264,33 +261,6 @@ public abstract class DefaultConfigurationCreatorServiceStandardized : DefaultCo
         return Task.CompletedTask;
     }
 
-    /// <summary>
-    /// Checks if the schema is available for the tenant
-    /// </summary>
-    /// <param name="tenantId">The tenant id</param>
-    /// <returns>True if the schema is available, false otherwise</returns>
-    protected async Task<bool> IsSchemaAvailableForTenant(string tenantId)
-    {
-        // Check if we need to import a construction kit model
-        if (_schemaVersionKey == null || _expectedSchemaVersion == null)
-        {
-            return false;
-        }
-
-        var tenantContext = await _systemContext.FindTenantContextAsync(tenantId).ConfigureAwait(false);
-
-        using var session = await tenantContext.GetAdminSessionAsync().ConfigureAwait(false);
-        session.StartTransaction();
-
-        var configurationVersion =
-            await tenantContext.GetConfigurationAsync<DefaultConfigurationVersion>(session,
-                _schemaVersionKey, null).ConfigureAwait(false);
-
-        await session.CommitTransactionAsync().ConfigureAwait(false);
-
-        return configurationVersion != null;
-    }
-
     private async Task CheckSetupIdentityDataAsync(IOctoAdminSession session, ITenantContext tenantContext)
     {
         // Identity configuration is next
@@ -338,40 +308,6 @@ public abstract class DefaultConfigurationCreatorServiceStandardized : DefaultCo
                     tenantContext.TenantId);
             }
         }
-    }
-
-    private async Task<bool> CheckImportCkModelAsync(IOctoAdminSession session, ITenantContext tenantContext,
-        bool forceUpdate = false)
-    {
-        // Check if we need to import a construction kit model
-        if (_schemaVersionKey == null || _expectedSchemaVersion == null)
-        {
-            return false;
-        }
-
-        _logger.LogInformation("Setting up import ck model for tenant '{TenantId}'", tenantContext.TenantId);
-
-        // If there is a configuration version, check if we need to update the configuration
-        var configurationVersion =
-            await tenantContext.GetConfigurationAsync<DefaultConfigurationVersion>(session,
-                _schemaVersionKey, null).ConfigureAwait(false);
-        if (configurationVersion == null && !_autoEnable.GetValueOrDefault() && !forceUpdate)
-        {
-            _logger.LogInformation("Tenant '{TenantId}' is not enabled", tenantContext.TenantId);
-            return false;
-        }
-
-        if (configurationVersion == null || configurationVersion.Version < _expectedSchemaVersion)
-        {
-            _logger.LogInformation("Importing ck model for tenant '{TenantId}'", tenantContext.TenantId);
-
-            await ImportCkModelAsync(session, tenantContext).ConfigureAwait(false);
-
-            await tenantContext.SetConfigurationAsync(session, _schemaVersionKey,
-                new DefaultConfigurationVersion { Version = _expectedSchemaVersion.Value }).ConfigureAwait(false);
-        }
-
-        return true;
     }
 
     private async Task RunMigrations(ITenantContext tenantContext)

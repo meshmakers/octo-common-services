@@ -17,7 +17,7 @@ public record ExportRtByDeepGraphCommandRequest : CommandBaseRequest
     /// <param name="originRtIds">Origin runtime ids</param>
     /// <param name="originCkTypeId">Origin construction kit type id</param>
     public ExportRtByDeepGraphCommandRequest(string tenantId, IEnumerable<OctoObjectId> originRtIds,
-        CkId<CkTypeId> originCkTypeId)
+        RtCkId<CkTypeId> originCkTypeId)
         : base(tenantId)
     {
         OriginRtIds = originRtIds;
@@ -34,7 +34,7 @@ public record ExportRtByDeepGraphCommandRequest : CommandBaseRequest
     /// <summary>
     ///     The CkTypeId as starting point of the deep graph export
     /// </summary>
-    [JsonConverter(typeof(CkIdTypeIdConverter))]
-    [Newtonsoft.Json.JsonConverter(typeof(NewtonCkTypeIdConverter))]
-    public CkId<CkTypeId> OriginCkTypeId { get; set; }
+    [JsonConverter(typeof(RtCkIdTypeIdConverter))]
+    [Newtonsoft.Json.JsonConverter(typeof(NewtonRtCkTypeIdConverter))]
+    public RtCkId<CkTypeId> OriginCkTypeId { get; set; }
 }

@@ -67,7 +67,7 @@ internal class CrateDatabaseClient : IStreamDataDatabaseClient, IStreamDataDatab
 
             if (result.TryGetValue(Constants.CkTypeId, out var ckTypeIdValue))
             {
-                var typeId = new CkId<CkTypeId>(ckTypeIdValue as string ?? "");
+                var typeId = new RtCkId<CkTypeId>(ckTypeIdValue as string ?? "");
                 dp.CkTypeId = typeId;
             }
             

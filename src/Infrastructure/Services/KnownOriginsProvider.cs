@@ -10,7 +10,7 @@ internal class KnownOriginsProvider(IMultiTenancyResolverService multiTenancyRes
 {
     private readonly ITenantRepository _tenantRepository = multiTenancyResolverService.GetTenantRepository();
     
-    private static readonly CkId<CkTypeId> CkIdClient = new("System.Identity/Client"); 
+    private static readonly RtCkId<CkTypeId> CkIdClient = new("System.Identity/Client");
     private const string AllowedCorsOriginsAttribute = "AllowedCorsOrigins";
 
     private async Task<IEnumerable<RtEntity>> GetClients()

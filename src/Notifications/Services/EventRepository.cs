@@ -28,7 +28,7 @@ public class EventRepository(ISystemContext systemContext) : IEventRepository
         if (associatedRtEntityId != null)
         {
             associationUpdateInfos.Add(new AssociationUpdateInfo(rtEvent.ToRtEntityId(), associatedRtEntityId.Value,
-                SystemCkIds.Related, AssociationModOptionsDto.Create));
+                SystemCkIds.RtCkRelatedRoleId, AssociationModOptionsDto.Create));
         }
     
         var operationResult = new OperationResult();

@@ -25,7 +25,7 @@ public class DataPointDto : RtTypeWithAttributes
     /// <summary>
     /// The type id of the entity that the datapoint is associated with.
     /// </summary>
-    public CkId<CkTypeId>? CkTypeId { get; set; }
+    public RtCkId<CkTypeId>? CkTypeId { get; set; }
     
     /// <summary>
     /// the optional well known name of the entity that the datapoint is associated with.
