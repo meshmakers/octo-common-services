@@ -188,8 +188,17 @@ public abstract class DefaultConfigurationCreatorServiceStandardized : DefaultCo
         // Check if we need to create the identity data configuration for the services
         await CheckSetupIdentityDataAsync(session, tenantContext).ConfigureAwait(false);
 
-        // Check if we need to import the CK model
-        await ImportCkModelAsync(session, tenantContext).ConfigureAwait(false);
+        // Check if we need to import the CK model, we have two situations
+        // 1. A service that can be enabled/disabled manually - in this case we check if the service is enabled for the tenant
+        // 2. A service that is always enabled - in this case we always import the CK model
+        if (CanBeEnabled() && await IsEnabledAsync(tenantId).ConfigureAwait(false))
+        {
+            await ImportCkModelAsync(session, tenantContext).ConfigureAwait(false);
+        }
+        else
+        {
+            await ImportCkModelAsync(session, tenantContext).ConfigureAwait(false);
+        }
 
         await session.CommitTransactionAsync().ConfigureAwait(false);
 
