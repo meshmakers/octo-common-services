@@ -28,7 +28,7 @@ public class CrateQueryBuilderTests
         var compiler = new CrateQueryCompiler();
         var query = compiler.CompileQuery(queryBuilder);
 
-        Assert.Equal("""SELECT "Timestamp", "RtId", "CkTypeId" FROM meshtest""", query);
+        Assert.Equal("""SELECT "Timestamp", "RtId", "CkTypeId", "RtWellKnownName", "RtCreationDateTime", "RtChangedDateTime" FROM meshtest""", query);
     }
 
     [Fact]
@@ -41,7 +41,7 @@ public class CrateQueryBuilderTests
         var compiler = new CrateQueryCompiler();
         var query = compiler.CompileQuery(queryBuilder);
 
-        Assert.Equal("""SELECT "Timestamp", "RtId", "CkTypeId", "data['Voltage']" FROM meshtest""", query);
+        Assert.Equal("""SELECT "Timestamp", "RtId", "CkTypeId", "RtWellKnownName", "RtCreationDateTime", "RtChangedDateTime", "data['Voltage']" FROM meshtest""", query);
     }
 
     [Fact]
@@ -94,7 +94,7 @@ public class CrateQueryBuilderTests
         var query = compiler.CompileQuery(queryBuilder);
 
         Assert.Equal(
-            """SELECT "Timestamp", "RtId", "CkTypeId", "data['Voltage']" AS "V" FROM meshtest WHERE "Timestamp" >= '2022-01-01 00:00:00.000Z' AND "Timestamp" <= '2022-12-31 23:59:59.999Z'""",
+            """SELECT "Timestamp", "RtId", "CkTypeId", "RtWellKnownName", "RtCreationDateTime", "RtChangedDateTime", "data['Voltage']" AS "V" FROM meshtest WHERE "Timestamp" >= '2022-01-01 00:00:00.000Z' AND "Timestamp" <= '2022-12-31 23:59:59.999Z'""",
             query);
     }
 
@@ -110,7 +110,7 @@ public class CrateQueryBuilderTests
 
         Assert.Equal(
             """
-            SELECT "Timestamp", "RtId", "CkTypeId", AVG("data['Voltage']") AS "Avg_Voltage" FROM meshtest GROUP BY "Timestamp", "RtId", "CkTypeId"
+            SELECT "Timestamp", "RtId", "CkTypeId", "RtWellKnownName", "RtCreationDateTime", "RtChangedDateTime", AVG("data['Voltage']") AS "Avg_Voltage" FROM meshtest GROUP BY "Timestamp", "RtId", "CkTypeId", "RtWellKnownName", "RtCreationDateTime", "RtChangedDateTime"
             """,
             query);
     }
@@ -127,7 +127,7 @@ public class CrateQueryBuilderTests
         var query = compiler.CompileQuery(queryBuilder);
 
         Assert.Equal(
-            """SELECT "Timestamp", "RtId", "CkTypeId", AVG("data['Voltage']") AS "Avg_Voltage" FROM meshtest GROUP BY "Timestamp", "RtId", "CkTypeId" ORDER BY "Timestamp" ASC""",
+            """SELECT "Timestamp", "RtId", "CkTypeId", "RtWellKnownName", "RtCreationDateTime", "RtChangedDateTime", AVG("data['Voltage']") AS "Avg_Voltage" FROM meshtest GROUP BY "Timestamp", "RtId", "CkTypeId", "RtWellKnownName", "RtCreationDateTime", "RtChangedDateTime" ORDER BY "Timestamp" ASC""",
             query);
     }
 
@@ -177,7 +177,7 @@ public class CrateQueryBuilderTests
         var query = compiler.CompileQuery(queryBuilder);
 
         Assert.Equal(
-            """SELECT "Timestamp", "RtId", "CkTypeId" FROM meshtest WHERE "CkTypeId" = '123'""",
+            """SELECT "Timestamp", "RtId", "CkTypeId", "RtWellKnownName", "RtCreationDateTime", "RtChangedDateTime" FROM meshtest WHERE "CkTypeId" = '123'""",
             query);
     }
 }

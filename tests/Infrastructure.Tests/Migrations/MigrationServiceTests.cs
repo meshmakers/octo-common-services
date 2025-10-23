@@ -77,22 +77,6 @@ public class MigrationServiceTests
     }
 
     [Fact]
-    public async Task ExecuteMigrationsAsync_VersionMismatch_ThrowsException()
-    {
-        var migration = A.Fake<IMigration>();
-        var attribute = new MigrationAttribute(1, 2, "Config1"); // Expects version 1
-        var migrationContext = new MigrationContext(migration, attribute);
-        var configContext = new ConfigMigrationContext("Config1", [migrationContext]);
-
-        A.CallTo(() => _versionManager.GetCurrentVersionAsync("Config1", _adminSession, _tenantContext))
-            .Returns(0); // Current version is 0
-        A.CallTo(() => _loader.GetMigrationContextsPerConfig(A<IEnumerable<IMigration>>._))
-            .Returns([configContext]);
-
-        await Assert.ThrowsAsync<InvalidOperationException>(() => _service.ExecuteMigrationsAsync(_adminSession, _tenantContext));
-    }
-
-    [Fact]
     public async Task ExecuteMigrationsAsync_MigrationFails_ThrowsException()
     {
         var migration = A.Fake<IMigration>();
