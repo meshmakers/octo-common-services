@@ -6,6 +6,7 @@ namespace Meshmakers.Octo.Services.Infrastructure.Services;
 /// <summary>
 ///     Implements an initialization service to create default configuration for tenants
 /// </summary>
+// ReSharper disable once ClassNeverInstantiated.Global
 public class DefaultConfigurationInitializationService : IAsyncInitializationService
 {
     private readonly ILogger<DefaultConfigurationInitializationService> _logger;

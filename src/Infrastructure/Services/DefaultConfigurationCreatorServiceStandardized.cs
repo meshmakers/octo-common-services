@@ -175,6 +175,7 @@ public abstract class DefaultConfigurationCreatorServiceStandardized : DefaultCo
         // We wait for a PosTenantCreated event to create the default configuration.
         if (!await _systemContext.IsSystemTenantExistingAsync().ConfigureAwait(false))
         {
+            _logger.LogInformation("System tenant does not exist. Skipping setup for tenant '{TenantId}'", tenantId);
             return;
         }
 
