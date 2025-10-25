@@ -192,9 +192,12 @@ public abstract class DefaultConfigurationCreatorServiceStandardized : DefaultCo
         // Check if we need to import the CK model, we have two situations
         // 1. A service that can be enabled/disabled manually - in this case we check if the service is enabled for the tenant
         // 2. A service that is always enabled - in this case we always import the CK model
-        if (CanBeEnabled() && await IsEnabledAsync(tenantId).ConfigureAwait(false))
+        if (CanBeEnabled())
         {
-            await ImportCkModelAsync(session, tenantContext).ConfigureAwait(false);
+            if (await IsEnabledAsync(tenantId).ConfigureAwait(false))
+            {
+                await ImportCkModelAsync(session, tenantContext).ConfigureAwait(false);
+            }
         }
         else
         {
@@ -203,7 +206,11 @@ public abstract class DefaultConfigurationCreatorServiceStandardized : DefaultCo
 
         await session.CommitTransactionAsync().ConfigureAwait(false);
 
-        await StartTenantAsyncInternal(tenantContext).ConfigureAwait(false);
+        if (CanBeEnabled() && await IsEnabledAsync(tenantId).ConfigureAwait(false)
+            || !CanBeEnabled())
+        {
+            await StartTenantAsyncInternal(tenantContext).ConfigureAwait(false);
+        }
     }
 
     /// <summary>
