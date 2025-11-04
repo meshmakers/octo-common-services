@@ -23,12 +23,12 @@ public abstract class DefaultTenantConfigurationService(ISystemContext systemCon
         {
             session.StartTransaction();
             
-            var dataQueryOperation = DataQueryOperation.Create()
+            var queryOptions = RtEntityQueryOptions.Create()
                 .FieldEquals(nameof(RtConfiguration.RtWellKnownName), configurationName);
             
             var resultSet =
                 await tenantRepository.GetRtEntitiesByTypeAsync<T>(session,
-                    dataQueryOperation).ConfigureAwait(false);
+                    queryOptions).ConfigureAwait(false);
             
             await session.CommitTransactionAsync().ConfigureAwait(false);
             

@@ -18,9 +18,9 @@ internal class KnownOriginsProvider(IMultiTenancyResolverService multiTenancyRes
         var session = await _tenantRepository.GetSessionAsync().ConfigureAwait(false);
         session.StartTransaction();
 
-        var dataQueryOperation = DataQueryOperation.Create();
+        var queryOptions = RtEntityQueryOptions.Create();
 
-        var result = await _tenantRepository.GetRtEntitiesByTypeAsync(session, CkIdClient, dataQueryOperation).ConfigureAwait(false);
+        var result = await _tenantRepository.GetRtEntitiesByTypeAsync(session, CkIdClient, queryOptions).ConfigureAwait(false);
 
         await session.CommitTransactionAsync().ConfigureAwait(false);
         return result.Items;

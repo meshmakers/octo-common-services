@@ -20,10 +20,10 @@ public abstract class MigrationBase : IMigration
     {
         var tenantRepository = tenantContext.GetTenantRepositoryAsAdmin();
 
-        DataQueryOperation operation = DataQueryOperation.Create();
-        operation.FieldEquals(nameof(RtEntity.RtWellKnownName), rtEntity.RtWellKnownName);
+        var queryOptions = RtEntityQueryOptions.Create();
+        queryOptions.FieldEquals(nameof(RtEntity.RtWellKnownName), rtEntity.RtWellKnownName);
 
-        var result = await tenantRepository.GetRtEntitiesByTypeAsync<TEntity>(session, operation).ConfigureAwait(false);
+        var result = await tenantRepository.GetRtEntitiesByTypeAsync<TEntity>(session, queryOptions).ConfigureAwait(false);
         if (!result.Items.Any())
         {
             await tenantRepository.InsertOneRtEntityAsync(session, rtEntity).ConfigureAwait(false);

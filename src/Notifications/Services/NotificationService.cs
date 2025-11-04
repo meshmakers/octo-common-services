@@ -52,10 +52,10 @@ internal class NotificationService(
         var repository = await systemContext.FindTenantRepositoryAsync(tenantId).ConfigureAwait(false);
         using var session = await repository.GetSessionAsync().ConfigureAwait(false);
 
-        var query = DataQueryOperation.Create()
+        var queryOptions = RtEntityQueryOptions.Create()
             .FieldFilter(nameof(RtEntity.RtWellKnownName), FieldFilterOperator.Equals, templateName);
 
-        var result = await repository.GetRtEntitiesByTypeAsync<RtNotificationTemplate>(session, query)
+        var result = await repository.GetRtEntitiesByTypeAsync<RtNotificationTemplate>(session, queryOptions)
             .ConfigureAwait(false);
 
         if (result.TotalCount == 0)
