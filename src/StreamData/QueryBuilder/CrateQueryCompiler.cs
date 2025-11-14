@@ -52,13 +52,12 @@ public class CrateQueryCompiler
         
         if(queryBuilder.CkTypeId != null)
         {
-            query.Append($"\"CkTypeId\" = '{queryBuilder.CkTypeId}'");
+            query.Append($"\"CkTypeId\" = '{queryBuilder.CkTypeId.SemanticVersionedFullName}'");
 
             if (queryBuilder.VariableInListVariables.Any() || queryBuilder is { From: not null, To: not null })
             {
                 query.Append(" AND ");
             }
-            
         }
         
         if (queryBuilder.VariableInListVariables.Any())

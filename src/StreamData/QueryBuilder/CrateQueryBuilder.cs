@@ -1,4 +1,5 @@
-﻿using Meshmakers.Octo.Services.StreamData.Dtos;
+using Meshmakers.Octo.ConstructionKit.Contracts;
+using Meshmakers.Octo.Services.StreamData.Dtos;
 
 namespace Meshmakers.Octo.Services.StreamData.QueryBuilder;
 
@@ -59,8 +60,8 @@ public class CrateQueryBuilder
     internal int? Limit { get; private set; }
     
     internal int? Offset { get; private set; }
-    
-    internal string? CkTypeId { get; private set; }
+
+    internal RtCkId<CkTypeId>? CkTypeId { get; private set; }
 
     /// <summary>
     /// Constructor
@@ -87,11 +88,11 @@ public class CrateQueryBuilder
     /// <summary>
     /// Adds a type filter to the query
     /// </summary>
-    /// <param name="CkTypeId"></param>
+    /// <param name="ckTypeId"></param>
     /// <returns></returns>
-    public CrateQueryBuilder WithCkTypeIdFilter(string CkTypeId)
+    public CrateQueryBuilder WithCkTypeIdFilter(RtCkId<CkTypeId> ckTypeId)
     {
-        this.CkTypeId = CkTypeId;
+        this.CkTypeId = ckTypeId;
         return this;
     }
 
