@@ -171,13 +171,13 @@ public class CrateQueryBuilderTests
     {
         var queryBuilder = new CrateQueryBuilder("meshtest");
         queryBuilder.IncludeDefaultVariables();
-        queryBuilder.WithCkTypeIdFilter("123");
+        queryBuilder.WithCkTypeIdFilter("Test/123");
 
         var compiler = new CrateQueryCompiler();
         var query = compiler.CompileQuery(queryBuilder);
 
         Assert.Equal(
-            """SELECT "Timestamp", "RtId", "CkTypeId", "RtWellKnownName", "RtCreationDateTime", "RtChangedDateTime" FROM meshtest WHERE "CkTypeId" = '123'""",
+            """SELECT "Timestamp", "RtId", "CkTypeId", "RtWellKnownName", "RtCreationDateTime", "RtChangedDateTime" FROM meshtest WHERE "CkTypeId" = 'Test/123'""",
             query);
     }
 }
