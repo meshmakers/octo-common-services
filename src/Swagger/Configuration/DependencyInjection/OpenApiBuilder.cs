@@ -1,7 +1,7 @@
 using Meshmakers.Octo.Services.Swagger.Transformers;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Options;
-using Microsoft.OpenApi.Models;
+using Microsoft.OpenApi;
 
 namespace Meshmakers.Octo.Services.Swagger.Configuration.DependencyInjection;
 

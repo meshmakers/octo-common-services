@@ -2,7 +2,7 @@ using Meshmakers.Common.Shared;
 using Meshmakers.Octo.Services.Swagger.Configuration;
 using Microsoft.AspNetCore.OpenApi;
 using Microsoft.Extensions.Options;
-using Microsoft.OpenApi.Models;
+using Microsoft.OpenApi;
 
 namespace Meshmakers.Octo.Services.Swagger.Transformers;
 
@@ -18,9 +18,9 @@ internal sealed class SecuritySchemeTransformer(IOptions<OctoOpenApiOptions> opt
             throw new InvalidOperationException("AuthorityUrl must be set in the OctoSwaggerOptions");
         }
 
-        var schemes = new Dictionary<string, OpenApiSecurityScheme>
+        var schemes = new Dictionary<string, IOpenApiSecurityScheme>
         {
-            [OpenApiConstants.SchemeId] = new()
+            [OpenApiConstants.SchemeId] = new OpenApiSecurityScheme
             {
                 Type = SecuritySchemeType.OAuth2,
                 Flows = new OpenApiOAuthFlows

@@ -1,8 +1,9 @@
 using Meshmakers.Octo.Services.Swagger.Configuration;
 using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.OpenApi;
 using Microsoft.Extensions.Options;
-using Microsoft.OpenApi.Models;
+using Microsoft.OpenApi;
 
 namespace Meshmakers.Octo.Services.Swagger.Transformers;
 
@@ -23,20 +24,14 @@ internal class AuthenticationOperationTransformer(IOptions<OctoOpenApiOptions> o
 
             if (options.Value.PolicyScopeMapping.TryGetValue(a.Policy, out var scopes))
             {
-                operation.Security.Add(new OpenApiSecurityRequirement
+                var r = new OpenApiSecuritySchemeReference("Bearer");
+                var securityRequirement = new OpenApiSecurityRequirement
                 {
                     {
-                        new OpenApiSecurityScheme
-                        {
-                            Reference = new OpenApiReference
-                            {
-                                Id = OpenApiConstants.SchemeId,
-                                Type = ReferenceType.SecurityScheme
-                            }
-                        },
-                        scopes.ToList()
+                        r, scopes.ToList()
                     }
-                });
+                };
+                operation.Security = new List<OpenApiSecurityRequirement> { securityRequirement };
             }
         }
         return Task.CompletedTask;

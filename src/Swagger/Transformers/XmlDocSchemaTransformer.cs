@@ -3,7 +3,7 @@ using Meshmakers.Common.Shared;
 using Meshmakers.Octo.Services.Swagger.Configuration;
 using Microsoft.AspNetCore.OpenApi;
 using Microsoft.Extensions.Options;
-using Microsoft.OpenApi.Models;
+using Microsoft.OpenApi;
 
 namespace Meshmakers.Octo.Services.Swagger.Transformers;
 
@@ -77,7 +77,7 @@ internal class XmlDocSchemaTransformer(IOptions<OctoOpenApiOptions> options) : I
             var summary = summaryNode.InnerText.Trim();
             var propertyName = name.Split('(')[0].Split('.').Last().ToCamelCase();
 
-            if (schema.Properties.TryGetValue(propertyName, out var property))
+            if (schema.Properties?.TryGetValue(propertyName, out var property) ?? false)
             {
                 property.Description = summary;
             }
