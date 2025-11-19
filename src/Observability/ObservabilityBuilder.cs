@@ -1,4 +1,5 @@
-﻿using Microsoft.Extensions.Configuration;
+﻿using System;
+using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using OpenTelemetry.Metrics;
@@ -63,8 +64,11 @@ internal class ObservabilityBuilder(
             .AddCheck<StartupHealthCheck>(
                 "Startup",
                 tags: ["ready"]);
-        healthChecksBuilder
-            .AddResourceUtilizationHealthCheck();
+        if (OperatingSystem.IsWindows() || OperatingSystem.IsLinux())
+        {
+            healthChecksBuilder
+                .AddResourceUtilizationHealthCheck();
+        }
 
         return healthChecksBuilder;
     }
