@@ -7,11 +7,15 @@ using OpenTelemetry.Trace;
 
 namespace Meshmakers.Octo.Services.Observability;
 
-internal class ObservabilityBuilder(IConfigurationManager config, IServiceCollection services, IHostEnvironment environment)
+internal class ObservabilityBuilder(
+    IConfigurationManager config,
+    IServiceCollection services,
+    IHostEnvironment environment)
 {
     public IConfigurationManager Configuration { get; } = config;
     public IServiceCollection Services { get; } = services;
     public IHostEnvironment Environment { get; } = environment;
+
     internal IHealthChecksBuilder AddObservability()
     {
         var tracingOtlpEndpoint = Configuration["OTLP_ENDPOINT_URL"];
@@ -44,15 +48,23 @@ internal class ObservabilityBuilder(IConfigurationManager config, IServiceCollec
         Services.AddHostedService<StartupBackgroundService>();
         Services.AddSingleton<StartupHealthCheck>();
 
+        // This is a workaround to register the LinuxUtilizationParserCgroupV2 implementation for ILinuxUtilizationParser
+        // because the Microsoft.Extensions.Diagnostics.ResourceMonitoring package does not register it by default.
+        // See https://github.com/dotnet/extensions/issues/6832
+        if (OperatingSystem.IsLinux())
+        {
+            Services.Add(ServiceDescriptor.Singleton(
+                service           : Type.GetType("Microsoft.Extensions.Diagnostics.ResourceMonitoring.Linux.ILinuxUtilizationParser, Microsoft.Extensions.Diagnostics.ResourceMonitoring")!,
+                implementationType: Type.GetType("Microsoft.Extensions.Diagnostics.ResourceMonitoring.Linux.LinuxUtilizationParserCgroupV2, Microsoft.Extensions.Diagnostics.ResourceMonitoring")!
+            ));
+        }
+
         var healthChecksBuilder = Services.AddHealthChecks()
             .AddCheck<StartupHealthCheck>(
-            "Startup",
-            tags: ["ready"]);
-        if (OperatingSystem.IsWindows() || OperatingSystem.IsLinux())
-        {
-            healthChecksBuilder
-                .AddResourceUtilizationHealthCheck();
-        }
+                "Startup",
+                tags: ["ready"]);
+        healthChecksBuilder
+            .AddResourceUtilizationHealthCheck();
 
         return healthChecksBuilder;
     }
