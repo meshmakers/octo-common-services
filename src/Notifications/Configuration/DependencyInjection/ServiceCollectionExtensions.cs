@@ -16,7 +16,7 @@ public static class ServiceCollectionExtensions
     public static IServiceCollection AddOctoNotification(
         this IServiceCollection services)
     {
-        services.AddCkModelSystemNotification();
+        services.AddCkModelSystemNotificationV2();
         services.AddTransient<IEventRepository, EventRepository>();
         services.AddScoped<INotificationService, NotificationService>();
         services.AddScoped<IMarkdownRenderService, MarkdownRenderService>();
