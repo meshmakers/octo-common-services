@@ -1,4 +1,6 @@
 using Meshmakers.Octo.Common.DistributionEventHub.Services;
+using Meshmakers.Octo.ConstructionKit.Contracts;
+using Meshmakers.Octo.Runtime.Contracts.Blueprints;
 using Meshmakers.Octo.Runtime.Contracts.MongoDb;
 using Meshmakers.Octo.Runtime.Contracts.MongoDb.Repositories;
 using Meshmakers.Octo.Services.Contracts.DistributionEventHub.Commands;
@@ -26,6 +28,8 @@ public abstract class DefaultConfigurationCreatorServiceStandardized : DefaultCo
     private readonly ISystemContext _systemContext;
     private readonly ICommandClient<CreateIdentityDataCommandRequest> _createIdentityDataCommandClient;
     private readonly MigrationService? _migrationService;
+    private readonly ICkModelUpgradeService? _ckModelUpgradeService;
+    private readonly IRuntimeRepositoryProvider? _runtimeRepositoryProvider;
     private readonly string? _serviceEnabledKey;
     private readonly bool? _autoEnable;
     private readonly string _identityDataVersionKey;
@@ -40,6 +44,8 @@ public abstract class DefaultConfigurationCreatorServiceStandardized : DefaultCo
     /// <param name="identityDataVersionKey">The configuration key for the identity data version</param>
     /// <param name="expectedIdentityDataVersion">The expected value of the identity data version</param>
     /// <param name="migrationService">The migration service</param>
+    /// <param name="ckModelUpgradeService">The CK model upgrade service for data migrations</param>
+    /// <param name="runtimeRepositoryProvider">The runtime repository provider for getting schema versions</param>
     /// <param name="serviceEnabledKey">The configuration key if the service is enabled for a tenant</param>
     /// <param name="autoEnable">When true, all tenants are automatically enabled</param>
     protected DefaultConfigurationCreatorServiceStandardized(
@@ -49,6 +55,8 @@ public abstract class DefaultConfigurationCreatorServiceStandardized : DefaultCo
         string identityDataVersionKey,
         int expectedIdentityDataVersion,
         MigrationService? migrationService = null,
+        ICkModelUpgradeService? ckModelUpgradeService = null,
+        IRuntimeRepositoryProvider? runtimeRepositoryProvider = null,
         string? serviceEnabledKey = null,
         bool? autoEnable = false)
         : base(logger)
@@ -57,6 +65,8 @@ public abstract class DefaultConfigurationCreatorServiceStandardized : DefaultCo
         _systemContext = systemContext;
         _createIdentityDataCommandClient = createIdentityDataCommandClient;
         _migrationService = migrationService;
+        _ckModelUpgradeService = ckModelUpgradeService;
+        _runtimeRepositoryProvider = runtimeRepositoryProvider;
         _serviceEnabledKey = serviceEnabledKey;
         _autoEnable = autoEnable;
         _identityDataVersionKey = identityDataVersionKey;
@@ -83,6 +93,15 @@ public abstract class DefaultConfigurationCreatorServiceStandardized : DefaultCo
 
         var tenantContext = await _systemContext.FindTenantContextAsync(tenantId).ConfigureAwait(false);
 
+        // Capture schema versions BEFORE importing new CK models
+        IReadOnlyDictionary<string, string>? previousSchemaVersions = null;
+        if (_runtimeRepositoryProvider != null && _ckModelUpgradeService != null)
+        {
+            previousSchemaVersions = await _runtimeRepositoryProvider
+                .GetSchemaVersionsAsync(tenantId, CancellationToken.None)
+                .ConfigureAwait(false);
+        }
+
         using var session = await tenantContext.GetAdminSessionAsync().ConfigureAwait(false);
         session.StartTransaction();
 
@@ -94,7 +113,7 @@ public abstract class DefaultConfigurationCreatorServiceStandardized : DefaultCo
         await session.CommitTransactionAsync().ConfigureAwait(false);
 
         // start the tenant
-        await StartTenantAsyncInternal(tenantContext).ConfigureAwait(false);
+        await StartTenantAsyncInternal(tenantContext, previousSchemaVersions).ConfigureAwait(false);
     }
 
     /// <inheritdoc />
@@ -183,6 +202,23 @@ public abstract class DefaultConfigurationCreatorServiceStandardized : DefaultCo
 
         var tenantContext = await _systemContext.FindTenantContextAsync(tenantId).ConfigureAwait(false);
 
+        // Capture schema versions BEFORE importing new CK models
+        // This allows migrations to detect the previous version even without MigrationHistory
+        IReadOnlyDictionary<string, string>? previousSchemaVersions = null;
+        if (_runtimeRepositoryProvider != null && _ckModelUpgradeService != null)
+        {
+            previousSchemaVersions = await _runtimeRepositoryProvider
+                .GetSchemaVersionsAsync(tenantId, CancellationToken.None)
+                .ConfigureAwait(false);
+
+            if (previousSchemaVersions.Count > 0)
+            {
+                _logger.LogDebug(
+                    "Captured {Count} schema versions before import for tenant '{TenantId}'",
+                    previousSchemaVersions.Count, tenantId);
+            }
+        }
+
         using var session = await tenantContext.GetAdminSessionAsync().ConfigureAwait(false);
         session.StartTransaction();
 
@@ -209,7 +245,7 @@ public abstract class DefaultConfigurationCreatorServiceStandardized : DefaultCo
         if (CanBeEnabled() && await IsEnabledAsync(tenantId).ConfigureAwait(false)
             || !CanBeEnabled())
         {
-            await StartTenantAsyncInternal(tenantContext).ConfigureAwait(false);
+            await StartTenantAsyncInternal(tenantContext, previousSchemaVersions).ConfigureAwait(false);
         }
     }
 
@@ -276,6 +312,16 @@ public abstract class DefaultConfigurationCreatorServiceStandardized : DefaultCo
     {
         // Left intentionally empty for the derived classes to implement
         return Task.CompletedTask;
+    }
+
+    /// <summary>
+    /// Returns the CK model IDs that this service uses.
+    /// Override this method to provide the CK model IDs for CK model data migrations.
+    /// </summary>
+    /// <returns>Collection of CK model IDs with version ranges</returns>
+    protected virtual IEnumerable<CkModelIdVersionRange> GetCkModelIds()
+    {
+        return Enumerable.Empty<CkModelIdVersionRange>();
     }
 
     private async Task CheckSetupIdentityDataAsync(IOctoAdminSession session, ITenantContext tenantContext)
@@ -350,9 +396,58 @@ public abstract class DefaultConfigurationCreatorServiceStandardized : DefaultCo
         }
     }
 
-    private async Task StartTenantAsyncInternal(ITenantContext context)
+    private async Task RunCkModelMigrationsAsync(
+        ITenantContext tenantContext,
+        IReadOnlyDictionary<string, string>? previousSchemaVersions = null)
     {
+        if (_ckModelUpgradeService == null)
+        {
+            return;
+        }
+
+        var ckModelIds = GetCkModelIds().ToList();
+        if (ckModelIds.Count == 0)
+        {
+            return;
+        }
+
+        _logger.LogInformation(
+            "Running CK model data migrations for tenant '{TenantId}' with {ModelCount} models",
+            tenantContext.TenantId, ckModelIds.Count);
+
+        var result = await _ckModelUpgradeService.UpgradeModelsAsync(
+            tenantContext.TenantId,
+            ckModelIds,
+            new CkMigrationOptions { ContinueOnError = false },
+            previousSchemaVersions,
+            CancellationToken.None).ConfigureAwait(false);
+
+        if (!result.Success)
+        {
+            var errorMessage = $"CK model migration failed for tenant '{tenantContext.TenantId}': {string.Join("; ", result.Errors)}";
+            _logger.LogError("{ErrorMessage}", errorMessage);
+            throw new InvalidOperationException(errorMessage);
+        }
+
+        if (result.TotalEntitiesAffected > 0)
+        {
+            _logger.LogInformation(
+                "CK model data migrations completed for tenant '{TenantId}': {EntitiesAffected} entities affected",
+                tenantContext.TenantId, result.TotalEntitiesAffected);
+        }
+    }
+
+    private async Task StartTenantAsyncInternal(
+        ITenantContext context,
+        IReadOnlyDictionary<string, string>? previousSchemaVersions = null)
+    {
+        // 1. CK model data migrations (transforms existing runtime entities)
+        await RunCkModelMigrationsAsync(context, previousSchemaVersions).ConfigureAwait(false);
+
+        // 2. Infrastructure migrations (creates indexes, etc.)
         await RunMigrations(context).ConfigureAwait(false);
+
+        // 3. Start tenant
         await StartTenantAsync(context.TenantId).ConfigureAwait(false);
     }
 }
