@@ -50,11 +50,12 @@ public class EventRepository(ISystemContext systemContext) : IEventRepository
         {
             var rtEvent = new RtEvent
             {
+                RtId = OctoObjectId.GenerateNewId(),
                 Message = message,
                 Source = source,
                 Level = eventLevel
             };
-        
+
             await AddMessageAsync(rtEvent, tenantId, associatedRtEntityId).ConfigureAwait(false);
         }
         catch (Exception e)
@@ -63,20 +64,21 @@ public class EventRepository(ISystemContext systemContext) : IEventRepository
         }
     }
     
-    public async Task StoreSystemEventAsync(RtEventSourcesEnum source, RtEventLevelsEnum eventLevel, string message, 
+    public async Task StoreSystemEventAsync(RtEventSourcesEnum source, RtEventLevelsEnum eventLevel, string message,
         RtEntityId? associatedRtEntityId = null)
     {
         ArgumentValidation.ValidateString(nameof(message), message);
-        
+
         try
         {
             var rtEvent = new RtEvent
             {
+                RtId = OctoObjectId.GenerateNewId(),
                 Message = message,
                 Source = source,
                 Level = eventLevel
             };
-        
+
             await AddMessageAsync(rtEvent, null, associatedRtEntityId).ConfigureAwait(false);
         }
         catch (Exception e)
