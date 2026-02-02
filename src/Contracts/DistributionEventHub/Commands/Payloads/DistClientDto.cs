@@ -43,4 +43,24 @@ public record DistClientDto(string ClientId, string ClientName, string ClientUri
     ///     Gets or sets if offline access is allowed.
     /// </summary>
     public bool AllowOfflineAccess { get; init; }
+
+    /// <summary>
+    ///     Gets or sets the front-channel logout URI for Single Logout (SLO).
+    /// </summary>
+    public string? FrontChannelLogoutUri { get; init; }
+
+    /// <summary>
+    ///     Gets or sets whether session ID is required for front-channel logout.
+    /// </summary>
+    public bool FrontChannelLogoutSessionRequired { get; init; } = true;
+
+    /// <summary>
+    ///     Gets or sets the back-channel logout URI for Single Logout (SLO).
+    /// </summary>
+    public string? BackChannelLogoutUri { get; init; }
+
+    /// <summary>
+    ///     Gets or sets whether session ID is required for back-channel logout.
+    /// </summary>
+    public bool BackChannelLogoutSessionRequired { get; init; } = true;
 }
