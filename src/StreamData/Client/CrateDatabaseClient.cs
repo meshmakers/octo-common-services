@@ -116,7 +116,7 @@ internal class CrateDatabaseClient : IStreamDataDatabaseClient, IStreamDataDatab
             d.Select(x => x.RtWellKnownName).ToArray()));
         command.Parameters.Add(dataParameter);
 
-        command.ExecuteNonQuery();
+        await command.ExecuteNonQueryAsync();
     }
 
     public async Task InsertDataAsync(string tenantId, DataPointDto datapoint)
