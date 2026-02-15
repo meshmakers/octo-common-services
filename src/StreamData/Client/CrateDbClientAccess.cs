@@ -43,7 +43,12 @@ internal class CrateDbConnectionAccess(
                 tenantId);
             logger.LogDebug("Connection string: {ConnectionString}", connectionString);
 
-            var csb = new NpgsqlConnectionStringBuilder(connectionString);
+            var csb = new NpgsqlConnectionStringBuilder(connectionString)
+            {
+                // CrateDB does not support ROLLBACK which Npgsql sends during connection reset.
+                // Disabling reset prevents the ROLLBACK command from being sent on connection close.
+                NoResetOnClose = true
+            };
             var dataSourceBuilder = new NpgsqlDataSourceBuilder(csb.ConnectionString);
             dataSourceBuilder.EnableDynamicJson([typeof(IReadOnlyDictionary<string, object?>)]);
             var dataSource = dataSourceBuilder.Build();
