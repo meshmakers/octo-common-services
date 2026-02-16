@@ -45,9 +45,12 @@ internal class CrateDbConnectionAccess(
 
             var csb = new NpgsqlConnectionStringBuilder(connectionString)
             {
-                // CrateDB does not support ROLLBACK which Npgsql sends during connection reset.
-                // Disabling reset prevents the ROLLBACK command from being sent on connection close.
-                NoResetOnClose = true
+                // CrateDB does not support ROLLBACK which Npgsql sends during pooled connection
+                // reset (NpgsqlConnector.Reset). NoResetOnClose only prevents DISCARD ALL but NOT
+                // the ROLLBACK that Npgsql unconditionally sends when TransactionStatus != Idle.
+                // Disabling pooling prevents Reset from being called entirely on connection close.
+                NoResetOnClose = true,
+                Pooling = false
             };
             var dataSourceBuilder = new NpgsqlDataSourceBuilder(csb.ConnectionString);
             dataSourceBuilder.EnableDynamicJson([typeof(IReadOnlyDictionary<string, object?>)]);
