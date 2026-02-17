@@ -150,6 +150,14 @@ internal class CrateDatabaseClient : IStreamDataDatabaseClient, IStreamDataDatab
         var result = await connection.ExecuteAsync(string.Format(Queries.DeleteTableIfExists, tenantId));
     }
 
+    public async Task<bool> StreamDataTableExistsAsync(string tenantId)
+    {
+        await using var connection = CreateConnection(tenantId);
+
+        var count = await connection.ExecuteScalarAsync<long>(string.Format(Queries.TableExists, tenantId));
+        return count > 0;
+    }
+
     private NpgsqlConnection CreateConnection(string tenantId)
     {
         return _connectionAccess.CreateConnection(tenantId);
