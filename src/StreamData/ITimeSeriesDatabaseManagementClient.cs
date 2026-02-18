@@ -19,10 +19,4 @@ public interface IStreamDataDatabaseManagementClient
     /// <returns></returns>
     Task DeleteStreamDataDatabaseAsync(string tenantId);
 
-    /// <summary>
-    /// Checks whether a stream data table exists for a given tenant.
-    /// </summary>
-    /// <param name="tenantId"></param>
-    /// <returns></returns>
-    Task<bool> StreamDataTableExistsAsync(string tenantId);
 }

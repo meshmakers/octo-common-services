@@ -18,8 +18,6 @@ internal static class Queries
     
     public const string DeleteTableIfExists = "drop table if exists {0};";
 
-    public const string TableExists = "SELECT COUNT(*) FROM information_schema.tables WHERE table_name = LOWER('{0}')";
-
     public const string InsertStreamDataEntry =
         """
         INSERT INTO {0} ("RtId", "CkTypeId", "Timestamp", "RtWellKnownName", data)
