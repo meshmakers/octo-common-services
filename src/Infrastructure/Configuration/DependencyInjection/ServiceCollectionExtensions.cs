@@ -7,6 +7,7 @@ using Meshmakers.Octo.Services.Contracts.DistributionEventHub.Messages;
 using Meshmakers.Octo.Services.Infrastructure;
 using Meshmakers.Octo.Services.Infrastructure.Configuration.DependencyInjection;
 using Meshmakers.Octo.Services.Infrastructure.Consumers;
+using Meshmakers.Octo.Services.Infrastructure.Initialization;
 using Meshmakers.Octo.Services.Infrastructure.Cors;
 using Meshmakers.Octo.Services.Infrastructure.DistributionEventHub;
 using Meshmakers.Octo.Services.Infrastructure.Services;
@@ -56,6 +57,13 @@ public static class ServiceCollectionExtensions
         {
             c.UniqueServiceAddress = uniqueBrokerServiceAddress;
 
+            // Defer bus startup until after tenant initialization is complete.
+            // The bus is started by EventHubStartupService (Order = 20) after
+            // DefaultConfigurationInitializationService (Order = 10) completes.
+            // This prevents MongoDB lock contention caused by message consumers
+            // processing tenant events while the initial tenant setup is still running.
+            c.AutomaticallyStartBusDuringStartup = false;
+
             configureDistributionEventHub?.Invoke(c);
 
             c.AddBroadcastEventConsumer<CorsClientsUpdateConsumer, CorsClientsUpdate>();
@@ -66,6 +74,7 @@ public static class ServiceCollectionExtensions
         });
 
         services.AddInitializationService<DefaultConfigurationInitializationService>();
+        services.AddInitializationService<EventHubStartupService>();
 
         return builder;
     }
