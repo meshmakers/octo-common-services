@@ -45,12 +45,20 @@ public class DefaultConfigurationInitializationService : IAsyncInitializationSer
         _logger.LogInformation("Initialize default configuration for child tenants of '{TenantId}'", _systemContext.TenantId);
         if (await _systemContext.IsSystemTenantExistingAsync().ConfigureAwait(false))
         {
+            // Read the tenant list and close the session/transaction before iterating.
+            // Keeping the transaction open while calling SetupAsync for each tenant would
+            // cause MongoDB IX lock contention on octosystem.RtEntity_SystemTenant,
+            // since SetupAsync also accesses that collection.
+            List<OctoTenant> tenantList;
+            using (var systemSession = await _systemContext.GetAdminSessionAsync().ConfigureAwait(false))
+            {
+                systemSession.StartTransaction();
+                var tenants = await _systemContext.GetChildTenantsAsync(systemSession).ConfigureAwait(false);
+                tenantList = tenants.Items.ToList();
+                await systemSession.CommitTransactionAsync().ConfigureAwait(false);
+            }
 
-            var systemSession = await _systemContext.GetAdminSessionAsync().ConfigureAwait(false);
-            systemSession.StartTransaction();
-
-            var tenants = await _systemContext.GetChildTenantsAsync(systemSession).ConfigureAwait(false);
-            foreach (var tenant in tenants.Items)
+            foreach (var tenant in tenantList)
             {
                 _logger.LogInformation("Initialize default configuration for tenant '{TenantId}'", tenant.TenantId);
                 await _defaultConfigurationCreatorService.SetupAsync(tenant.TenantId).ConfigureAwait(false);
