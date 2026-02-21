@@ -35,6 +35,7 @@ public abstract class DefaultConfigurationCreatorServiceStandardized : DefaultCo
     private readonly bool? _autoEnable;
     private readonly string _identityDataVersionKey;
     private readonly int _expectedIdentityDataVersion;
+    private readonly List<string> _deferredStartTenantIds = new();
 
     /// <summary>
     ///     Constructor
@@ -438,6 +439,29 @@ public abstract class DefaultConfigurationCreatorServiceStandardized : DefaultCo
         }
     }
 
+    /// <inheritdoc />
+    public override async Task StartDeferredTenantsAsync()
+    {
+        _logger.LogInformation("Starting {Count} deferred tenant(s)", _deferredStartTenantIds.Count);
+
+        foreach (var tenantId in _deferredStartTenantIds)
+        {
+            _logger.LogInformation("Starting deferred tenant '{TenantId}'", tenantId);
+            try
+            {
+                await StartTenantAsync(tenantId).ConfigureAwait(false);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Failed to start deferred tenant '{TenantId}'", tenantId);
+                throw;
+            }
+        }
+
+        _deferredStartTenantIds.Clear();
+        DeferTenantStart = false;
+    }
+
     private async Task StartTenantAsyncInternal(
         ITenantContext context,
         IReadOnlyDictionary<string, string>? previousSchemaVersions = null)
@@ -448,7 +472,17 @@ public abstract class DefaultConfigurationCreatorServiceStandardized : DefaultCo
         // 2. Infrastructure migrations (creates indexes, etc.)
         await RunMigrations(context).ConfigureAwait(false);
 
-        // 3. Start tenant
-        await StartTenantAsync(context.TenantId).ConfigureAwait(false);
+        // 3. Start tenant - defer if the bus is not yet available
+        if (DeferTenantStart)
+        {
+            _logger.LogInformation(
+                "Deferring start for tenant '{TenantId}' until distribution event hub is available",
+                context.TenantId);
+            _deferredStartTenantIds.Add(context.TenantId);
+        }
+        else
+        {
+            await StartTenantAsync(context.TenantId).ConfigureAwait(false);
+        }
     }
 }

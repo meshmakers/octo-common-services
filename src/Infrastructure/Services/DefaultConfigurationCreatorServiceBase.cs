@@ -8,6 +8,9 @@ public abstract class DefaultConfigurationCreatorServiceBase(ILogger<DefaultConf
 {
     private static readonly ConcurrentDictionary<string, bool> TenantsInHandling = new();
 
+    /// <inheritdoc />
+    public bool DeferTenantStart { get; set; }
+
     public virtual Task InitializeAsync()
     {
         return Task.CompletedTask;
@@ -37,6 +40,12 @@ public abstract class DefaultConfigurationCreatorServiceBase(ILogger<DefaultConf
             TenantsInHandling.Remove(tenantId, out _);
             logger.LogInformation("Setup tenant handling done: '{TenantId}'", tenantId);
         }
+    }
+
+    /// <inheritdoc />
+    public virtual Task StartDeferredTenantsAsync()
+    {
+        return Task.CompletedTask;
     }
 
     protected abstract Task SetupTenantAsync(string tenantId);

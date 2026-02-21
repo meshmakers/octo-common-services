@@ -31,11 +31,17 @@ public class DefaultConfigurationInitializationService : IAsyncInitializationSer
 
     public async Task InitializeAsync()
     {
+        // Defer tenant start until the distribution event hub is available.
+        // StartTenantAsync may send commands via the bus (e.g. RemoveRecurringJobsByScheduleGroup),
+        // so it must run after EventHubStartupService (Order=20) has started the bus.
+        // TenantStartupInitializationService (Order=30) will call StartDeferredTenantsAsync.
+        _defaultConfigurationCreatorService.DeferTenantStart = true;
+
         // Do global initialization here
         _logger.LogInformation("Initialize default configuration");
         await _defaultConfigurationCreatorService.InitializeAsync().ConfigureAwait(false);
         _logger.LogInformation("Initialize default configuration done");
-        
+
         // Call for system tenant
         _logger.LogInformation("Initialize default configuration for system tenant '{TenantId}'", _systemContext.TenantId);
         await _defaultConfigurationCreatorService.SetupAsync(_systemContext.TenantId).ConfigureAwait(false);

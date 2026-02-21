@@ -73,8 +73,15 @@ public static class ServiceCollectionExtensions
             c.AddBroadcastEventConsumer<PosCreatePosUpdateTenantConsumer, PosUpdateTenant>();
         });
 
+        // Initialization order:
+        // 1. DefaultConfigurationInitializationService (Order=10): Setup tenants (CK model import, identity data, migrations)
+        //    - Sets DeferTenantStart=true so StartTenantAsync is NOT called during setup
+        // 2. EventHubStartupService (Order=20): Start the distribution event hub
+        // 3. TenantStartupInitializationService (Order=30): Call StartTenantAsync for all deferred tenants
+        //    - Now safe because the bus is available for sending commands
         services.AddInitializationService<DefaultConfigurationInitializationService>();
         services.AddInitializationService<EventHubStartupService>();
+        services.AddInitializationService<TenantStartupInitializationService>();
 
         return builder;
     }
