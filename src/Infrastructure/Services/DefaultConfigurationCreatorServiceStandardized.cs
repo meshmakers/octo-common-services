@@ -36,6 +36,7 @@ public abstract class DefaultConfigurationCreatorServiceStandardized : DefaultCo
     private readonly string _identityDataVersionKey;
     private readonly int _expectedIdentityDataVersion;
     private readonly List<string> _deferredStartTenantIds = new();
+    private bool _deferredIdentityDataSetup;
 
     /// <summary>
     ///     Constructor
@@ -224,8 +225,23 @@ public abstract class DefaultConfigurationCreatorServiceStandardized : DefaultCo
         using var session = await tenantContext.GetAdminSessionAsync().ConfigureAwait(false);
         session.StartTransaction();
 
-        // Check if we need to create the identity data configuration for the services
-        await CheckSetupIdentityDataAsync(session, tenantContext).ConfigureAwait(false);
+        // Check if we need to create the identity data configuration for the services.
+        // Identity data setup sends a command via the distribution event hub.
+        // When DeferTenantStart is true the bus is not yet available, so we defer
+        // the identity data check until StartDeferredTenantsAsync is called.
+        if (DeferTenantStart)
+        {
+            if (tenantContext.TenantId == _systemContext.TenantId)
+            {
+                _logger.LogInformation(
+                    "Deferring identity data setup for system tenant until distribution event hub is available");
+                _deferredIdentityDataSetup = true;
+            }
+        }
+        else
+        {
+            await CheckSetupIdentityDataAsync(session, tenantContext).ConfigureAwait(false);
+        }
 
         // Check if we need to import the CK model, we have two situations
         // 1. A service that can be enabled/disabled manually - in this case we check if the service is enabled for the tenant
@@ -442,6 +458,20 @@ public abstract class DefaultConfigurationCreatorServiceStandardized : DefaultCo
     /// <inheritdoc />
     public override async Task StartDeferredTenantsAsync()
     {
+        // Process deferred identity data setup first.
+        // This was skipped during SetupTenantAsync because the bus was not yet available.
+        if (_deferredIdentityDataSetup)
+        {
+            _logger.LogInformation("Processing deferred identity data setup for system tenant");
+            var tenantContext = await _systemContext.FindTenantContextAsync(_systemContext.TenantId)
+                .ConfigureAwait(false);
+            using var session = await tenantContext.GetAdminSessionAsync().ConfigureAwait(false);
+            session.StartTransaction();
+            await CheckSetupIdentityDataAsync(session, tenantContext).ConfigureAwait(false);
+            await session.CommitTransactionAsync().ConfigureAwait(false);
+            _deferredIdentityDataSetup = false;
+        }
+
         _logger.LogInformation("Starting {Count} deferred tenant(s)", _deferredStartTenantIds.Count);
 
         foreach (var tenantId in _deferredStartTenantIds)
