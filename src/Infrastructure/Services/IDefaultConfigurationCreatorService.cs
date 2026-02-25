@@ -31,4 +31,11 @@ public interface IDefaultConfigurationCreatorService
     ///     <see cref="DeferTenantStart"/> was true. Resets <see cref="DeferTenantStart"/> to false.
     /// </summary>
     Task StartDeferredTenantsAsync();
+
+    /// <summary>
+    ///     Retries startup for tenants that failed during <see cref="StartDeferredTenantsAsync"/>.
+    ///     Tenants that succeed are removed from the failed tenant registry.
+    ///     Tenants that exceed the maximum retry count are removed and logged as permanently failed.
+    /// </summary>
+    Task RetryFailedTenantsAsync();
 }

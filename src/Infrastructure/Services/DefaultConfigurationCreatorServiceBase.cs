@@ -48,5 +48,11 @@ public abstract class DefaultConfigurationCreatorServiceBase(ILogger<DefaultConf
         return Task.CompletedTask;
     }
 
+    /// <inheritdoc />
+    public virtual Task RetryFailedTenantsAsync()
+    {
+        return Task.CompletedTask;
+    }
+
     protected abstract Task SetupTenantAsync(string tenantId);
 }

@@ -35,6 +35,7 @@ public abstract class DefaultConfigurationCreatorServiceStandardized : DefaultCo
     private readonly bool? _autoEnable;
     private readonly string _identityDataVersionKey;
     private readonly int _expectedIdentityDataVersion;
+    private readonly FailedTenantRegistry? _failedTenantRegistry;
     private readonly List<string> _deferredStartTenantIds = new();
     private bool _deferredIdentityDataSetup;
 
@@ -51,6 +52,7 @@ public abstract class DefaultConfigurationCreatorServiceStandardized : DefaultCo
     /// <param name="runtimeRepositoryProvider">The runtime repository provider for getting schema versions</param>
     /// <param name="serviceEnabledKey">The configuration key if the service is enabled for a tenant</param>
     /// <param name="autoEnable">When true, all tenants are automatically enabled</param>
+    /// <param name="failedTenantRegistry">Optional registry for tracking tenants that failed during startup for background retry</param>
     protected DefaultConfigurationCreatorServiceStandardized(
         ILogger<DefaultConfigurationCreatorServiceStandardized> logger,
         ISystemContext systemContext,
@@ -61,7 +63,8 @@ public abstract class DefaultConfigurationCreatorServiceStandardized : DefaultCo
         ICkModelUpgradeService? ckModelUpgradeService = null,
         IRuntimeRepositoryProvider? runtimeRepositoryProvider = null,
         string? serviceEnabledKey = null,
-        bool? autoEnable = false)
+        bool? autoEnable = false,
+        FailedTenantRegistry? failedTenantRegistry = null)
         : base(logger)
     {
         _logger = logger;
@@ -74,6 +77,7 @@ public abstract class DefaultConfigurationCreatorServiceStandardized : DefaultCo
         _autoEnable = autoEnable;
         _identityDataVersionKey = identityDataVersionKey;
         _expectedIdentityDataVersion = expectedIdentityDataVersion;
+        _failedTenantRegistry = failedTenantRegistry;
     }
 
     /// <inheritdoc />
@@ -474,6 +478,7 @@ public abstract class DefaultConfigurationCreatorServiceStandardized : DefaultCo
 
         _logger.LogInformation("Starting {Count} deferred tenant(s)", _deferredStartTenantIds.Count);
 
+        List<string>? failedTenants = null;
         foreach (var tenantId in _deferredStartTenantIds)
         {
             _logger.LogInformation("Starting deferred tenant '{TenantId}'", tenantId);
@@ -484,13 +489,99 @@ public abstract class DefaultConfigurationCreatorServiceStandardized : DefaultCo
             catch (Exception ex)
             {
                 _logger.LogError(ex, "Failed to start deferred tenant '{TenantId}'", tenantId);
-                throw;
+                failedTenants ??= [];
+                failedTenants.Add(tenantId);
+                await OnTenantStartFailedAsync(tenantId, ex).ConfigureAwait(false);
             }
         }
 
         _deferredStartTenantIds.Clear();
         DeferTenantStart = false;
+
+        if (failedTenants is { Count: > 0 })
+        {
+            if (_failedTenantRegistry != null)
+            {
+                foreach (var tenantId in failedTenants)
+                {
+                    _failedTenantRegistry.Add(tenantId);
+                }
+
+                _logger.LogWarning(
+                    "Failed to start {Count} deferred tenant(s): {Tenants}. Will retry in background",
+                    failedTenants.Count, string.Join(", ", failedTenants));
+            }
+            else
+            {
+                _logger.LogWarning(
+                    "Failed to start {Count} deferred tenant(s): {Tenants}. No retry registry available",
+                    failedTenants.Count, string.Join(", ", failedTenants));
+            }
+        }
     }
+
+    private const int MaxRetries = 10;
+
+    /// <inheritdoc />
+    public override async Task RetryFailedTenantsAsync()
+    {
+        if (_failedTenantRegistry == null || !_failedTenantRegistry.HasFailedTenants)
+        {
+            return;
+        }
+
+        var tenantsToRetry = _failedTenantRegistry.GetAll();
+        _logger.LogInformation("Retrying startup for {Count} failed tenant(s)", tenantsToRetry.Count);
+
+        foreach (var (tenantId, retryCount) in tenantsToRetry)
+        {
+            if (retryCount >= MaxRetries)
+            {
+                _logger.LogError(
+                    "Giving up on tenant '{TenantId}' after {RetryCount} retries. Manual intervention required",
+                    tenantId, retryCount);
+                _failedTenantRegistry.Remove(tenantId);
+                await OnTenantRetriesExhaustedAsync(tenantId, retryCount).ConfigureAwait(false);
+                continue;
+            }
+
+            try
+            {
+                _logger.LogInformation("Retrying startup for tenant '{TenantId}' (attempt {Attempt}/{MaxRetries})",
+                    tenantId, retryCount + 1, MaxRetries);
+                await StartTenantAsync(tenantId).ConfigureAwait(false);
+                _failedTenantRegistry.Remove(tenantId);
+                _logger.LogInformation("Retry succeeded for tenant '{TenantId}'", tenantId);
+                await OnTenantRetrySucceededAsync(tenantId).ConfigureAwait(false);
+            }
+            catch (Exception ex)
+            {
+                var newCount = _failedTenantRegistry.IncrementRetryCount(tenantId);
+                _logger.LogWarning(ex,
+                    "Retry failed for tenant '{TenantId}' (attempt {Attempt}/{MaxRetries})",
+                    tenantId, newCount, MaxRetries);
+                await OnTenantStartFailedAsync(tenantId, ex).ConfigureAwait(false);
+            }
+        }
+    }
+
+    /// <summary>
+    ///     Called when a tenant fails to start (during initial startup or retry).
+    ///     Override in derived classes to log events to tenant-specific event stores.
+    /// </summary>
+    protected virtual Task OnTenantStartFailedAsync(string tenantId, Exception exception) => Task.CompletedTask;
+
+    /// <summary>
+    ///     Called when a tenant retry succeeds after a previous failure.
+    ///     Override in derived classes to log events to tenant-specific event stores.
+    /// </summary>
+    protected virtual Task OnTenantRetrySucceededAsync(string tenantId) => Task.CompletedTask;
+
+    /// <summary>
+    ///     Called when all retries for a tenant are exhausted and it is permanently marked as failed.
+    ///     Override in derived classes to log events to tenant-specific event stores.
+    /// </summary>
+    protected virtual Task OnTenantRetriesExhaustedAsync(string tenantId, int retryCount) => Task.CompletedTask;
 
     private async Task StartTenantAsyncInternal(
         ITenantContext context,

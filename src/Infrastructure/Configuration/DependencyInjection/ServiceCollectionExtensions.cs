@@ -83,6 +83,10 @@ public static class ServiceCollectionExtensions
         services.AddInitializationService<EventHubStartupService>();
         services.AddInitializationService<TenantStartupInitializationService>();
 
+        // Background retry for tenants that failed during deferred startup
+        services.AddSingleton<FailedTenantRegistry>();
+        services.AddHostedService<FailedTenantRetryBackgroundService>();
+
         return builder;
     }
 
