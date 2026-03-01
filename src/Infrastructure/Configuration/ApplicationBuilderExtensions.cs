@@ -54,4 +54,16 @@ public static class ApplicationBuilderExtensions
     {
         return app.UseMiddleware<TenantMiddleware>();
     }
+
+    /// <summary>
+    ///     Adds tenant authorization middleware that validates the route tenant
+    ///     against the user's allowed_tenants claims from the access token.
+    ///     Must be placed after UseAuthentication() and UseAuthorization().
+    /// </summary>
+    /// <param name="app"></param>
+    /// <returns></returns>
+    public static IApplicationBuilder UseOctoTenantAuthorization(this IApplicationBuilder app)
+    {
+        return app.UseMiddleware<TenantAuthorizationMiddleware>();
+    }
 }
