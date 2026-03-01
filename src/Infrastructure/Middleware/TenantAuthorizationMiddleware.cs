@@ -8,6 +8,16 @@ internal class TenantAuthorizationMiddleware(RequestDelegate next)
 {
     public async Task InvokeAsync(HttpContext context)
     {
+        // Only validate for bearer token authentication.
+        // Cookie-authenticated requests (e.g., Identity Service SPA) are already
+        // scoped per tenant via TenantCookieManager and do not carry allowed_tenants claims.
+        var authHeader = context.Request.Headers.Authorization.ToString();
+        if (!authHeader.StartsWith("Bearer ", StringComparison.OrdinalIgnoreCase))
+        {
+            await next(context);
+            return;
+        }
+
         // Skip for unauthenticated requests (let auth middleware handle 401)
         if (context.User.Identity?.IsAuthenticated != true)
         {
