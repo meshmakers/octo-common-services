@@ -1,3 +1,5 @@
+using System.Security.Claims;
+
 namespace Meshmakers.Octo.Services.Infrastructure.Middleware;
 
 /// <summary>
@@ -25,8 +27,13 @@ internal class TenantAuthorizationMiddleware(RequestDelegate next)
             return;
         }
 
-        // Skip for client-credentials-only tokens (no "sub" claim = no user)
-        if (!context.User.HasClaim(c => c.Type == "sub"))
+        // Skip for client-credentials-only tokens (no "sub" claim = no user).
+        // Check both "sub" (unmapped) and ClaimTypes.NameIdentifier (mapped) because
+        // JWT Bearer middleware may map "sub" to NameIdentifier when MapInboundClaims is
+        // true (the default). Without this, user tokens are misidentified as client-credentials
+        // and the entire tenant check is bypassed.
+        if (!context.User.HasClaim(c =>
+                c.Type == "sub" || c.Type == ClaimTypes.NameIdentifier))
         {
             await next(context);
             return;
