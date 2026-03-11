@@ -44,28 +44,28 @@ public class CrateQueryCompiler
 
         query.Append($" FROM {queryBuilder.TenantId}");
 
-        if (queryBuilder.VariableInListVariables.Any() || queryBuilder is { From: not null, To: not null } || queryBuilder.CkTypeId != null)
+        if (queryBuilder.VariableInListVariables.Any() || queryBuilder is { From: not null, To: not null } || queryBuilder.CkTypeId != null || queryBuilder.HasFieldFilters)
         {
             // we can only have one where clause, but we can connect it with AND
             query.Append(" WHERE ");
         }
-        
+
         if(queryBuilder.CkTypeId != null)
         {
             query.Append($"\"CkTypeId\" = '{queryBuilder.CkTypeId.SemanticVersionedFullName}'");
 
-            if (queryBuilder.VariableInListVariables.Any() || queryBuilder is { From: not null, To: not null })
+            if (queryBuilder.VariableInListVariables.Any() || queryBuilder is { From: not null, To: not null } || queryBuilder.HasFieldFilters)
             {
                 query.Append(" AND ");
             }
         }
-        
+
         if (queryBuilder.VariableInListVariables.Any())
         {
             query.Append(string.Join(" AND ",
                 queryBuilder.VariableInListVariables.Select(x => x.ToVariableInListString())));
 
-            if (queryBuilder is { From: not null, To: not null })
+            if (queryBuilder is { From: not null, To: not null } || queryBuilder.HasFieldFilters)
             {
                 // if we have a time filter as well, we have to connect the filter conditions with an AND
                 query.Append(" AND ");
@@ -76,6 +76,17 @@ public class CrateQueryCompiler
         {
             query.Append(
                 $"\"Timestamp\" >= '{queryBuilder.From.Value.ToString(Constants.DateTimeFormat)}' AND \"Timestamp\" <= '{queryBuilder.To.Value.ToString(Constants.DateTimeFormat)}'");
+
+            if (queryBuilder.HasFieldFilters)
+            {
+                query.Append(" AND ");
+            }
+        }
+
+        if (queryBuilder.HasFieldFilters)
+        {
+            query.Append(string.Join(" AND ",
+                queryBuilder.FieldFilters.Select(CompileFieldFilter)));
         }
 
         if (queryBuilder.HasAggregations)
@@ -96,5 +107,26 @@ public class CrateQueryCompiler
         }
 
         return query.ToString();
+    }
+
+    private static string CompileFieldFilter(StreamDataFieldFilterDto filter)
+    {
+        var fieldRef = filter.IsDataField
+            ? $"\"data['{filter.FieldName}']\""
+            : $"\"{filter.FieldName}\"";
+
+        var op = filter.Operator switch
+        {
+            StreamDataFieldFilterOperator.Equals => "=",
+            StreamDataFieldFilterOperator.NotEquals => "!=",
+            StreamDataFieldFilterOperator.GreaterThan => ">",
+            StreamDataFieldFilterOperator.GreaterThanOrEqual => ">=",
+            StreamDataFieldFilterOperator.LessThan => "<",
+            StreamDataFieldFilterOperator.LessThanOrEqual => "<=",
+            StreamDataFieldFilterOperator.Like => "LIKE",
+            _ => throw new ArgumentOutOfRangeException(nameof(filter), filter.Operator, "Unsupported field filter operator")
+        };
+
+        return $"{fieldRef} {op} '{filter.Value}'";
     }
 }

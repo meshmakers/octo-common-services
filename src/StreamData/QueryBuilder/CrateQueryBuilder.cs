@@ -56,7 +56,11 @@ public class CrateQueryBuilder
     internal IEnumerable<IQueryVariable> Groupings => Variables.Where(x => x.AggregationFunction == null);
 
     internal IEnumerable<IQueryVariable> VariableInListVariables => Variables.Where(x => x.HasVariableInListVariables);
-    
+
+    internal List<StreamDataFieldFilterDto> FieldFilters { get; } = new();
+
+    internal bool HasFieldFilters => FieldFilters.Count > 0;
+
     internal int? Limit { get; private set; }
     
     internal int? Offset { get; private set; }
@@ -189,6 +193,20 @@ public class CrateQueryBuilder
 
         variable.AddWhereInListItems(list);
 
+        return this;
+    }
+
+    /// <summary>
+    /// Adds a field filter condition to the WHERE clause
+    /// </summary>
+    /// <param name="fieldName">Column name</param>
+    /// <param name="op">Comparison operator</param>
+    /// <param name="value">Comparison value</param>
+    /// <param name="isDataField">Whether the field is in the dynamic data column</param>
+    /// <returns></returns>
+    public CrateQueryBuilder AddFieldFilter(string fieldName, StreamDataFieldFilterOperator op, string value, bool isDataField = false)
+    {
+        FieldFilters.Add(new StreamDataFieldFilterDto(fieldName, op, value, isDataField));
         return this;
     }
 
