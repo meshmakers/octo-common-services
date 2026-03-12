@@ -301,4 +301,63 @@ public class CrateQueryBuilderTests
             """SELECT "Timestamp", "RtId", "CkTypeId", "RtWellKnownName", "RtCreationDateTime", "RtChangedDateTime" FROM meshtest WHERE "CkTypeId" = 'Test/123' AND "RtId" = 'entity-1'""",
             query);
     }
+
+    [Fact]
+    public void DataFieldFilter_PascalCaseName_GeneratesCorrectDataSyntax()
+    {
+        // Regression: data field filter must use data['PascalCase'] not data['camelCase']
+        var queryBuilder = new CrateQueryBuilder("meshtest");
+        queryBuilder.IncludeDefaultVariables();
+        queryBuilder.AddVariable("Acknowledged", "acknowledged", null, true);
+        queryBuilder.AddFieldFilter("Acknowledged", StreamDataFieldFilterOperator.Equals, "true", true);
+
+        var compiler = new CrateQueryCompiler();
+        var query = compiler.CompileQuery(queryBuilder);
+
+        Assert.Contains("data['Acknowledged']", query);
+        Assert.DoesNotContain("data['acknowledged']", query);
+    }
+
+    [Fact]
+    public void DefaultFieldFilter_GeneratesQuotedPascalCase()
+    {
+        // Regression: default field filter must use "RtId" not data['rtId']
+        var queryBuilder = new CrateQueryBuilder("meshtest");
+        queryBuilder.IncludeDefaultVariables();
+        queryBuilder.AddFieldFilter("RtId", StreamDataFieldFilterOperator.Equals, "abc123", false);
+
+        var compiler = new CrateQueryCompiler();
+        var query = compiler.CompileQuery(queryBuilder);
+
+        Assert.Contains("\"RtId\" = 'abc123'", query);
+        Assert.DoesNotContain("data['rtId']", query);
+        Assert.DoesNotContain("data['RtId']", query);
+    }
+
+    [Fact]
+    public void OrderByDefaultField_PascalCase_MatchesAndGeneratesCorrectSql()
+    {
+        var queryBuilder = new CrateQueryBuilder("meshtest");
+        queryBuilder.IncludeDefaultVariables();
+        queryBuilder.OrderBy("Timestamp", SortOrderDto.Descending);
+
+        var compiler = new CrateQueryCompiler();
+        var query = compiler.CompileQuery(queryBuilder);
+
+        Assert.Contains("""ORDER BY "Timestamp" DESC""", query);
+    }
+
+    [Fact]
+    public void OrderByDataField_ByCamelCaseAlias_MatchesAndGeneratesCorrectSql()
+    {
+        var queryBuilder = new CrateQueryBuilder("meshtest");
+        queryBuilder.IncludeDefaultVariables();
+        queryBuilder.AddVariable("Acknowledged", "acknowledged", null, true);
+        queryBuilder.OrderBy("acknowledged", SortOrderDto.Ascending);
+
+        var compiler = new CrateQueryCompiler();
+        var query = compiler.CompileQuery(queryBuilder);
+
+        Assert.Contains("""ORDER BY "acknowledged" ASC""", query);
+    }
 }
