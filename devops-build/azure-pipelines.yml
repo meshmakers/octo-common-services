@@ -8,14 +8,12 @@ resources:
         branches:
           include:
             - main
-            - test/*
     - pipeline: octo-construction-kit
       source: octo-construction-kit-engine-mongodb-CI
       trigger:
         branches:
           include:
             - main
-            - test/*
 
 trigger:
   batch: true
