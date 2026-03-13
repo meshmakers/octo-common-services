@@ -171,9 +171,32 @@ public class CrateQueryBuilder
         }
 
         variable.SortOrder = sortOrder;
-        
+
         OrderByVariables.Add(variable);
         return this;
+    }
+
+    /// <summary>
+    /// Adds a tiebreaker column to the ORDER BY clause if there is already an ORDER BY
+    /// and the specified variable is not yet in it. This ensures deterministic sort order
+    /// for OFFSET-based pagination when the primary sort has many equal values (e.g., NULLs).
+    /// </summary>
+    /// <param name="nameOrAlias">The variable name or alias to use as tiebreaker</param>
+    /// <param name="sortOrder">The sort direction for the tiebreaker</param>
+    /// <returns></returns>
+    public CrateQueryBuilder AddOrderByTiebreaker(string nameOrAlias, SortOrderDto sortOrder)
+    {
+        if (OrderByVariables.Count == 0)
+        {
+            return this;
+        }
+
+        if (OrderByVariables.Any(v => v.Name == nameOrAlias || v.Alias == nameOrAlias))
+        {
+            return this;
+        }
+
+        return OrderBy(nameOrAlias, sortOrder);
     }
 
     /// <summary>

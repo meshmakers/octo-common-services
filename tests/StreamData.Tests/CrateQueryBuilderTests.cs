@@ -360,4 +360,151 @@ public class CrateQueryBuilderTests
 
         Assert.Contains("""ORDER BY "acknowledged" ASC""", query);
     }
+
+    [Fact]
+    public void LimitAndOffset_ReturnsValidQuery()
+    {
+        var queryBuilder = new CrateQueryBuilder("meshtest");
+        queryBuilder.AddVariable("Voltage", null, null, true);
+        queryBuilder.WithLimit(10);
+        queryBuilder.WithOffset(20);
+
+        var compiler = new CrateQueryCompiler();
+        var query = compiler.CompileQuery(queryBuilder);
+
+        Assert.EndsWith("LIMIT 10 OFFSET 20", query);
+    }
+
+    [Fact]
+    public void OffsetOnly_ReturnsValidQuery()
+    {
+        var queryBuilder = new CrateQueryBuilder("meshtest");
+        queryBuilder.AddVariable("Voltage", null, null, true);
+        queryBuilder.WithOffset(5);
+
+        var compiler = new CrateQueryCompiler();
+        var query = compiler.CompileQuery(queryBuilder);
+
+        Assert.EndsWith("OFFSET 5", query);
+        Assert.DoesNotContain("LIMIT", query);
+    }
+
+    [Fact]
+    public void CompileCountQuery_Basic_ReturnsValidCountQuery()
+    {
+        var queryBuilder = new CrateQueryBuilder("meshtest");
+        queryBuilder.IncludeDefaultVariables();
+        queryBuilder.WithCkTypeIdFilter("Test/123");
+
+        var startDate = DateTime.Parse("2022-01-01T00:00Z", CultureInfo.InvariantCulture,
+            DateTimeStyles.AdjustToUniversal);
+        var endDate = DateTime.Parse("2022-12-31T23:59:59.999Z", CultureInfo.InvariantCulture,
+            DateTimeStyles.AdjustToUniversal);
+        queryBuilder.WithTimeFilter(startDate, endDate);
+
+        var compiler = new CrateQueryCompiler();
+        var countQuery = compiler.CompileCountQuery(queryBuilder);
+
+        Assert.Equal(
+            """SELECT COUNT(*) FROM meshtest WHERE "CkTypeId" = 'Test/123' AND "Timestamp" >= '2022-01-01 00:00:00.000Z' AND "Timestamp" <= '2022-12-31 23:59:59.999Z'""",
+            countQuery);
+    }
+
+    [Fact]
+    public void CompileCountQuery_WithFieldFilters_ReturnsValidCountQuery()
+    {
+        var queryBuilder = new CrateQueryBuilder("meshtest");
+        queryBuilder.IncludeDefaultVariables();
+        queryBuilder.AddVariable("Voltage", null, null, true);
+        queryBuilder.AddFieldFilter("Voltage", StreamDataFieldFilterOperator.GreaterThan, "220", true);
+
+        var compiler = new CrateQueryCompiler();
+        var countQuery = compiler.CompileCountQuery(queryBuilder);
+
+        Assert.Equal(
+            """SELECT COUNT(*) FROM meshtest WHERE "data['Voltage']" > '220'""",
+            countQuery);
+        Assert.DoesNotContain("ORDER BY", countQuery);
+        Assert.DoesNotContain("LIMIT", countQuery);
+        Assert.DoesNotContain("OFFSET", countQuery);
+    }
+
+    [Fact]
+    public void CompileCountQuery_WithWhereIn_ReturnsValidCountQuery()
+    {
+        var queryBuilder = new CrateQueryBuilder("meshtest");
+        queryBuilder.IncludeDefaultVariables();
+        queryBuilder.WithCkTypeIdFilter("Test/123");
+        queryBuilder.AddWhereIn("RtId", ["id1", "id2"]);
+
+        var compiler = new CrateQueryCompiler();
+        var countQuery = compiler.CompileCountQuery(queryBuilder);
+
+        Assert.StartsWith("SELECT COUNT(*) FROM meshtest WHERE", countQuery);
+        Assert.Contains("\"RtId\" IN ('id1', 'id2')", countQuery);
+    }
+
+    [Fact]
+    public void CompileCountQuery_NoGroupByOrOrderBy_ReturnsValidCountQuery()
+    {
+        var queryBuilder = new CrateQueryBuilder("meshtest");
+        queryBuilder.IncludeDefaultVariables();
+        queryBuilder.AddAggregationVariable("Voltage", AggregationFunctionDto.Avg, null, true);
+        queryBuilder.OrderBy("Timestamp", SortOrderDto.Ascending);
+        queryBuilder.WithLimit(100);
+        queryBuilder.WithOffset(50);
+
+        var compiler = new CrateQueryCompiler();
+        var countQuery = compiler.CompileCountQuery(queryBuilder);
+
+        Assert.StartsWith("SELECT COUNT(*) FROM meshtest", countQuery);
+        Assert.DoesNotContain("GROUP BY", countQuery);
+        Assert.DoesNotContain("ORDER BY", countQuery);
+        Assert.DoesNotContain("LIMIT", countQuery);
+        Assert.DoesNotContain("OFFSET", countQuery);
+    }
+
+    [Fact]
+    public void AddOrderByTiebreaker_AddsTimestampWhenNotPresent()
+    {
+        var queryBuilder = new CrateQueryBuilder("meshtest");
+        queryBuilder.IncludeDefaultVariables();
+        queryBuilder.AddVariable("Received", "received", null, true);
+        queryBuilder.OrderBy("received", SortOrderDto.Descending);
+        queryBuilder.AddOrderByTiebreaker("Timestamp", SortOrderDto.Ascending);
+
+        var compiler = new CrateQueryCompiler();
+        var query = compiler.CompileQuery(queryBuilder);
+
+        Assert.Contains("""ORDER BY "received" DESC, "Timestamp" ASC""", query);
+    }
+
+    [Fact]
+    public void AddOrderByTiebreaker_NoOpWhenTimestampAlreadyInOrderBy()
+    {
+        var queryBuilder = new CrateQueryBuilder("meshtest");
+        queryBuilder.IncludeDefaultVariables();
+        queryBuilder.OrderBy("Timestamp", SortOrderDto.Descending);
+        queryBuilder.AddOrderByTiebreaker("Timestamp", SortOrderDto.Ascending);
+
+        var compiler = new CrateQueryCompiler();
+        var query = compiler.CompileQuery(queryBuilder);
+
+        // Should NOT have Timestamp twice — tiebreaker is skipped
+        Assert.Contains("""ORDER BY "Timestamp" DESC""", query);
+        Assert.DoesNotContain("ASC", query);
+    }
+
+    [Fact]
+    public void AddOrderByTiebreaker_NoOpWhenNoExistingOrderBy()
+    {
+        var queryBuilder = new CrateQueryBuilder("meshtest");
+        queryBuilder.IncludeDefaultVariables();
+        queryBuilder.AddOrderByTiebreaker("Timestamp", SortOrderDto.Ascending);
+
+        var compiler = new CrateQueryCompiler();
+        var query = compiler.CompileQuery(queryBuilder);
+
+        Assert.DoesNotContain("ORDER BY", query);
+    }
 }
