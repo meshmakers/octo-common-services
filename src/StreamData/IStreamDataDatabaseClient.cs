@@ -30,4 +30,12 @@ public interface IStreamDataDatabaseClient
     /// <param name="datapoints"></param>
     /// <returns></returns>
     public Task InsertDataAsync(string tenantId, IEnumerable<DataPointDto> datapoints);
+
+    /// <summary>
+    /// Executes a COUNT query and returns the total number of matching rows.
+    /// </summary>
+    /// <param name="tenantId"></param>
+    /// <param name="countQuery"></param>
+    /// <returns></returns>
+    Task<long> GetCountAsync(string tenantId, string countQuery);
 }

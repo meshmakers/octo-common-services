@@ -56,7 +56,11 @@ public class CrateQueryBuilder
     internal IEnumerable<IQueryVariable> Groupings => Variables.Where(x => x.AggregationFunction == null);
 
     internal IEnumerable<IQueryVariable> VariableInListVariables => Variables.Where(x => x.HasVariableInListVariables);
-    
+
+    internal List<StreamDataFieldFilterDto> FieldFilters { get; } = new();
+
+    internal bool HasFieldFilters => FieldFilters.Count > 0;
+
     internal int? Limit { get; private set; }
     
     internal int? Offset { get; private set; }
@@ -167,9 +171,32 @@ public class CrateQueryBuilder
         }
 
         variable.SortOrder = sortOrder;
-        
+
         OrderByVariables.Add(variable);
         return this;
+    }
+
+    /// <summary>
+    /// Adds a tiebreaker column to the ORDER BY clause if there is already an ORDER BY
+    /// and the specified variable is not yet in it. This ensures deterministic sort order
+    /// for OFFSET-based pagination when the primary sort has many equal values (e.g., NULLs).
+    /// </summary>
+    /// <param name="nameOrAlias">The variable name or alias to use as tiebreaker</param>
+    /// <param name="sortOrder">The sort direction for the tiebreaker</param>
+    /// <returns></returns>
+    public CrateQueryBuilder AddOrderByTiebreaker(string nameOrAlias, SortOrderDto sortOrder)
+    {
+        if (OrderByVariables.Count == 0)
+        {
+            return this;
+        }
+
+        if (OrderByVariables.Any(v => v.Name == nameOrAlias || v.Alias == nameOrAlias))
+        {
+            return this;
+        }
+
+        return OrderBy(nameOrAlias, sortOrder);
     }
 
     /// <summary>
@@ -189,6 +216,20 @@ public class CrateQueryBuilder
 
         variable.AddWhereInListItems(list);
 
+        return this;
+    }
+
+    /// <summary>
+    /// Adds a field filter condition to the WHERE clause
+    /// </summary>
+    /// <param name="fieldName">Column name</param>
+    /// <param name="op">Comparison operator</param>
+    /// <param name="value">Comparison value</param>
+    /// <param name="isDataField">Whether the field is in the dynamic data column</param>
+    /// <returns></returns>
+    public CrateQueryBuilder AddFieldFilter(string fieldName, StreamDataFieldFilterOperator op, string value, bool isDataField = false)
+    {
+        FieldFilters.Add(new StreamDataFieldFilterDto(fieldName, op, value, isDataField));
         return this;
     }
 
