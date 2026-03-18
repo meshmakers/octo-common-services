@@ -40,6 +40,24 @@ public static class Constants
     /// </summary>
     public static readonly string[] DefaultStreamDataFields = [Timestamp, RtId, CkTypeId, RtWellKnownName, RtCreationDateTime, RtChangedDateTime];
 
+    /// <summary>GraphQL camelCase alias for <see cref="RtId"/>.</summary>
+    public const string RtIdAlias = "rtId";
+
+    /// <summary>GraphQL camelCase alias for <see cref="Timestamp"/>.</summary>
+    public const string TimestampAlias = "timestamp";
+
+    /// <summary>GraphQL camelCase alias for <see cref="CkTypeId"/>.</summary>
+    public const string CkTypeIdAlias = "ckTypeId";
+
+    /// <summary>GraphQL camelCase alias for <see cref="RtWellKnownName"/>.</summary>
+    public const string RtWellKnownNameAlias = "rtWellKnownName";
+
+    /// <summary>GraphQL camelCase alias for <see cref="RtCreationDateTime"/>.</summary>
+    public const string RtCreationDateTimeAlias = "rtCreationDateTime";
+
+    /// <summary>GraphQL camelCase alias for <see cref="RtChangedDateTime"/>.</summary>
+    public const string RtChangedDateTimeAlias = "rtChangedDateTime";
+
     /// <summary>
     /// Checks if the given field name is a default stream data field (case-insensitive).
     /// </summary>

@@ -1,3 +1,5 @@
+using Meshmakers.Common.Shared;
+
 namespace Meshmakers.Octo.Services.StreamData;
 
 /// <summary>
@@ -49,7 +51,7 @@ public class StreamDataFieldResolver
             _fields[defaultField] = new ResolvedField(
                 StreamDataFieldCategory.Default,
                 defaultField,
-                ToCamelCase(defaultField),
+                defaultField.ToCamelCase(),
                 IsDataField: false);
         }
 
@@ -62,7 +64,7 @@ public class StreamDataFieldResolver
                 _fields[attrName] = new ResolvedField(
                     StreamDataFieldCategory.DataStream,
                     attrName,
-                    ToCamelCase(attrName),
+                    attrName.ToCamelCase(),
                     IsDataField: true);
             }
         }
@@ -91,22 +93,8 @@ public class StreamDataFieldResolver
     {
         return Resolve(input) ?? new ResolvedField(
             StreamDataFieldCategory.Unknown,
-            ToPascalCase(input),
-            ToCamelCase(input),
+            input.ToPascalCase(),
+            input.ToCamelCase(),
             IsDataField: false);
-    }
-
-    private static string ToCamelCase(string s)
-    {
-        return string.IsNullOrWhiteSpace(s)
-            ? string.Empty
-            : $"{char.ToLowerInvariant(s[0])}{s.Substring(1)}";
-    }
-
-    private static string ToPascalCase(string s)
-    {
-        return string.IsNullOrWhiteSpace(s)
-            ? string.Empty
-            : $"{char.ToUpperInvariant(s[0])}{s.Substring(1)}";
     }
 }
