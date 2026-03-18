@@ -46,7 +46,7 @@ public class CrateQueryCompiler
 
         AppendWhereClause(query, queryBuilder);
 
-        if (queryBuilder.HasAggregations)
+        if (queryBuilder.HasAggregations && queryBuilder.Groupings.Any())
         {
             query.Append(" GROUP BY ");
             query.Append(string.Join(", ", queryBuilder.Groupings.Select(x => x.ToGroupByString())));
