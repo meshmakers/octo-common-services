@@ -13,7 +13,7 @@
         <PackageReference Include="Asp.Versioning.Mvc.ApiExplorer" Version="8.1.1" />
         <PackageReference Include="Microsoft.AspNetCore.OpenApi" Version="10.0.5" />
         <PackageReference Include="Swashbuckle.AspNetCore.SwaggerUI" Version="10.1.5" />
-        <PackageReference Include="Meshmakers.Octo.Communication.Contracts" Version="3.3.59" />
+        <PackageReference Include="Meshmakers.Octo.Communication.Contracts" Version="$(OctoVersion)" />
     </ItemGroup>
 
     <ItemGroup>
