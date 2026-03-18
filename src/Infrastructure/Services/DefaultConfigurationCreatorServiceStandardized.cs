@@ -37,7 +37,7 @@ public abstract class DefaultConfigurationCreatorServiceStandardized : DefaultCo
     private readonly int _expectedIdentityDataVersion;
     private readonly FailedTenantRegistry? _failedTenantRegistry;
     private readonly List<string> _deferredStartTenantIds = new();
-    private bool _deferredIdentityDataSetup;
+    private readonly List<string> _deferredIdentityDataTenantIds = new();
 
     /// <summary>
     ///     Constructor
@@ -241,12 +241,10 @@ public abstract class DefaultConfigurationCreatorServiceStandardized : DefaultCo
         // the identity data check until StartDeferredTenantsAsync is called.
         if (DeferTenantStart)
         {
-            if (tenantContext.TenantId == _systemContext.TenantId)
-            {
-                _logger.LogInformation(
-                    "Deferring identity data setup for system tenant until distribution event hub is available");
-                _deferredIdentityDataSetup = true;
-            }
+            _logger.LogInformation(
+                "Deferring identity data setup for tenant '{TenantId}' until distribution event hub is available",
+                tenantContext.TenantId);
+            _deferredIdentityDataTenantIds.Add(tenantContext.TenantId);
         }
         else
         {
@@ -354,50 +352,56 @@ public abstract class DefaultConfigurationCreatorServiceStandardized : DefaultCo
 
     private async Task CheckSetupIdentityDataAsync(IOctoAdminSession session, ITenantContext tenantContext)
     {
-        // Identity configuration is next
-        if (tenantContext.TenantId != _systemContext.TenantId)
+        var isSystemTenant = tenantContext.TenantId == _systemContext.TenantId;
+
+        // For the system tenant, use version tracking to avoid unnecessary updates.
+        // For child tenants, always ensure identity data exists (the consumer is idempotent).
+        if (isSystemTenant)
         {
-            // Currently we only support the system tenant.
-            return;
+            var serviceConfiguration =
+                await _systemContext.GetConfigurationAsync(session, _identityDataVersionKey,
+                    new DefaultConfigurationVersion { Version = -1 }).ConfigureAwait(false);
+            if (serviceConfiguration != null &&
+                serviceConfiguration.Version >= _expectedIdentityDataVersion)
+            {
+                return;
+            }
         }
 
-        _logger.LogInformation("Setting up default identity data for tenant '{TenantId}'", tenantContext.TenantId);
+        _logger.LogInformation("Creating identity data for tenant '{TenantId}'", tenantContext.TenantId);
 
-        var serviceConfiguration =
-            await _systemContext.GetConfigurationAsync(session, _identityDataVersionKey,
-                new DefaultConfigurationVersion { Version = -1 }).ConfigureAwait(false);
-        if (serviceConfiguration == null ||
-            serviceConfiguration.Version < _expectedIdentityDataVersion)
+        CreateIdentityDataCommandRequest createIdentityDataCommandRequest = new(tenantContext.TenantId);
+        CreateApiScopes(createIdentityDataCommandRequest);
+        CreateApiResources(createIdentityDataCommandRequest);
+        CreateClients(createIdentityDataCommandRequest);
+
+        _logger.LogInformation("Sending identity data for tenant '{TenantId}'", tenantContext.TenantId);
+        var r = await _createIdentityDataCommandClient
+            .GetResponseWithRetry<EnumCommandResponse<CreateIdentityDataResult>>(
+                createIdentityDataCommandRequest).ConfigureAwait(false);
+        _logger.LogInformation("Create identity data response for tenant '{TenantId}': {Response}",
+            tenantContext.TenantId, r.Response);
+
+        if (r.Response == CreateIdentityDataResult.Success)
         {
-            _logger.LogInformation("Creating identity data for tenant '{TenantId}'", tenantContext.TenantId);
-
-
-            CreateIdentityDataCommandRequest createIdentityDataCommandRequest = new(_systemContext.TenantId);
-            CreateApiScopes(createIdentityDataCommandRequest);
-            CreateApiResources(createIdentityDataCommandRequest);
-            CreateClients(createIdentityDataCommandRequest);
-
-            _logger.LogInformation("Creating identity data for tenant '{TenantId}'", tenantContext.TenantId);
-            var r = await _createIdentityDataCommandClient
-                .GetResponseWithRetry<EnumCommandResponse<CreateIdentityDataResult>>(
-                    createIdentityDataCommandRequest).ConfigureAwait(false);
-            _logger.LogInformation("Create identity data response: {Response}", r.Response);
-            if (r.Response == CreateIdentityDataResult.Success)
+            if (isSystemTenant)
             {
                 await _systemContext.SetConfigurationAsync(session,
                     _identityDataVersionKey,
-                    new DefaultConfigurationVersion { Version = _expectedIdentityDataVersion }).ConfigureAwait(false);
+                    new DefaultConfigurationVersion { Version = _expectedIdentityDataVersion })
+                    .ConfigureAwait(false);
             }
-            else if (r.Response != CreateIdentityDataResult.FailedTenantHasNoIdentityCk)
-            {
-                _logger.LogInformation("The tenant '{TenantId}' has no identity CK, skipped to create identity data",
-                    tenantContext.TenantId);
-            }
-            else
-            {
-                _logger.LogError("The tenant '{TenantId}' has no identity CK, skipped to create identity data",
-                    tenantContext.TenantId);
-            }
+        }
+        else if (r.Response == CreateIdentityDataResult.FailedTenantHasNoIdentityCk)
+        {
+            _logger.LogInformation(
+                "The tenant '{TenantId}' has no identity CK, skipped identity data creation",
+                tenantContext.TenantId);
+        }
+        else
+        {
+            _logger.LogError("Failed to create identity data for tenant '{TenantId}': {Response}",
+                tenantContext.TenantId, r.Response);
         }
     }
 
@@ -470,16 +474,23 @@ public abstract class DefaultConfigurationCreatorServiceStandardized : DefaultCo
     {
         // Process deferred identity data setup first.
         // This was skipped during SetupTenantAsync because the bus was not yet available.
-        if (_deferredIdentityDataSetup)
+        if (_deferredIdentityDataTenantIds.Count > 0)
         {
-            _logger.LogInformation("Processing deferred identity data setup for system tenant");
-            var tenantContext = await _systemContext.FindTenantContextAsync(_systemContext.TenantId)
-                .ConfigureAwait(false);
-            using var session = await tenantContext.GetAdminSessionAsync().ConfigureAwait(false);
-            session.StartTransaction();
-            await CheckSetupIdentityDataAsync(session, tenantContext).ConfigureAwait(false);
-            await session.CommitTransactionAsync().ConfigureAwait(false);
-            _deferredIdentityDataSetup = false;
+            _logger.LogInformation("Processing deferred identity data setup for {Count} tenant(s)",
+                _deferredIdentityDataTenantIds.Count);
+            foreach (var deferredTenantId in _deferredIdentityDataTenantIds)
+            {
+                _logger.LogInformation("Setting up deferred identity data for tenant '{TenantId}'",
+                    deferredTenantId);
+                var tenantContext = await _systemContext.FindTenantContextAsync(deferredTenantId)
+                    .ConfigureAwait(false);
+                using var session = await tenantContext.GetAdminSessionAsync().ConfigureAwait(false);
+                session.StartTransaction();
+                await CheckSetupIdentityDataAsync(session, tenantContext).ConfigureAwait(false);
+                await session.CommitTransactionAsync().ConfigureAwait(false);
+            }
+
+            _deferredIdentityDataTenantIds.Clear();
         }
 
         _logger.LogInformation("Starting {Count} deferred tenant(s)", _deferredStartTenantIds.Count);
