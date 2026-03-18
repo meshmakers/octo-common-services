@@ -92,6 +92,13 @@ internal class CrateDatabaseClient : IStreamDataDatabaseClient, IStreamDataDatab
         return dataPointDtos;
     }
 
+    public async Task<long> GetCountAsync(string tenantId, string countQuery)
+    {
+        await using var connection = CreateConnection(tenantId);
+        var result = await connection.ExecuteScalarAsync<long>(countQuery);
+        return result;
+    }
+
     public async Task InsertDataAsync(string tenantId, IEnumerable<DataPointDto> datapoints)
     {
         await using var connection = CreateConnection(tenantId);

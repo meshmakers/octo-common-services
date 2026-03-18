@@ -209,6 +209,12 @@ public abstract class DefaultConfigurationCreatorServiceStandardized : DefaultCo
 
         var tenantContext = await _systemContext.FindTenantContextAsync(tenantId).ConfigureAwait(false);
 
+        // Ensure the CK cache is loaded for this tenant before any operations that require it.
+        // After a tenant restore, the tenant database exists (with CK models from the backup),
+        // but the CK cache hasn't been loaded yet. Operations like IsEnabledAsync need the cache
+        // to query configuration entities (e.g., TenantConfiguration).
+        await tenantContext.LoadCacheForTenantAsync().ConfigureAwait(false);
+
         // Capture schema versions BEFORE importing new CK models
         // This allows migrations to detect the previous version even without MigrationHistory
         IReadOnlyDictionary<string, string>? previousSchemaVersions = null;
