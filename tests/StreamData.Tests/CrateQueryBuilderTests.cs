@@ -509,7 +509,7 @@ public class CrateQueryBuilderTests
     }
 
     [Fact]
-    public void DownsamplingWithAggregation_SingleColumn_EmitsDateBinGroupByAndOrderBy()
+    public void DownsamplingWithAggregation_SingleColumn_EmitsGenerateSeriesLeftJoin()
     {
         var from = DateTime.Parse("2024-01-01T00:00Z", CultureInfo.InvariantCulture, DateTimeStyles.AdjustToUniversal);
         var to = DateTime.Parse("2024-01-01T01:00Z", CultureInfo.InvariantCulture, DateTimeStyles.AdjustToUniversal);
@@ -523,15 +523,18 @@ public class CrateQueryBuilderTests
         var compiler = new CrateQueryCompiler();
         var sql = compiler.CompileQuery(queryBuilder);
 
-        Assert.Contains("DATE_BIN('360 seconds'::INTERVAL, \"Timestamp\", 0) AS \"T\"", sql);
-        Assert.Contains("AVG(\"data['Voltage']\") AS \"Avg_Voltage\"", sql);
-        Assert.Contains("GROUP BY DATE_BIN('360 seconds'::INTERVAL, \"Timestamp\", 0)", sql);
-        Assert.Contains("ORDER BY \"T\" ASC", sql);
+        Assert.Contains("SELECT bins.ts AS \"T\"", sql);
+        Assert.Contains("AVG(d.\"data['Voltage']\") AS \"Avg_Voltage\"", sql);
+        Assert.Contains("COUNT(*) AS \"__binCount\"", sql);
+        Assert.Contains("FROM generate_series('2024-01-01 00:00:00.000Z'::TIMESTAMP", sql);
+        Assert.Contains("LEFT JOIN meshtest AS d ON DATE_BIN('360 seconds'::INTERVAL, d.\"Timestamp\", '2024-01-01 00:00:00.000Z'::TIMESTAMP) = bins.ts", sql);
+        Assert.Contains("d.\"CkTypeId\" = 'Test/123'", sql);
+        Assert.Contains("GROUP BY bins.ts ORDER BY bins.ts ASC", sql);
         Assert.Contains("LIMIT 10", sql);
     }
 
     [Fact]
-    public void DownsamplingWithAggregation_MultipleColumns_EmitsAllAggregates()
+    public void DownsamplingWithAggregation_MultipleColumns_EmitsAllAggregatesWithTableAlias()
     {
         var from = DateTime.Parse("2024-01-01T00:00Z", CultureInfo.InvariantCulture, DateTimeStyles.AdjustToUniversal);
         var to = DateTime.Parse("2024-01-01T00:50Z", CultureInfo.InvariantCulture, DateTimeStyles.AdjustToUniversal);
@@ -547,16 +550,16 @@ public class CrateQueryBuilderTests
         var compiler = new CrateQueryCompiler();
         var sql = compiler.CompileQuery(queryBuilder);
 
-        Assert.Contains("DATE_BIN('600 seconds'::INTERVAL, \"Timestamp\", 0) AS \"T\"", sql);
-        Assert.Contains("AVG(\"data['Power']\") AS \"Avg_Power\"", sql);
-        Assert.Contains("MIN(\"data['Power']\") AS \"Min_Power\"", sql);
-        Assert.Contains("MAX(\"data['Power']\") AS \"Max_Power\"", sql);
-        Assert.Contains("GROUP BY DATE_BIN('600 seconds'::INTERVAL, \"Timestamp\", 0)", sql);
-        Assert.Contains("ORDER BY \"T\" ASC", sql);
+        Assert.Contains("AVG(d.\"data['Power']\") AS \"Avg_Power\"", sql);
+        Assert.Contains("MIN(d.\"data['Power']\") AS \"Min_Power\"", sql);
+        Assert.Contains("MAX(d.\"data['Power']\") AS \"Max_Power\"", sql);
+        Assert.Contains("FROM generate_series('2024-01-01 00:00:00.000Z'::TIMESTAMP", sql);
+        Assert.Contains("LEFT JOIN meshtest AS d ON DATE_BIN('600 seconds'::INTERVAL", sql);
+        Assert.Contains("GROUP BY bins.ts ORDER BY bins.ts ASC", sql);
     }
 
     [Fact]
-    public void DownsamplingWithoutAggregation_NoGroupByOrOrderBy()
+    public void DownsamplingWithoutAggregation_UsesLegacyDateBinPath()
     {
         var from = DateTime.Parse("2024-01-01T00:00Z", CultureInfo.InvariantCulture, DateTimeStyles.AdjustToUniversal);
         var to = DateTime.Parse("2024-01-01T01:00Z", CultureInfo.InvariantCulture, DateTimeStyles.AdjustToUniversal);
@@ -569,13 +572,14 @@ public class CrateQueryBuilderTests
         var compiler = new CrateQueryCompiler();
         var sql = compiler.CompileQuery(queryBuilder);
 
+        // Without aggregation, uses the legacy DATE_BIN path (not generate_series)
         Assert.Contains("DATE_BIN('360 seconds'::INTERVAL", sql);
-        Assert.DoesNotContain("GROUP BY", sql);
-        Assert.DoesNotContain("ORDER BY", sql);
+        Assert.DoesNotContain("generate_series", sql);
+        Assert.DoesNotContain("LEFT JOIN", sql);
     }
 
     [Fact]
-    public void DownsamplingWithAggregation_AndFieldFilter_EmitsWhereAndGroupBy()
+    public void DownsamplingWithAggregation_AndFieldFilter_EmitsFilterInOnClause()
     {
         var from = DateTime.Parse("2024-01-01T00:00Z", CultureInfo.InvariantCulture, DateTimeStyles.AdjustToUniversal);
         var to = DateTime.Parse("2024-01-01T01:00Z", CultureInfo.InvariantCulture, DateTimeStyles.AdjustToUniversal);
@@ -589,8 +593,30 @@ public class CrateQueryBuilderTests
         var compiler = new CrateQueryCompiler();
         var sql = compiler.CompileQuery(queryBuilder);
 
-        Assert.Contains("GROUP BY DATE_BIN('600 seconds'::INTERVAL, \"Timestamp\", 0)", sql);
-        Assert.Contains("ORDER BY \"T\" ASC", sql);
-        Assert.Contains("\"data['Voltage']\" > '0'", sql);
+        // Field filter should be in the ON clause, not WHERE
+        Assert.Contains("LEFT JOIN meshtest AS d ON", sql);
+        Assert.Contains("d.\"data['Voltage']\" > '0'", sql);
+        Assert.DoesNotContain(" WHERE ", sql);
+        Assert.Contains("GROUP BY bins.ts ORDER BY bins.ts ASC", sql);
+    }
+
+    [Fact]
+    public void DownsamplingWithAggregation_AndRtIdFilter_EmitsInOnClause()
+    {
+        var from = DateTime.Parse("2024-01-01T00:00Z", CultureInfo.InvariantCulture, DateTimeStyles.AdjustToUniversal);
+        var to = DateTime.Parse("2024-01-01T01:00Z", CultureInfo.InvariantCulture, DateTimeStyles.AdjustToUniversal);
+        var queryBuilder = new CrateQueryBuilder("meshtest");
+        queryBuilder.WithCkTypeIdFilter("Test/123");
+        queryBuilder.WithDownsampling(10, from, to);
+        queryBuilder.AddVariable("Timestamp", "T", null, false);
+        queryBuilder.AddVariable("RtId", null, null, false);
+        queryBuilder.AddAggregationVariable("Voltage", AggregationFunctionDto.Avg, "Avg_Voltage", true);
+        queryBuilder.AddWhereIn("RtId", ["id1", "id2"]);
+
+        var compiler = new CrateQueryCompiler();
+        var sql = compiler.CompileQuery(queryBuilder);
+
+        Assert.Contains("LEFT JOIN meshtest AS d ON", sql);
+        Assert.Contains("d.\"RtId\" IN ('id1', 'id2')", sql);
     }
 }

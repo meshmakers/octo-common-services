@@ -15,6 +15,13 @@ public class CrateQueryCompiler
     /// <returns></returns>
     public string CompileQuery(CrateQueryBuilder queryBuilder)
     {
+        // Downsampling with aggregation uses a fundamentally different SQL structure
+        // with generate_series LEFT JOIN to produce all time bins including empty ones
+        if (queryBuilder.QueryMode == QueryModeDto.Downsampling && queryBuilder.HasAggregations)
+        {
+            return CompileDownsamplingQuery(queryBuilder);
+        }
+
         var query = new StringBuilder();
 
         query.Append("SELECT ");
@@ -46,26 +53,16 @@ public class CrateQueryCompiler
 
         AppendWhereClause(query, queryBuilder);
 
-        if (queryBuilder.QueryMode == QueryModeDto.Downsampling && queryBuilder.HasAggregations)
+        if (queryBuilder.HasAggregations && queryBuilder.Groupings.Any())
         {
-            var dsInterval = queryBuilder.To!.Value - queryBuilder.From!.Value;
-            var dsIntervalSeconds = (int)dsInterval.TotalSeconds / queryBuilder.Limit!.Value;
-            query.Append($" GROUP BY DATE_BIN('{dsIntervalSeconds} seconds'::INTERVAL, \"Timestamp\", 0)");
-            query.Append(" ORDER BY \"T\" ASC");
+            query.Append(" GROUP BY ");
+            query.Append(string.Join(", ", queryBuilder.Groupings.Select(x => x.ToGroupByString())));
         }
-        else
-        {
-            if (queryBuilder.HasAggregations && queryBuilder.Groupings.Any())
-            {
-                query.Append(" GROUP BY ");
-                query.Append(string.Join(", ", queryBuilder.Groupings.Select(x => x.ToGroupByString())));
-            }
 
-            if (queryBuilder.HasOrderBy)
-            {
-                query.Append(" ORDER BY ");
-                query.Append(string.Join(", ", queryBuilder.OrderByVariables.Select(x => x.ToOrderByString())));
-            }
+        if (queryBuilder.HasOrderBy)
+        {
+            query.Append(" ORDER BY ");
+            query.Append(string.Join(", ", queryBuilder.OrderByVariables.Select(x => x.ToOrderByString())));
         }
 
         if (queryBuilder.Limit is not null)
@@ -76,6 +73,86 @@ public class CrateQueryCompiler
         if (queryBuilder.Offset is not null)
         {
             query.Append($" OFFSET {queryBuilder.Offset}");
+        }
+
+        return query.ToString();
+    }
+
+    /// <summary>
+    /// Compiles a downsampling query using generate_series LEFT JOIN to produce all time bins
+    /// including empty ones. Always adds a hidden COUNT(*) AS "__binCount" column to detect empty bins.
+    /// </summary>
+    private static string CompileDownsamplingQuery(CrateQueryBuilder queryBuilder)
+    {
+        var query = new StringBuilder();
+
+        var interval = queryBuilder.To!.Value - queryBuilder.From!.Value;
+        var intervalSeconds = (int)interval.TotalSeconds / queryBuilder.Limit!.Value;
+        var intervalLiteral = $"'{intervalSeconds} seconds'::INTERVAL";
+        var fromLiteral = $"'{queryBuilder.From.Value.ToString(Constants.DateTimeFormat)}'::TIMESTAMP";
+        var toLiteral = $"'{queryBuilder.To.Value.ToString(Constants.DateTimeFormat)}'";
+
+        // SELECT bins.ts AS "T", AGG(d."data['col']") AS "alias", COUNT(*) AS "__binCount"
+        query.Append("SELECT bins.ts AS \"T\"");
+
+        foreach (var variable in queryBuilder.QueryVariablesWithoutTimestamp)
+        {
+            query.Append(", ");
+            // Add d. table alias prefix for data references in the LEFT JOIN
+            if (variable.AggregationFunction != null)
+            {
+                // Aggregation: AVG("data['Voltage']") -> AVG(d."data['Voltage']")
+                var selectStr = variable.ToSelectString();
+                query.Append(selectStr.Replace("\"data[", "d.\"data["));
+            }
+            else
+            {
+                query.Append($"d.{variable.ToSelectString()}");
+            }
+        }
+
+        query.Append(", COUNT(*) AS \"__binCount\"");
+
+        // FROM generate_series(from, to, interval) AS bins(ts) — bins start at From, aligned to From
+        query.Append($" FROM generate_series({fromLiteral}, {toLiteral}::TIMESTAMP, {intervalLiteral}) AS bins(ts)");
+
+        // LEFT JOIN "tenant" AS d ON DATE_BIN(interval, d."Timestamp", from) = bins.ts — align data to From origin
+        query.Append($" LEFT JOIN {queryBuilder.TenantId} AS d ON DATE_BIN({intervalLiteral}, d.\"Timestamp\", {fromLiteral}) = bins.ts");
+
+        // All filter conditions go into the ON clause (not WHERE, since LEFT JOIN)
+        if (queryBuilder.CkTypeId != null)
+        {
+            query.Append($" AND d.\"CkTypeId\" = '{queryBuilder.CkTypeId.SemanticVersionedFullName}'");
+        }
+
+        if (queryBuilder is { From: not null, To: not null })
+        {
+            query.Append($" AND d.\"Timestamp\" >= '{queryBuilder.From.Value.ToString(Constants.DateTimeFormat)}'");
+            query.Append($" AND d.\"Timestamp\" <= '{queryBuilder.To.Value.ToString(Constants.DateTimeFormat)}'");
+        }
+
+        if (queryBuilder.VariableInListVariables.Any())
+        {
+            foreach (var variable in queryBuilder.VariableInListVariables)
+            {
+                query.Append($" AND d.{variable.ToVariableInListString()}");
+            }
+        }
+
+        if (queryBuilder.HasFieldFilters)
+        {
+            foreach (var filter in queryBuilder.FieldFilters)
+            {
+                query.Append($" AND d.{CompileFieldFilter(filter)}");
+            }
+        }
+
+        // GROUP BY bins.ts, ORDER BY bins.ts ASC, LIMIT
+        query.Append(" GROUP BY bins.ts ORDER BY bins.ts ASC");
+
+        if (queryBuilder.Limit is not null)
+        {
+            query.Append($" LIMIT {queryBuilder.Limit}");
         }
 
         return query.ToString();
