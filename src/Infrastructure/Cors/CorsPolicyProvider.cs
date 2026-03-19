@@ -7,7 +7,8 @@ using Microsoft.Extensions.Options;
 namespace Meshmakers.Octo.Services.Infrastructure.Cors;
 
 /// <summary>
-///     Implements a CORS policy provider that allows all known clients stored in Octo database
+///     Implements a CORS policy provider that allows all known clients stored in Octo database.
+///     CORS origins are resolved per tenant from the Identity Clients.
 /// </summary>
 // ReSharper disable once ClassNeverInstantiated.Global
 internal class CorsPolicyProvider : ICorsPolicyProvider
@@ -31,7 +32,8 @@ internal class CorsPolicyProvider : ICorsPolicyProvider
     /// <inheritdoc />
     public async Task<CorsPolicy?> GetPolicyAsync(HttpContext context, string? policyName)
     {
-        var tenantId = _octoSystemConfiguration.Value.SystemTenantId.NormalizeString();
+        var tenantId = context.GetTenantIdFromPath()?.NormalizeString()
+                       ?? _octoSystemConfiguration.Value.SystemTenantId.NormalizeString();
 
         if (_corsPolicyDictionary.TryGetValue(tenantId, out var corsPolicy))
         {
@@ -41,7 +43,7 @@ internal class CorsPolicyProvider : ICorsPolicyProvider
         var knownOriginsProvider = context.RequestServices.GetRequiredService<IKnownOriginsProvider>();
         var origins = await knownOriginsProvider.GetKnownOriginsAsync(tenantId).ConfigureAwait(false);
 
-        _logger.LogInformation("Creating CORS policy from cache: {Origins}", string.Join(", ", origins));
+        _logger.LogInformation("Creating CORS policy for tenant '{TenantId}': {Origins}", tenantId, string.Join(", ", origins));
 
         var policyBuilder = new CorsPolicyBuilder()
             .WithOrigins(origins.ToArray())
