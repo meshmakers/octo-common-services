@@ -46,16 +46,26 @@ public class CrateQueryCompiler
 
         AppendWhereClause(query, queryBuilder);
 
-        if (queryBuilder.HasAggregations && queryBuilder.Groupings.Any())
+        if (queryBuilder.QueryMode == QueryModeDto.Downsampling && queryBuilder.HasAggregations)
         {
-            query.Append(" GROUP BY ");
-            query.Append(string.Join(", ", queryBuilder.Groupings.Select(x => x.ToGroupByString())));
+            var dsInterval = queryBuilder.To!.Value - queryBuilder.From!.Value;
+            var dsIntervalSeconds = (int)dsInterval.TotalSeconds / queryBuilder.Limit!.Value;
+            query.Append($" GROUP BY DATE_BIN('{dsIntervalSeconds} seconds'::INTERVAL, \"Timestamp\", 0)");
+            query.Append(" ORDER BY \"T\" ASC");
         }
-
-        if (queryBuilder.HasOrderBy)
+        else
         {
-            query.Append(" ORDER BY ");
-            query.Append(string.Join(", ", queryBuilder.OrderByVariables.Select(x => x.ToOrderByString())));
+            if (queryBuilder.HasAggregations && queryBuilder.Groupings.Any())
+            {
+                query.Append(" GROUP BY ");
+                query.Append(string.Join(", ", queryBuilder.Groupings.Select(x => x.ToGroupByString())));
+            }
+
+            if (queryBuilder.HasOrderBy)
+            {
+                query.Append(" ORDER BY ");
+                query.Append(string.Join(", ", queryBuilder.OrderByVariables.Select(x => x.ToOrderByString())));
+            }
         }
 
         if (queryBuilder.Limit is not null)

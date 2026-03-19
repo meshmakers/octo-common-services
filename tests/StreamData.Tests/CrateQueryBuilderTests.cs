@@ -507,4 +507,90 @@ public class CrateQueryBuilderTests
 
         Assert.DoesNotContain("ORDER BY", query);
     }
+
+    [Fact]
+    public void DownsamplingWithAggregation_SingleColumn_EmitsDateBinGroupByAndOrderBy()
+    {
+        var from = DateTime.Parse("2024-01-01T00:00Z", CultureInfo.InvariantCulture, DateTimeStyles.AdjustToUniversal);
+        var to = DateTime.Parse("2024-01-01T01:00Z", CultureInfo.InvariantCulture, DateTimeStyles.AdjustToUniversal);
+        // 3600 seconds / 10 bins = 360 seconds per bin
+        var queryBuilder = new CrateQueryBuilder("meshtest");
+        queryBuilder.WithCkTypeIdFilter("Test/123");
+        queryBuilder.WithDownsampling(10, from, to);
+        queryBuilder.AddVariable("Timestamp", "T", null, false);
+        queryBuilder.AddAggregationVariable("Voltage", AggregationFunctionDto.Avg, "Avg_Voltage", true);
+
+        var compiler = new CrateQueryCompiler();
+        var sql = compiler.CompileQuery(queryBuilder);
+
+        Assert.Contains("DATE_BIN('360 seconds'::INTERVAL, \"Timestamp\", 0) AS \"T\"", sql);
+        Assert.Contains("AVG(\"data['Voltage']\") AS \"Avg_Voltage\"", sql);
+        Assert.Contains("GROUP BY DATE_BIN('360 seconds'::INTERVAL, \"Timestamp\", 0)", sql);
+        Assert.Contains("ORDER BY \"T\" ASC", sql);
+        Assert.Contains("LIMIT 10", sql);
+    }
+
+    [Fact]
+    public void DownsamplingWithAggregation_MultipleColumns_EmitsAllAggregates()
+    {
+        var from = DateTime.Parse("2024-01-01T00:00Z", CultureInfo.InvariantCulture, DateTimeStyles.AdjustToUniversal);
+        var to = DateTime.Parse("2024-01-01T00:50Z", CultureInfo.InvariantCulture, DateTimeStyles.AdjustToUniversal);
+        // 3000 seconds / 5 bins = 600 seconds per bin
+        var queryBuilder = new CrateQueryBuilder("meshtest");
+        queryBuilder.WithCkTypeIdFilter("Energy/Meter");
+        queryBuilder.WithDownsampling(5, from, to);
+        queryBuilder.AddVariable("Timestamp", "T", null, false);
+        queryBuilder.AddAggregationVariable("Power", AggregationFunctionDto.Avg, "Avg_Power", true);
+        queryBuilder.AddAggregationVariable("Power", AggregationFunctionDto.Min, "Min_Power", true);
+        queryBuilder.AddAggregationVariable("Power", AggregationFunctionDto.Max, "Max_Power", true);
+
+        var compiler = new CrateQueryCompiler();
+        var sql = compiler.CompileQuery(queryBuilder);
+
+        Assert.Contains("DATE_BIN('600 seconds'::INTERVAL, \"Timestamp\", 0) AS \"T\"", sql);
+        Assert.Contains("AVG(\"data['Power']\") AS \"Avg_Power\"", sql);
+        Assert.Contains("MIN(\"data['Power']\") AS \"Min_Power\"", sql);
+        Assert.Contains("MAX(\"data['Power']\") AS \"Max_Power\"", sql);
+        Assert.Contains("GROUP BY DATE_BIN('600 seconds'::INTERVAL, \"Timestamp\", 0)", sql);
+        Assert.Contains("ORDER BY \"T\" ASC", sql);
+    }
+
+    [Fact]
+    public void DownsamplingWithoutAggregation_NoGroupByOrOrderBy()
+    {
+        var from = DateTime.Parse("2024-01-01T00:00Z", CultureInfo.InvariantCulture, DateTimeStyles.AdjustToUniversal);
+        var to = DateTime.Parse("2024-01-01T01:00Z", CultureInfo.InvariantCulture, DateTimeStyles.AdjustToUniversal);
+        var queryBuilder = new CrateQueryBuilder("meshtest");
+        queryBuilder.WithCkTypeIdFilter("Test/123");
+        queryBuilder.WithDownsampling(10, from, to);
+        queryBuilder.AddVariable("Timestamp", "T", null, false);
+        queryBuilder.AddVariable("Voltage", null, null, true);
+
+        var compiler = new CrateQueryCompiler();
+        var sql = compiler.CompileQuery(queryBuilder);
+
+        Assert.Contains("DATE_BIN('360 seconds'::INTERVAL", sql);
+        Assert.DoesNotContain("GROUP BY", sql);
+        Assert.DoesNotContain("ORDER BY", sql);
+    }
+
+    [Fact]
+    public void DownsamplingWithAggregation_AndFieldFilter_EmitsWhereAndGroupBy()
+    {
+        var from = DateTime.Parse("2024-01-01T00:00Z", CultureInfo.InvariantCulture, DateTimeStyles.AdjustToUniversal);
+        var to = DateTime.Parse("2024-01-01T01:00Z", CultureInfo.InvariantCulture, DateTimeStyles.AdjustToUniversal);
+        var queryBuilder = new CrateQueryBuilder("meshtest");
+        queryBuilder.WithCkTypeIdFilter("Test/123");
+        queryBuilder.WithDownsampling(6, from, to);
+        queryBuilder.AddVariable("Timestamp", "T", null, false);
+        queryBuilder.AddAggregationVariable("Voltage", AggregationFunctionDto.Max, "Max_Voltage", true);
+        queryBuilder.AddFieldFilter("Voltage", StreamDataFieldFilterOperator.GreaterThan, "0", true);
+
+        var compiler = new CrateQueryCompiler();
+        var sql = compiler.CompileQuery(queryBuilder);
+
+        Assert.Contains("GROUP BY DATE_BIN('600 seconds'::INTERVAL, \"Timestamp\", 0)", sql);
+        Assert.Contains("ORDER BY \"T\" ASC", sql);
+        Assert.Contains("\"data['Voltage']\" > '0'", sql);
+    }
 }
