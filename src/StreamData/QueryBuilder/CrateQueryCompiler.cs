@@ -80,7 +80,8 @@ public class CrateQueryCompiler
 
     /// <summary>
     /// Compiles a downsampling query using generate_series LEFT JOIN to produce all time bins
-    /// including empty ones. Always adds a hidden COUNT(*) AS "__binCount" column to detect empty bins.
+    /// including empty ones. Adds COUNT(d."Timestamp") AS "__binCount" to detect empty bins
+    /// (COUNT(*) would always return 1 due to LEFT JOIN producing a row for every bin).
     /// </summary>
     private static string CompileDownsamplingQuery(CrateQueryBuilder queryBuilder)
     {
@@ -90,9 +91,12 @@ public class CrateQueryCompiler
         var intervalSeconds = (int)interval.TotalSeconds / queryBuilder.Limit!.Value;
         var intervalLiteral = $"'{intervalSeconds} seconds'::INTERVAL";
         var fromLiteral = $"'{queryBuilder.From.Value.ToString(Constants.DateTimeFormat)}'::TIMESTAMP";
-        var toLiteral = $"'{queryBuilder.To.Value.ToString(Constants.DateTimeFormat)}'";
+        // Compute exclusive upper bound: From + (Limit - 1) * interval
+        // generate_series is inclusive on both ends, so we use Limit-1 intervals to get exactly Limit bins
+        var seriesEnd = queryBuilder.From.Value.AddSeconds(intervalSeconds * (queryBuilder.Limit!.Value - 1));
+        var seriesEndLiteral = $"'{seriesEnd.ToString(Constants.DateTimeFormat)}'::TIMESTAMP";
 
-        // SELECT bins.ts AS "T", AGG(d."data['col']") AS "alias", COUNT(*) AS "__binCount"
+        // SELECT bins.ts AS "T", AGG(d."data['col']") AS "alias", COUNT(d."Timestamp") AS "__binCount"
         query.Append("SELECT bins.ts AS \"T\"");
 
         foreach (var variable in queryBuilder.QueryVariablesWithoutTimestamp)
@@ -111,10 +115,10 @@ public class CrateQueryCompiler
             }
         }
 
-        query.Append(", COUNT(*) AS \"__binCount\"");
+        query.Append(", COUNT(d.\"Timestamp\") AS \"__binCount\"");
 
-        // FROM generate_series(from, to, interval) AS bins(ts) — bins start at From, aligned to From
-        query.Append($" FROM generate_series({fromLiteral}, {toLiteral}::TIMESTAMP, {intervalLiteral}) AS bins(ts)");
+        // FROM generate_series(from, seriesEnd, interval) — exactly Limit bins
+        query.Append($" FROM generate_series({fromLiteral}, {seriesEndLiteral}, {intervalLiteral}) AS bins(ts)");
 
         // LEFT JOIN "tenant" AS d ON DATE_BIN(interval, d."Timestamp", from) = bins.ts — align data to From origin
         query.Append($" LEFT JOIN {queryBuilder.TenantId} AS d ON DATE_BIN({intervalLiteral}, d.\"Timestamp\", {fromLiteral}) = bins.ts");
@@ -147,13 +151,8 @@ public class CrateQueryCompiler
             }
         }
 
-        // GROUP BY bins.ts, ORDER BY bins.ts ASC, LIMIT
+        // GROUP BY and ORDER BY — no LIMIT needed since generate_series produces exactly Limit bins
         query.Append(" GROUP BY bins.ts ORDER BY bins.ts ASC");
-
-        if (queryBuilder.Limit is not null)
-        {
-            query.Append($" LIMIT {queryBuilder.Limit}");
-        }
 
         return query.ToString();
     }

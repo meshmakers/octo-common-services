@@ -525,12 +525,13 @@ public class CrateQueryBuilderTests
 
         Assert.Contains("SELECT bins.ts AS \"T\"", sql);
         Assert.Contains("AVG(d.\"data['Voltage']\") AS \"Avg_Voltage\"", sql);
-        Assert.Contains("COUNT(*) AS \"__binCount\"", sql);
-        Assert.Contains("FROM generate_series('2024-01-01 00:00:00.000Z'::TIMESTAMP", sql);
+        Assert.Contains("COUNT(d.\"Timestamp\") AS \"__binCount\"", sql);
+        // generate_series upper bound: From + (Limit-1) * 360s = 00:00 + 9*360s = 00:54:00
+        Assert.Contains("FROM generate_series('2024-01-01 00:00:00.000Z'::TIMESTAMP, '2024-01-01 00:54:00.000Z'::TIMESTAMP, '360 seconds'::INTERVAL) AS bins(ts)", sql);
         Assert.Contains("LEFT JOIN meshtest AS d ON DATE_BIN('360 seconds'::INTERVAL, d.\"Timestamp\", '2024-01-01 00:00:00.000Z'::TIMESTAMP) = bins.ts", sql);
         Assert.Contains("d.\"CkTypeId\" = 'Test/123'", sql);
         Assert.Contains("GROUP BY bins.ts ORDER BY bins.ts ASC", sql);
-        Assert.Contains("LIMIT 10", sql);
+        Assert.DoesNotContain("LIMIT", sql); // No LIMIT needed — generate_series produces exactly Limit bins
     }
 
     [Fact]
