@@ -3,7 +3,8 @@ using System.Security.Claims;
 namespace Meshmakers.Octo.Services.Infrastructure.Middleware;
 
 /// <summary>
-///     Middleware that validates the route tenant against the user's allowed_tenants claims.
+///     Middleware that validates the route tenant against the user's tenant_id claim.
+///     The token must have been issued for the specific tenant being accessed.
 ///     Must be placed after UseAuthentication() and UseAuthorization() in the pipeline.
 /// </summary>
 internal class TenantAuthorizationMiddleware(RequestDelegate next)
@@ -12,7 +13,7 @@ internal class TenantAuthorizationMiddleware(RequestDelegate next)
     {
         // Only validate for bearer token authentication.
         // Cookie-authenticated requests (e.g., Identity Service SPA) are already
-        // scoped per tenant via TenantCookieManager and do not carry allowed_tenants claims.
+        // scoped per tenant via TenantCookieManager and do not carry tenant_id claims.
         var authHeader = context.Request.Headers.Authorization.ToString();
         if (!authHeader.StartsWith("Bearer ", StringComparison.OrdinalIgnoreCase))
         {
@@ -47,19 +48,18 @@ internal class TenantAuthorizationMiddleware(RequestDelegate next)
             return;
         }
 
-        // Check if the user has allowed_tenants claims
-        var allowedTenants = context.User.FindAll("allowed_tenants")
-            .Select(c => c.Value).ToList();
-
-        // If no allowed_tenants claims (old tokens before this feature), deny access to be safe
-        if (allowedTenants.Count == 0)
+        // The token must have been issued for the specific tenant being accessed.
+        // The tenant_id claim identifies the tenant the user authenticated against.
+        // allowed_tenants is only used for tenant selection (e.g., tenant picker UI),
+        // not for authorizing API access.
+        var tokenTenantId = context.User.FindFirstValue("tenant_id");
+        if (string.IsNullOrEmpty(tokenTenantId))
         {
             context.Response.StatusCode = StatusCodes.Status403Forbidden;
             return;
         }
 
-        // Validate the route tenant is in the allowed list (case-insensitive)
-        if (!allowedTenants.Any(t => string.Equals(t, tenantId, StringComparison.OrdinalIgnoreCase)))
+        if (!string.Equals(tokenTenantId, tenantId, StringComparison.OrdinalIgnoreCase))
         {
             context.Response.StatusCode = StatusCodes.Status403Forbidden;
             return;

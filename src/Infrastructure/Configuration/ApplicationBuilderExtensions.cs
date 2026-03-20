@@ -57,7 +57,7 @@ public static class ApplicationBuilderExtensions
 
     /// <summary>
     ///     Adds tenant authorization middleware that validates the route tenant
-    ///     against the user's allowed_tenants claims from the access token.
+    ///     against the user's tenant_id claim from the access token.
     ///     Must be placed after UseAuthentication() and UseAuthorization().
     /// </summary>
     /// <param name="app"></param>
