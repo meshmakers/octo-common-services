@@ -17,4 +17,12 @@ public enum AggregationFunctionDto
     /// Maximum
     /// </summary>
     Max,
+    /// <summary>
+    /// Count
+    /// </summary>
+    Count,
+    /// <summary>
+    /// Sum
+    /// </summary>
+    Sum,
 }
