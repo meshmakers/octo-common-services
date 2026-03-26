@@ -1,4 +1,5 @@
 using System.Security.Claims;
+using Microsoft.AspNetCore.Authorization;
 
 namespace Meshmakers.Octo.Services.Infrastructure.Middleware;
 
@@ -11,6 +12,16 @@ internal class TenantAuthorizationMiddleware(RequestDelegate next)
 {
     public async Task InvokeAsync(HttpContext context)
     {
+        // Skip endpoints marked with [AllowAnonymous] — they don't require tenant validation.
+        // This is important because CookieBasedAuthenticationMiddleware may inject a Bearer header
+        // from the OctoIdentityAccessToken cookie, causing false positives on anonymous endpoints.
+        var endpoint = context.GetEndpoint();
+        if (endpoint?.Metadata.GetMetadata<IAllowAnonymous>() != null)
+        {
+            await next(context);
+            return;
+        }
+
         // Only validate for bearer token authentication.
         // Cookie-authenticated requests (e.g., Identity Service SPA) are already
         // scoped per tenant via TenantCookieManager and do not carry tenant_id claims.
