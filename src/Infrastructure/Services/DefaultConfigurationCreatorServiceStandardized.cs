@@ -38,6 +38,7 @@ public abstract class DefaultConfigurationCreatorServiceStandardized : DefaultCo
     private readonly FailedTenantRegistry? _failedTenantRegistry;
     private readonly List<string> _deferredStartTenantIds = new();
     private readonly List<string> _deferredIdentityDataTenantIds = new();
+    private readonly HashSet<string> _pendingIdentityDataTenantIds = new();
 
     /// <summary>
     ///     Constructor
@@ -239,6 +240,9 @@ public abstract class DefaultConfigurationCreatorServiceStandardized : DefaultCo
         // Identity data setup sends a command via the distribution event hub.
         // When DeferTenantStart is true the bus is not yet available, so we defer
         // the identity data check until StartDeferredTenantsAsync is called.
+        // If the identity service is not yet available (e.g. still importing its own CK models),
+        // we catch the timeout and continue with the CK model import. The identity data setup
+        // will be retried via the FailedTenantRegistry background retry mechanism.
         if (DeferTenantStart)
         {
             _logger.LogInformation(
@@ -248,7 +252,18 @@ public abstract class DefaultConfigurationCreatorServiceStandardized : DefaultCo
         }
         else
         {
-            await CheckSetupIdentityDataAsync(session, tenantContext).ConfigureAwait(false);
+            try
+            {
+                await CheckSetupIdentityDataAsync(session, tenantContext).ConfigureAwait(false);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex,
+                    "Identity data setup failed for tenant '{TenantId}'. " +
+                    "Continuing with CK model import. Identity data will be retried in background",
+                    tenantContext.TenantId);
+                _pendingIdentityDataTenantIds.Add(tenantContext.TenantId);
+            }
         }
 
         // Check if we need to import the CK model, we have two situations
@@ -482,12 +497,23 @@ public abstract class DefaultConfigurationCreatorServiceStandardized : DefaultCo
             {
                 _logger.LogInformation("Setting up deferred identity data for tenant '{TenantId}'",
                     deferredTenantId);
-                var tenantContext = await _systemContext.FindTenantContextAsync(deferredTenantId)
-                    .ConfigureAwait(false);
-                using var session = await tenantContext.GetAdminSessionAsync().ConfigureAwait(false);
-                session.StartTransaction();
-                await CheckSetupIdentityDataAsync(session, tenantContext).ConfigureAwait(false);
-                await session.CommitTransactionAsync().ConfigureAwait(false);
+                try
+                {
+                    var tenantContext = await _systemContext.FindTenantContextAsync(deferredTenantId)
+                        .ConfigureAwait(false);
+                    using var session = await tenantContext.GetAdminSessionAsync().ConfigureAwait(false);
+                    session.StartTransaction();
+                    await CheckSetupIdentityDataAsync(session, tenantContext).ConfigureAwait(false);
+                    await session.CommitTransactionAsync().ConfigureAwait(false);
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogWarning(ex,
+                        "Deferred identity data setup failed for tenant '{TenantId}'. " +
+                        "Will retry in background",
+                        deferredTenantId);
+                    _pendingIdentityDataTenantIds.Add(deferredTenantId);
+                }
             }
 
             _deferredIdentityDataTenantIds.Clear();
@@ -542,6 +568,35 @@ public abstract class DefaultConfigurationCreatorServiceStandardized : DefaultCo
     /// <inheritdoc />
     public override async Task RetryFailedTenantsAsync()
     {
+        // Retry pending identity data setups that failed during SetupTenantAsync
+        // (e.g. because the identity service was not yet available at startup).
+        if (_pendingIdentityDataTenantIds.Count > 0)
+        {
+            var tenantIds = _pendingIdentityDataTenantIds.ToList();
+            _logger.LogInformation("Retrying identity data setup for {Count} tenant(s)", tenantIds.Count);
+            foreach (var tenantId in tenantIds)
+            {
+                try
+                {
+                    var tenantContext = await _systemContext.FindTenantContextAsync(tenantId)
+                        .ConfigureAwait(false);
+                    using var session = await tenantContext.GetAdminSessionAsync().ConfigureAwait(false);
+                    session.StartTransaction();
+                    await CheckSetupIdentityDataAsync(session, tenantContext).ConfigureAwait(false);
+                    await session.CommitTransactionAsync().ConfigureAwait(false);
+                    _pendingIdentityDataTenantIds.Remove(tenantId);
+                    _logger.LogInformation(
+                        "Identity data setup retry succeeded for tenant '{TenantId}'", tenantId);
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogWarning(ex,
+                        "Identity data setup retry failed for tenant '{TenantId}'. Will retry again",
+                        tenantId);
+                }
+            }
+        }
+
         if (_failedTenantRegistry == null || !_failedTenantRegistry.HasFailedTenants)
         {
             return;
