@@ -11,6 +11,11 @@ public static class QueueNames
     public const string ImportCkCommand = "octo::bot::import-ck"; 
     
     /// <summary>
+    /// Import multiple construction kit libraries sequentially in dependency order
+    /// </summary>
+    public const string ImportCkBatchCommand = "octo::bot::import-ck-batch";
+
+    /// <summary>
     /// Import a runtime model command
     /// </summary>
     public const string ImportRtCommand = "octo::bot::import-rt";
