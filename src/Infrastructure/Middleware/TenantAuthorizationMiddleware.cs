@@ -32,6 +32,18 @@ internal class TenantAuthorizationMiddleware(RequestDelegate next)
             return;
         }
 
+        // Even if a Bearer header is present, skip tenant validation when the user was
+        // actually authenticated via cookies. CookieBasedAuthenticationMiddleware may inject
+        // a Bearer header from the OctoIdentityAccessToken cookie, but the default auth
+        // scheme resolves to Identity.Application — a cookie principal that lacks tenant_id
+        // claims. Validating that principal against the Bearer path causes false 403 errors.
+        if (context.User.Identity is { IsAuthenticated: true, AuthenticationType: { } authType } &&
+            !authType.Equals("Bearer", StringComparison.OrdinalIgnoreCase))
+        {
+            await next(context);
+            return;
+        }
+
         // Skip for unauthenticated requests (let auth middleware handle 401)
         if (context.User.Identity?.IsAuthenticated != true)
         {
