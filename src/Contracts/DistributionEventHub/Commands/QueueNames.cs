@@ -51,11 +51,6 @@ public static class QueueNames
     public const string PipelineTriggerQueue = $"queue:{PipelineTriggerChannelName}";
     
     /// <summary>
-    /// Execute mesh pipeline command
-    /// </summary>
-    public const string ExecuteMeshPipelineCommand = "octo::com-controller::execute-mesh-pipeline";
-    
-    /// <summary>
     /// Execute send notification command
     /// </summary>
     public const string SendNotificationCommand = "octo::com-controller::send-notification-pipeline";
