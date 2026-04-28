@@ -2,6 +2,7 @@ using Meshmakers.Octo.Common.DistributionEventHub.Configuration;
 using Meshmakers.Octo.Common.DistributionEventHub.Repository;
 using Meshmakers.Octo.Common.DistributionEventHub.Services;
 using Meshmakers.Octo.Runtime.Contracts.MongoDb.Services;
+using Meshmakers.Octo.Runtime.Contracts.StreamData;
 using Meshmakers.Octo.Sdk.ServiceClient.Authorization;
 using Meshmakers.Octo.Services.Contracts.DistributionEventHub.Messages;
 using Meshmakers.Octo.Services.Infrastructure;
@@ -29,6 +30,11 @@ public static class ServiceCollectionExtensions
     public static IOctoInfrastructureBuilder AddOctoServiceInfrastructure(this IServiceCollection services)
     {
         services.AddSingleton<ITenantNotifications, DistributedTenantNotifications>();
+        // Replace the engine-default LoggingArchiveAuditTrail with the event-bus version so
+        // archive lifecycle transitions (concept §14) get published over the distribution event
+        // hub. Logging stays available via the engine's default for projects that don't add
+        // octo service infrastructure.
+        services.AddSingleton<IArchiveAuditTrail, EventBusArchiveAuditTrail>();
         services.TryAddSingleton<IDistributedCacheService, DistributedCacheService>();
         services.AddSingleton<IRepositoryClient, OctoRepositoryClient>();
         services.AddSingleton<IHttpContextAccessor, HttpContextAccessor>();
