@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using Meshmakers.Octo.Common.DistributionEventHub.Services;
 using Meshmakers.Octo.ConstructionKit.Contracts;
 using Meshmakers.Octo.Runtime.Contracts;
@@ -484,81 +485,106 @@ public abstract class DefaultConfigurationCreatorServiceStandardized : DefaultCo
         }
     }
 
+    /// <summary>
+    ///     Maximum number of tenants that are initialized in parallel during deferred startup.
+    ///     Bounded to keep MongoDB connection-pool pressure and CK-model upgrade cost under control.
+    /// </summary>
+    private static readonly int DeferredTenantStartParallelism =
+        Math.Min(Environment.ProcessorCount, 8);
+
     /// <inheritdoc />
     public override async Task StartDeferredTenantsAsync()
     {
+        var parallelOptions = new ParallelOptions
+        {
+            MaxDegreeOfParallelism = DeferredTenantStartParallelism
+        };
+
         // Process deferred identity data setup first.
         // This was skipped during SetupTenantAsync because the bus was not yet available.
         if (_deferredIdentityDataTenantIds.Count > 0)
         {
-            _logger.LogInformation("Processing deferred identity data setup for {Count} tenant(s)",
-                _deferredIdentityDataTenantIds.Count);
-            foreach (var deferredTenantId in _deferredIdentityDataTenantIds)
-            {
-                _logger.LogInformation("Setting up deferred identity data for tenant '{TenantId}'",
-                    deferredTenantId);
-                try
+            _logger.LogInformation(
+                "Processing deferred identity data setup for {Count} tenant(s) with {Parallelism} parallel worker(s)",
+                _deferredIdentityDataTenantIds.Count, DeferredTenantStartParallelism);
+
+            await Parallel.ForEachAsync(
+                _deferredIdentityDataTenantIds.ToArray(),
+                parallelOptions,
+                async (deferredTenantId, _) =>
                 {
-                    var tenantContext = await _systemContext.FindTenantContextAsync(deferredTenantId)
-                        .ConfigureAwait(false);
-                    using var session = await tenantContext.GetAdminSessionAsync().ConfigureAwait(false);
-                    session.StartTransaction();
-                    await CheckSetupIdentityDataAsync(session, tenantContext).ConfigureAwait(false);
-                    await session.CommitTransactionAsync().ConfigureAwait(false);
-                }
-                catch (Exception ex)
-                {
-                    _logger.LogWarning(ex,
-                        "Deferred identity data setup failed for tenant '{TenantId}'. " +
-                        "Will retry in background",
+                    _logger.LogInformation("Setting up deferred identity data for tenant '{TenantId}'",
                         deferredTenantId);
-                    _pendingIdentityDataTenantIds.Add(deferredTenantId);
-                }
-            }
+                    try
+                    {
+                        var tenantContext = await _systemContext.FindTenantContextAsync(deferredTenantId)
+                            .ConfigureAwait(false);
+                        using var session = await tenantContext.GetAdminSessionAsync().ConfigureAwait(false);
+                        session.StartTransaction();
+                        await CheckSetupIdentityDataAsync(session, tenantContext).ConfigureAwait(false);
+                        await session.CommitTransactionAsync().ConfigureAwait(false);
+                    }
+                    catch (Exception ex)
+                    {
+                        _logger.LogWarning(ex,
+                            "Deferred identity data setup failed for tenant '{TenantId}'. " +
+                            "Will retry in background",
+                            deferredTenantId);
+                        lock (_pendingIdentityDataTenantIds)
+                        {
+                            _pendingIdentityDataTenantIds.Add(deferredTenantId);
+                        }
+                    }
+                }).ConfigureAwait(false);
 
             _deferredIdentityDataTenantIds.Clear();
         }
 
-        _logger.LogInformation("Starting {Count} deferred tenant(s)", _deferredStartTenantIds.Count);
+        _logger.LogInformation(
+            "Starting {Count} deferred tenant(s) with {Parallelism} parallel worker(s)",
+            _deferredStartTenantIds.Count, DeferredTenantStartParallelism);
 
-        List<string>? failedTenants = null;
-        foreach (var tenantId in _deferredStartTenantIds)
-        {
-            _logger.LogInformation("Starting deferred tenant '{TenantId}'", tenantId);
-            try
+        var failedTenants = new ConcurrentBag<string>();
+        await Parallel.ForEachAsync(
+            _deferredStartTenantIds.ToArray(),
+            parallelOptions,
+            async (tenantId, _) =>
             {
-                await StartTenantAsync(tenantId).ConfigureAwait(false);
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "Failed to start deferred tenant '{TenantId}'", tenantId);
-                failedTenants ??= [];
-                failedTenants.Add(tenantId);
-                await OnTenantStartFailedAsync(tenantId, ex).ConfigureAwait(false);
-            }
-        }
+                _logger.LogInformation("Starting deferred tenant '{TenantId}'", tenantId);
+                try
+                {
+                    await StartTenantAsync(tenantId).ConfigureAwait(false);
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogError(ex, "Failed to start deferred tenant '{TenantId}'", tenantId);
+                    failedTenants.Add(tenantId);
+                    await OnTenantStartFailedAsync(tenantId, ex).ConfigureAwait(false);
+                }
+            }).ConfigureAwait(false);
 
         _deferredStartTenantIds.Clear();
         DeferTenantStart = false;
 
-        if (failedTenants is { Count: > 0 })
+        if (!failedTenants.IsEmpty)
         {
+            var failedTenantList = failedTenants.ToList();
             if (_failedTenantRegistry != null)
             {
-                foreach (var tenantId in failedTenants)
+                foreach (var tenantId in failedTenantList)
                 {
                     _failedTenantRegistry.Add(tenantId);
                 }
 
                 _logger.LogWarning(
                     "Failed to start {Count} deferred tenant(s): {Tenants}. Will retry in background",
-                    failedTenants.Count, string.Join(", ", failedTenants));
+                    failedTenantList.Count, string.Join(", ", failedTenantList));
             }
             else
             {
                 _logger.LogWarning(
                     "Failed to start {Count} deferred tenant(s): {Tenants}. No retry registry available",
-                    failedTenants.Count, string.Join(", ", failedTenants));
+                    failedTenantList.Count, string.Join(", ", failedTenantList));
             }
         }
     }
