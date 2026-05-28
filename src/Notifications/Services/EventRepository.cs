@@ -3,28 +3,14 @@ using Meshmakers.Octo.ConstructionKit.Contracts;
 using Meshmakers.Octo.Runtime.Contracts;
 using Meshmakers.Octo.Runtime.Contracts.MongoDb;
 using Meshmakers.Octo.Services.Notifications.Generated.System.Notification.v2;
-using Microsoft.Extensions.DependencyInjection;
 
 namespace Meshmakers.Octo.Services.Notifications.Services;
 
-// AB#3324 fallout: previously this took ISystemContext via primary ctor. That
-// closed a DI bootstrap cycle once the WI #3324 audit-trail bridge landed —
-// SystemContext.ctor → IDatabaseCkModelRepository → ICkModelImportAuditTrail
-// (= EventRepositoryCkModelImportAuditTrail in this assembly) → IEventRepository
-// → ISystemContext → ... A dotnet-stack dump on a stuck integration-test agent
-// showed recursive SystemContext/TenantContext frames around DI's StackGuard.
-// Lazy-resolving via IServiceProvider keeps the cycle from forming because
-// ISystemContext is only touched at method call time, never at construction.
-// This is a stop-gap; the proper fix is a central IAuditEventSink abstraction
-// in the engine — tracked separately.
-public class EventRepository(IServiceProvider serviceProvider) : IEventRepository
+public class EventRepository(ISystemContext systemContext) : IEventRepository
 {
-    private ISystemContext SystemContext => serviceProvider.GetRequiredService<ISystemContext>();
-
     private async Task AddMessageAsync(RtEvent rtEvent, string? tenantId,
         RtEntityId? associatedRtEntityId)
     {
-        var systemContext = SystemContext;
         if (!await systemContext.IsSystemTenantExistingAsync().ConfigureAwait(false))
         {
             return;

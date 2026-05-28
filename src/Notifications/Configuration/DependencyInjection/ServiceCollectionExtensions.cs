@@ -1,5 +1,6 @@
-using Meshmakers.Octo.Runtime.Contracts.CkModelMigrations;
+using Meshmakers.Octo.Runtime.Contracts.AuditTrails;
 using Meshmakers.Octo.Services.Notifications.Services;
+using Microsoft.Extensions.DependencyInjection.Extensions;
 
 // ReSharper disable once CheckNamespace
 namespace Microsoft.Extensions.DependencyInjection;
@@ -22,11 +23,17 @@ public static class ServiceCollectionExtensions
         services.AddScoped<INotificationService, NotificationService>();
         services.AddScoped<IMarkdownRenderService, MarkdownRenderService>();
 
-        // Replace the engine's default LoggingCkModelImportAuditTrail with the bridge that
-        // writes import warnings (e.g. extensible-enum overrides — WI #3324 AC3) to the
-        // platform event repository. Hosts that need a different RtEventSourcesEnum value
-        // can re-register this service with a constructor argument after AddOctoNotification.
-        services.AddTransient<ICkModelImportAuditTrail, EventRepositoryCkModelImportAuditTrail>();
+        // Replace the engine's default LoggingAuditEventSink with the bridge that persists
+        // every audit event to the platform event repository (WI #3324 follow-up). All
+        // typed engine audit-trail interfaces — ICkModelImportAuditTrail, IArchiveAuditTrail,
+        // future additions — automatically route here because the engine's Forwarding*
+        // defaults publish through IAuditEventSink. Per-interface bridges (such as the old
+        // EventRepositoryCkModelImportAuditTrail) are no longer needed and have been
+        // deleted; if a host wants to differentiate event sources per category it should
+        // override IAuditEventSink rather than re-introduce per-interface bridges (which is
+        // exactly what closed the WI #3324 DI bootstrap cycle).
+        services.RemoveAll<IAuditEventSink>();
+        services.AddSingleton<IAuditEventSink, EventRepositoryAuditEventSink>();
 
         return services;
     }
