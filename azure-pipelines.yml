@@ -30,7 +30,7 @@ resources:
       type: github
       name: meshmakers/octo-pipeline-templates
       endpoint: meshmakers-access-token
-      ref: refs/tags/tpl-v0.2.1
+      ref: refs/tags/tpl-v0.3.0
 
 trigger:
   batch: true
@@ -60,18 +60,11 @@ variables:
     value: ${{ eq(variables['Build.SourceBranch'], 'refs/heads/main') }}
   - name: isTest
     value: ${{ startsWith(variables['Build.SourceBranch'], 'refs/heads/test') }}
-  - name: OctoLocalCatalogIsEnabled
-    value: 'false'
-  # Public catalog publishing is restricted to main and release tags. Feature/dev
-  # branches build and validate but must never write to the shared gh-pages
-  # catalog (incident: Industry.Basic-2.1.1 pinned by downstream models without
-  # itself being published).
-  - ${{ if or(eq(variables['Build.SourceBranch'], 'refs/heads/main'), startsWith(variables['Build.SourceBranch'], 'refs/tags/r')) }}:
-    - name: effectivePublishCatalog
-      value: $(OctoPublishCatalog)
-  - ${{ else }}:
-    - name: effectivePublishCatalog
-      value: LocalFileSystemCatalog
+  # CK publish routing (effectivePublishCatalog: GitHub catalogs only on main/r* tags,
+  # incident: Industry.Basic-2.1.1) and the per-run local catalog root
+  # (OctoLocalCatalogRootPath -> Agent.TempDirectory, AB#4167) are exported as runtime
+  # variables by the shared update-build-number.yml template (tpl-v0.3.0). The
+  # run-isolated catalog is writable, so feature branches publish CK models again.
 
 stages:
   - stage: Build
