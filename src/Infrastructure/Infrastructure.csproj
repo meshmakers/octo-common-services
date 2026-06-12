@@ -18,8 +18,8 @@
         <PackageReference Include="MongoDB.Driver" Version="3.9.0" />
         <PackageReference Include="Snappier" Version="1.3.1" />
         <PackageReference Include="SharpCompress" Version="1.0.0" />
-        <PackageReference Include="Meshmakers.Octo.ConstructionKit.Models.System" Version="$(OctoVersion)" />
-        <PackageReference Include="Meshmakers.Octo.Runtime.Contracts.MongoDb" Version="$(OctoVersion)" />
+        <PackageReference Include="Meshmakers.Octo.ConstructionKit.Models.System" Version="$(OctoCoreLibVersion)" />
+        <PackageReference Include="Meshmakers.Octo.Runtime.Contracts.MongoDb" Version="$(OctoCoreLibVersion)" />
     </ItemGroup>
 
     <ItemGroup>
