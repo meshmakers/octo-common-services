@@ -259,6 +259,15 @@ public abstract class DefaultConfigurationCreatorServiceStandardized : DefaultCo
 
         // start the tenant
         await StartTenantAsyncInternal(tenantContext, previousSchemaVersions).ConfigureAwait(false);
+
+        // Phase 2 of the platform-services initiative — Enable runs the same
+        // tenant-online refresh hook that Base.SetupAsync invokes on attach / restore.
+        // Concept §8.1: "fires on Enable too (at the tail of the Enable transaction)".
+        // The cost of the second call (Setup → here) is negligible because the hook is
+        // expected to be idempotent (force-re-apply of seed entities), and closing the
+        // gap where Enable hangs between CK import and tenant start is worth more than
+        // saving one no-op call on the Enable path.
+        await RefreshTenantStateAsync(tenantId).ConfigureAwait(false);
     }
 
     /// <inheritdoc />

@@ -28,6 +28,43 @@ public class DefaultConfigurationCreatorServiceStandardizedTests
     private readonly IBlueprintService _blueprintService = A.Fake<IBlueprintService>();
 
     [Fact]
+    public async Task RefreshHook_FiresWhen_DeferTenantStartFalse()
+    {
+        // Arrange — DeferTenantStart=false simulates the lifecycle-event path
+        // (attach / restore / PosCreate / PosUpdate / manual Enable). The base's
+        // SetupAsync must invoke the hook after SetupTenantAsync completes.
+        var sut = new TestCreator(_systemContext, _commandClient,
+            blueprintService: null, embeddedSources: null, prefix: null);
+        sut.DeferTenantStart = false;
+
+        // Act
+        await sut.PublicSetupAsync("tenant-attach");
+
+        // Assert
+        Assert.Equal(1, sut.RefreshCalls);
+        Assert.Single(sut.RefreshCallTenants);
+        Assert.Equal("tenant-attach", sut.RefreshCallTenants[0]);
+    }
+
+    [Fact]
+    public async Task RefreshHook_SkippedWhen_DeferTenantStartTrue()
+    {
+        // Arrange — DeferTenantStart=true simulates the cold-start initialization
+        // loop. The refresh hook must NOT fire so a service that uses it for
+        // force-re-apply work does not hammer every tenant on every pod restart.
+        var sut = new TestCreator(_systemContext, _commandClient,
+            blueprintService: null, embeddedSources: null, prefix: null);
+        sut.DeferTenantStart = true;
+
+        // Act
+        await sut.PublicSetupAsync("tenant-cold");
+
+        // Assert
+        Assert.Equal(0, sut.RefreshCalls);
+        Assert.Empty(sut.RefreshCallTenants);
+    }
+
+    [Fact]
     public async Task NoBlueprintService_IsNoOp()
     {
         // Arrange — service that opted into a prefix but did NOT supply the blueprint engine
@@ -234,10 +271,24 @@ public class DefaultConfigurationCreatorServiceStandardizedTests
 
         public List<(string TenantId, BlueprintId blueprintId, OperationResult result)> FailedHookCalls { get; } = new();
 
+        public int RefreshCalls { get; private set; }
+        public List<string> RefreshCallTenants { get; } = new();
+
         protected override string? ServiceManagedBlueprintPrefix => _prefix;
 
         public Task PublicApplyAsync(string tenantId, bool throwOnFailure) =>
             ApplyServiceManagedBlueprintsAsync(tenantId, throwOnFailure);
+
+        public Task PublicSetupAsync(string tenantId) => SetupAsync(tenantId);
+
+        protected override Task SetupTenantAsync(string tenantId) => Task.CompletedTask;
+
+        protected override Task RefreshTenantStateAsync(string tenantId)
+        {
+            RefreshCalls++;
+            RefreshCallTenants.Add(tenantId);
+            return Task.CompletedTask;
+        }
 
         protected override Task OnServiceManagedBlueprintApplyFailedAsync(
             string tenantId, BlueprintId blueprintId, OperationResult operationResult, CancellationToken cancellationToken)
