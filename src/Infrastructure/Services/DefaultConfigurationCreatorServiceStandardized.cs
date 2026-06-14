@@ -39,8 +39,6 @@ public abstract class DefaultConfigurationCreatorServiceStandardized : DefaultCo
     private readonly string _identityDataVersionKey;
     private readonly int _expectedIdentityDataVersion;
     private readonly FailedTenantRegistry? _failedTenantRegistry;
-    private readonly IBlueprintService? _blueprintService;
-    private readonly IEnumerable<IBlueprintEmbeddedSource>? _embeddedBlueprintSources;
     private readonly List<string> _deferredStartTenantIds = new();
     private readonly List<string> _deferredIdentityDataTenantIds = new();
     private readonly HashSet<string> _pendingIdentityDataTenantIds = new();
@@ -84,7 +82,7 @@ public abstract class DefaultConfigurationCreatorServiceStandardized : DefaultCo
         FailedTenantRegistry? failedTenantRegistry = null,
         IBlueprintService? blueprintService = null,
         IEnumerable<IBlueprintEmbeddedSource>? embeddedBlueprintSources = null)
-        : base(logger)
+        : base(logger, blueprintService, embeddedBlueprintSources)
     {
         _logger = logger;
         _systemContext = systemContext;
@@ -97,126 +95,14 @@ public abstract class DefaultConfigurationCreatorServiceStandardized : DefaultCo
         _identityDataVersionKey = identityDataVersionKey;
         _expectedIdentityDataVersion = expectedIdentityDataVersion;
         _failedTenantRegistry = failedTenantRegistry;
-        _blueprintService = blueprintService;
-        _embeddedBlueprintSources = embeddedBlueprintSources;
     }
 
-    /// <summary>
-    ///     Prefix used by the default <see cref="IsServiceManagedBlueprint"/> implementation to recognise
-    ///     embedded blueprints this service owns. Override (or set in the derived class via the
-    ///     property syntax <c>protected override string? ServiceManagedBlueprintPrefix =&gt; "System.X.";</c>)
-    ///     to opt into the service-managed blueprint pattern that auto-applies on tenant Enable and
-    ///     startup. The trailing dot keeps the match anchored so unrelated names do not leak in
-    ///     — e.g. setting <c>"System.Communication."</c> matches <c>System.Communication.Release-1.5.0</c>
-    ///     but not a future <c>System.CommunicationOps-1.0.0</c>.
-    /// </summary>
-    /// <remarks>
-    ///     Set to <c>null</c> by default. When null and <see cref="IsServiceManagedBlueprint"/> is not
-    ///     overridden, <see cref="ApplyServiceManagedBlueprintsAsync"/> finds no candidates and the
-    ///     loop is a no-op — the safe default for services that do not own blueprints.
-    /// </remarks>
-    protected virtual string? ServiceManagedBlueprintPrefix => null;
-
-    /// <summary>
-    ///     Decides whether a given embedded blueprint is owned by this service and therefore eligible
-    ///     for auto-apply by <see cref="ApplyServiceManagedBlueprintsAsync"/>. The default implementation
-    ///     matches when <paramref name="blueprintId"/>'s <see cref="BlueprintId.Name"/> starts with
-    ///     <see cref="ServiceManagedBlueprintPrefix"/> (ordinal compare). Override when the service
-    ///     also owns one or more blueprints outside its prefix — e.g. Admin Panel uses
-    ///     <c>System.UI.</c> as its prefix but additionally owns the cross-cluster
-    ///     <c>System.TenantMode</c> blueprint that does not fit the namespace.
-    /// </summary>
-    protected virtual bool IsServiceManagedBlueprint(BlueprintId blueprintId)
-    {
-        return !string.IsNullOrEmpty(ServiceManagedBlueprintPrefix)
-               && blueprintId.Name.StartsWith(ServiceManagedBlueprintPrefix, StringComparison.Ordinal);
-    }
-
-    /// <summary>
-    ///     Applies (or re-applies) every embedded blueprint matching <see cref="IsServiceManagedBlueprint"/>,
-    ///     picking the newest registered version per blueprint name. Each blueprint's <c>requires:</c>
-    ///     block decides whether it actually applies to the given tenant — non-matching blueprints
-    ///     return <see cref="BlueprintApplicationResult.WasSkipped"/>=true, which is logged at debug.
-    /// </summary>
-    /// <param name="tenantId">Target tenant.</param>
-    /// <param name="throwOnFailure">
-    ///     When true (the <c>Enable</c> path), throws <see cref="InitializationException"/> on the first
-    ///     failed blueprint apply. When false (the per-tenant startup path), failures are logged and
-    ///     reported via <see cref="OnServiceManagedBlueprintApplyFailedAsync"/> but do not stop other
-    ///     blueprints in the same iteration — startup continues so the tenant can still serve traffic
-    ///     on whichever blueprint version it already has.
-    /// </param>
-    /// <param name="cancellationToken">Cancellation token forwarded to <see cref="IBlueprintService.ApplyBlueprintAsync"/>.</param>
-    /// <remarks>
-    ///     If <see cref="IBlueprintService"/> or the embedded source catalog were not supplied to the
-    ///     constructor, this method is a silent no-op. Subclasses that opt in via
-    ///     <see cref="ServiceManagedBlueprintPrefix"/> must therefore also pass both dependencies through
-    ///     the base constructor or the apply loop will never fire.
-    /// </remarks>
-    protected async Task ApplyServiceManagedBlueprintsAsync(
-        string tenantId,
-        bool throwOnFailure,
-        CancellationToken cancellationToken = default)
-    {
-        if (_blueprintService == null || _embeddedBlueprintSources == null)
-        {
-            return;
-        }
-
-        var blueprintsByName = _embeddedBlueprintSources
-            .Where(s => IsServiceManagedBlueprint(s.BlueprintId))
-            .GroupBy(s => s.BlueprintId.Name, StringComparer.Ordinal);
-
-        foreach (var grouping in blueprintsByName)
-        {
-            var latest = grouping
-                .OrderByDescending(s => s.BlueprintId.Version)
-                .First();
-
-            var result = await _blueprintService
-                .ApplyBlueprintAsync(tenantId, latest.BlueprintId, cancellationToken: cancellationToken)
-                .ConfigureAwait(false);
-
-            if (result.IsSuccess)
-            {
-                if (result.WasSkipped)
-                {
-                    _logger.LogDebug(
-                        "Service-managed blueprint {BlueprintId} skipped for tenant {TenantId}: {Reason}",
-                        latest.BlueprintId.FullName, tenantId, result.SkipReason);
-                }
-                continue;
-            }
-
-            if (throwOnFailure)
-            {
-                throw InitializationException.ImportCkModelFailed(tenantId,
-                    result.OperationResult.GetMessages());
-            }
-
-            _logger.LogError(
-                "Failed to auto-apply service-managed blueprint {BlueprintId} on tenant {TenantId}: {Messages}",
-                latest.BlueprintId.FullName, tenantId,
-                string.Join("; ", result.OperationResult.GetMessages()));
-
-            await OnServiceManagedBlueprintApplyFailedAsync(
-                    tenantId, latest.BlueprintId, result.OperationResult, cancellationToken)
-                .ConfigureAwait(false);
-        }
-    }
-
-    /// <summary>
-    ///     Hook for service-specific reporting when a service-managed blueprint auto-apply fails on
-    ///     the startup path (<c>throwOnFailure: false</c>). Default no-op — services that need to surface
-    ///     the failure to operators (e.g. via a runtime event log) override this hook. Not called on
-    ///     the Enable path because the exception thrown by <see cref="ApplyServiceManagedBlueprintsAsync"/>
-    ///     already aborts the Enable transaction.
-    /// </summary>
-    protected virtual Task OnServiceManagedBlueprintApplyFailedAsync(
-        string tenantId,
-        BlueprintId blueprintId,
-        OperationResult operationResult,
-        CancellationToken cancellationToken) => Task.CompletedTask;
+    // Service-managed blueprint apply (ServiceManagedBlueprintPrefix,
+    // IsServiceManagedBlueprint, ApplyServiceManagedBlueprintsAsync,
+    // OnServiceManagedBlueprintApplyFailedAsync) lifted down to
+    // DefaultConfigurationCreatorServiceBase in Phase 3 / PR #1 so services on Base
+    // (Identity) can use the same pattern without first migrating to Standardized.
+    // The contract is unchanged for every Standardized subclass.
 
     /// <inheritdoc />
     public async Task EnableAsync(string tenantId)
