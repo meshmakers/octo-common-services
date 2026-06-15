@@ -1,0 +1,28 @@
+$schema: https://schemas.meshmakers.cloud/blueprint-meta.schema.json
+blueprintId: System.Notification.Bootstrap-1.0.0
+description: |
+  Service-managed Notification tenant seed — system + every child tenant. Seeds
+  the per-tenant MailNotificationConfiguration (defaulted to disabled) and the
+  three default NotificationTemplate entities consumed by Identity service:
+  Welcome_Email_Template, Welcome_Email_With_No_Password_Template, and
+  Reset_Password_Email_Template.
+
+  Migrated out of `DefaultConfigurationCreatorService.CreateTenantConfiguration`
+  as a follow-up to Phase 3 Identity-as-blueprint. The Identity service auto-
+  applies this blueprint via `IsServiceManagedBlueprint` matching both the
+  `System.Identity.` and `System.Notification.` prefixes; no other service owns
+  the apply call (Bot / Communication-Controller register `AddOctoNotification()`
+  but do not seed templates).
+
+  The mail templates contain runtime placeholders `${Username}`,
+  `${IdentityServerUrl}`, `${ConfirmToken}` that are substituted at email-send
+  time by `UserEmailInteractionService`, not at blueprint apply. They are
+  registered as self-referential blueprint variables in
+  `IdentityBlueprintVariableProvider` so `BlueprintVariableInterpolator` resolves
+  them silently to themselves instead of emitting "unknown variable" warnings on
+  every apply.
+
+ckModelDependencies:
+  - System.Notification-[2.1.0,3.0)
+
+seedDataPath: seed-data/entities.yaml

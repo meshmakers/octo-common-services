@@ -19,6 +19,7 @@ public static class ServiceCollectionExtensions
         this IServiceCollection services)
     {
         services.AddCkModelSystemNotificationV2();
+        services.AddBlueprintSystemNotificationBootstrapV1();
         services.AddTransient<IEventRepository, EventRepository>();
         services.AddScoped<INotificationService, NotificationService>();
         services.AddScoped<IMarkdownRenderService, MarkdownRenderService>();

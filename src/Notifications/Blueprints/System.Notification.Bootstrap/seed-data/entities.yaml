@@ -1,0 +1,91 @@
+$schema: https://schemas.meshmakers.cloud/runtime-model.schema.json
+dependencies:
+  - System.Notification-2.1.0
+entities:
+
+  # ===========================================================================
+  # MailNotificationConfiguration (680…01) — per-tenant mail toggle. Default
+  # disabled; operators flip EnableEmailNotifications via the configuration API
+  # once SMTP credentials are wired. RedirectAfterEmailInteractionUrl is left
+  # optional (omitted) — set by operators per tenant when a custom landing page
+  # is required.
+  # ===========================================================================
+
+  - rtId: '680000000000000000000001'
+    ckTypeId: System.Notification/MailNotificationConfiguration
+    rtWellKnownName: MailNotificationConfiguration
+    attributes:
+      - id: System.Notification/EnableEmailNotifications
+        value: false
+
+  # ===========================================================================
+  # NotificationTemplate (680…10..12) — three default email templates consumed
+  # by `UserEmailInteractionService`. Subject + Body carry runtime `${Username}`,
+  # `${IdentityServerUrl}`, `${ConfirmToken}` placeholders that the email-send
+  # path substitutes per recipient. They are registered as self-referential
+  # blueprint variables so apply-time interpolation is silent.
+  # NotificationType=1 (EMail), RenderingType=0 (Plain).
+  # ===========================================================================
+
+  - rtId: '680000000000000000000010'
+    ckTypeId: System.Notification/NotificationTemplate
+    rtWellKnownName: Welcome_Email_Template
+    attributes:
+      - id: System.Notification/NotificationType
+        value: 1
+      - id: System.Notification/RenderingType
+        value: 0
+      - id: System.Notification/SubjectTemplate
+        value: 'Confirm your E-Mail (OctoMesh)'
+      - id: System.Notification/BodyTemplate
+        value: |-
+          Welcome to OctoMesh, ${Username}!
+
+          you started leveraging the transformative power of OctoMesh to architect and manage robust data mesh solutions.
+
+          Please click [here](${IdentityServerUrl}account/confirmation?id=${ConfirmToken}) to confirm you E-Mail address.
+
+          Thanks in advance,
+          OctoMesh Identity Services
+
+  - rtId: '680000000000000000000011'
+    ckTypeId: System.Notification/NotificationTemplate
+    rtWellKnownName: Welcome_Email_With_No_Password_Template
+    attributes:
+      - id: System.Notification/NotificationType
+        value: 1
+      - id: System.Notification/RenderingType
+        value: 0
+      - id: System.Notification/SubjectTemplate
+        value: 'Confirm your E-Mail (OctoMesh)'
+      - id: System.Notification/BodyTemplate
+        value: |-
+          Welcome to OctoMesh, ${Username}!
+
+          you started leveraging the transformative power of OctoMesh to architect and manage robust data mesh solutions.
+
+          Please click [here](${IdentityServerUrl}account/confirmation?id=${ConfirmToken}) to confirm you E-Mail address and set your password to get access.
+
+          Thanks in advance,
+          OctoMesh Identity Services
+
+  - rtId: '680000000000000000000012'
+    ckTypeId: System.Notification/NotificationTemplate
+    rtWellKnownName: Reset_Password_Email_Template
+    attributes:
+      - id: System.Notification/NotificationType
+        value: 1
+      - id: System.Notification/RenderingType
+        value: 0
+      - id: System.Notification/SubjectTemplate
+        value: 'Reset password request (OctoMesh)'
+      - id: System.Notification/BodyTemplate
+        value: |-
+          Dear ${Username},
+
+          somebody requested to reset the password of your account: ${Username}
+
+          Please click [here](${IdentityServerUrl}manage/resetPassword?id=${ConfirmToken}) to reset your password.
+
+          Thanks in advance,
+          OctoMesh Identity Services
