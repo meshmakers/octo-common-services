@@ -2,6 +2,12 @@
 attributes:
   - id: CssStyle
     description: The css style for a rendered html text
-    valueType: String 
- 
-
+    valueType: String
+  - id: EnableEmailNotifications
+    description: Enable email notifications
+    valueType: Boolean
+    defaultValues:
+      - false
+  - id: RedirectAfterEmailInteractionUrl
+    description: Redirect after email interaction URL
+    valueType: String

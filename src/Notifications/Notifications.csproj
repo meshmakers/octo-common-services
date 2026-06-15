@@ -31,6 +31,7 @@
 
     <ItemGroup>
         <ConstructionKitFolder Visible="false" Include="ConstructionKit"/>
+        <BlueprintFolder Visible="false" Include="$(MSBuildProjectDirectory)\Blueprints"/>
     </ItemGroup>
 
     <ItemGroup>
