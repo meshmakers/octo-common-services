@@ -16,8 +16,11 @@ namespace Meshmakers.Octo.Services.Observability;
 ///   <item><c>X-Octo-MongoDb-Command-Count</c> — number of commands issued</item>
 /// </list>
 /// The accumulator is opened once per HTTP request and flows through <c>AsyncLocal</c> into
-/// the MongoDB driver's command-event callbacks, so the headers reflect the real work done
-/// for this request — regardless of whether the inner pipeline is GraphQL, REST, or a mix.
+/// the MongoDB driver's command-event callbacks. Header values are captured at the
+/// <c>Response.OnStarting</c> hook, so they cover every Mongo command that completes before
+/// the response body starts flushing — i.e. work issued during the resolver / controller
+/// pipeline, but not late writes performed after the response has been sent (which is unusual
+/// but possible for a handler that does post-response cleanup).
 /// </summary>
 public sealed class MongoCommandSurfaceMiddleware(RequestDelegate next)
 {
@@ -51,11 +54,13 @@ public sealed class MongoCommandSurfaceMiddleware(RequestDelegate next)
 }
 
 /// <summary>
-/// Auto-registers <see cref="MongoCommandSurfaceMiddleware"/> at the start of the ASP.NET Core
-/// pipeline when <c>AddObservability()</c> is called, so consuming services don't need to
-/// remember to wire it up explicitly. Placed near the top of the pipeline (but after exception
-/// handling) so it captures Mongo work performed by every downstream middleware including
-/// authentication and authorization.
+/// Auto-registers <see cref="MongoCommandSurfaceMiddleware"/> in the ASP.NET Core pipeline when
+/// <c>AddObservability()</c> is called, so consuming services don't need to remember to wire it
+/// up explicitly. The middleware runs early in the pipeline so it covers Mongo work performed
+/// by downstream middleware including authentication and authorization. Note that
+/// <see cref="IStartupFilter"/> does not guarantee a specific position relative to other
+/// pipeline middleware or other startup filters — consumers that need a particular ordering
+/// should register their own middleware explicitly.
 /// </summary>
 internal sealed class MongoCommandSurfaceStartupFilter : IStartupFilter
 {
