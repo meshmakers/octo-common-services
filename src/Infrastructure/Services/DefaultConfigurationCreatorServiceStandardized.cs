@@ -405,8 +405,15 @@ public abstract class DefaultConfigurationCreatorServiceStandardized : DefaultCo
     ///     <see cref="StartDeferredTenantsAsync"/>, <see cref="RetryFailedTenantsAsync"/>)
     ///     picks the tenant up once the Identity CK has been imported.
     /// </summary>
-    /// <remarks>Exposed as <c>protected virtual</c> for unit tests; not part of a public extension point yet.</remarks>
-    protected virtual async Task CheckSetupIdentityDataAsync(IOctoAdminSession session, ITenantContext tenantContext)
+    /// <remarks>
+    ///     <c>protected</c> (non-virtual) so a test subclass can invoke it via a thin public
+    ///     wrapper without our advertising an override seam. The orchestration semantics
+    ///     (version-key gate, error mapping, response handling) are intentionally not
+    ///     pluggable — a subclass that wants different behaviour should override
+    ///     <see cref="CreateClients"/> / <see cref="CreateApiScopes"/> / <see cref="CreateApiResources"/>
+    ///     instead.
+    /// </remarks>
+    protected async Task CheckSetupIdentityDataAsync(IOctoAdminSession session, ITenantContext tenantContext)
     {
         var isSystemTenant = tenantContext.TenantId == _systemContext.TenantId;
 
@@ -457,12 +464,9 @@ public abstract class DefaultConfigurationCreatorServiceStandardized : DefaultCo
             // FailedTenantHasNoIdentityCk. Throwing routes the tenant through the existing
             // exception-handling path (SetupTenantAsync / StartDeferredTenantsAsync /
             // RetryFailedTenantsAsync) which buffers it in _pendingIdentityDataTenantIds and
-            // retries periodically until the Identity CK becomes available. Without the
-            // throw the tenant was silently skipped and the service-owned identity data
-            // (e.g. MCP's OAuth clients) was never created.
-            _logger.LogWarning(
-                "Tenant '{TenantId}' has no Identity CK yet — identity data setup will be retried in background",
-                tenantContext.TenantId);
+            // retries periodically until the Identity CK becomes available. The callers
+            // already LogWarning the catch — no second warning here to avoid duplicate
+            // log entries on every retry tick.
             throw new InvalidOperationException(
                 $"Identity CK not yet available for tenant '{tenantContext.TenantId}'; retry pending");
         }
