@@ -1,4 +1,5 @@
 ﻿using System;
+using Microsoft.AspNetCore.Hosting;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
@@ -49,6 +50,11 @@ internal class ObservabilityBuilder(
                 tracing.AddOtlpExporter(otlpOptions => { otlpOptions.Endpoint = new Uri(tracingOtlpEndpoint); });
             }
         });
+
+        // Surface per-request MongoDB cost back to the caller as response headers — paired
+        // with the GraphQL extension listener in asset-repo-services for the same data on the
+        // GraphQL surface.
+        Services.AddTransient<IStartupFilter, MongoCommandSurfaceStartupFilter>();
 
         Services.AddHostedService<StartupBackgroundService>();
         Services.AddSingleton<StartupHealthCheck>();
