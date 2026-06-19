@@ -30,9 +30,13 @@ internal class ObservabilityBuilder(
         otel.WithMetrics(metrics => metrics
             // Metrics provider from OpenTelemetry
             .AddAspNetCoreInstrumentation()
-            // Metrics provides by ASP.NET Core in .NET 8
+            // Metrics provided by ASP.NET Core in .NET 8
             .AddMeter("Microsoft.AspNetCore.Hosting")
             .AddMeter("Microsoft.AspNetCore.Server.Kestrel")
+            // MongoDB command observability — emitted by MongoCommandObservability in
+            // octo-construction-kit-engine-mongodb. Meter name kept as a string to avoid
+            // cross-layer reference into the MongoDB engine.
+            .AddMeter("Meshmakers.Octo.MongoDb")
             .AddPrometheusExporter());
 
         // Add Tracing for ASP.NET Core and our custom ActivitySource and export to Jaeger
