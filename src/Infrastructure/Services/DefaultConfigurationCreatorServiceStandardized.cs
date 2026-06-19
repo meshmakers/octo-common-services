@@ -397,7 +397,16 @@ public abstract class DefaultConfigurationCreatorServiceStandardized : DefaultCo
         return Enumerable.Empty<CkModelIdVersionRange>();
     }
 
-    private async Task CheckSetupIdentityDataAsync(IOctoAdminSession session, ITenantContext tenantContext)
+    /// <summary>
+    ///     Sends the service-owned API scopes / resources / clients to the Identity service
+    ///     via the distribution event hub for the given tenant. Throws when the Identity
+    ///     service answers with <see cref="CreateIdentityDataResult.FailedTenantHasNoIdentityCk"/>
+    ///     so the caller's retry path (<see cref="SetupTenantAsync"/>,
+    ///     <see cref="StartDeferredTenantsAsync"/>, <see cref="RetryFailedTenantsAsync"/>)
+    ///     picks the tenant up once the Identity CK has been imported.
+    /// </summary>
+    /// <remarks>Exposed as <c>protected virtual</c> for unit tests; not part of a public extension point yet.</remarks>
+    protected virtual async Task CheckSetupIdentityDataAsync(IOctoAdminSession session, ITenantContext tenantContext)
     {
         var isSystemTenant = tenantContext.TenantId == _systemContext.TenantId;
 
@@ -441,9 +450,21 @@ public abstract class DefaultConfigurationCreatorServiceStandardized : DefaultCo
         }
         else if (r.Response == CreateIdentityDataResult.FailedTenantHasNoIdentityCk)
         {
-            _logger.LogInformation(
-                "The tenant '{TenantId}' has no identity CK, skipped identity data creation",
+            // AB#4208 — at tenant create / cold start the Identity service and every other
+            // service receive PosCreateTenant in parallel. When this service's
+            // CheckSetupIdentityDataAsync wins the race, Identity has not yet imported the
+            // Identity CK into the new tenant's database and the consumer answers with
+            // FailedTenantHasNoIdentityCk. Throwing routes the tenant through the existing
+            // exception-handling path (SetupTenantAsync / StartDeferredTenantsAsync /
+            // RetryFailedTenantsAsync) which buffers it in _pendingIdentityDataTenantIds and
+            // retries periodically until the Identity CK becomes available. Without the
+            // throw the tenant was silently skipped and the service-owned identity data
+            // (e.g. MCP's OAuth clients) was never created.
+            _logger.LogWarning(
+                "Tenant '{TenantId}' has no Identity CK yet — identity data setup will be retried in background",
                 tenantContext.TenantId);
+            throw new InvalidOperationException(
+                $"Identity CK not yet available for tenant '{tenantContext.TenantId}'; retry pending");
         }
         else
         {

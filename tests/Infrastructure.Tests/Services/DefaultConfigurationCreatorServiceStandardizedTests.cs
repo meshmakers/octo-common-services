@@ -219,6 +219,90 @@ public class DefaultConfigurationCreatorServiceStandardizedTests
             c => c.blueprintId.FullName == "System.Test.Bar-1.0.0");
     }
 
+    // ---------- AB#4208: FailedTenantHasNoIdentityCk must be retriable ----------
+
+    [Fact]
+    public async Task CheckSetupIdentity_ChildTenant_FailedTenantHasNoIdentityCk_Throws()
+    {
+        // Arrange — the Identity service has not yet imported the Identity CK into the
+        // child tenant when the consumer is asked to create identity data, so it answers
+        // with FailedTenantHasNoIdentityCk. The standardized creator must throw so the
+        // outer SetupTenantAsync / RetryFailedTenantsAsync path buffers the tenant for
+        // background retry instead of silently dropping it (see AB#4208).
+        StubCreateIdentityDataResponse(CreateIdentityDataResult.FailedTenantHasNoIdentityCk);
+        A.CallTo(() => _systemContext.TenantId).Returns("octosystem");
+
+        var session = A.Fake<Meshmakers.Octo.Runtime.Contracts.MongoDb.Repositories.IOctoAdminSession>();
+        var tenantContext = A.Fake<ITenantContext>();
+        A.CallTo(() => tenantContext.TenantId).Returns("child-tenant");
+
+        var sut = new TestCreator(_systemContext, _commandClient,
+            blueprintService: null, embeddedSources: null, prefix: null);
+
+        // Act + Assert
+        await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            sut.PublicCheckSetupIdentityDataAsync(session, tenantContext));
+    }
+
+    [Fact]
+    public async Task CheckSetupIdentity_ChildTenant_Success_DoesNotThrow()
+    {
+        // Positive control — the Success path must remain a normal return so a healthy
+        // tenant is not put on the retry list.
+        StubCreateIdentityDataResponse(CreateIdentityDataResult.Success);
+        A.CallTo(() => _systemContext.TenantId).Returns("octosystem");
+
+        var session = A.Fake<Meshmakers.Octo.Runtime.Contracts.MongoDb.Repositories.IOctoAdminSession>();
+        var tenantContext = A.Fake<ITenantContext>();
+        A.CallTo(() => tenantContext.TenantId).Returns("child-tenant");
+
+        var sut = new TestCreator(_systemContext, _commandClient,
+            blueprintService: null, embeddedSources: null, prefix: null);
+
+        // Act — must complete without throwing
+        await sut.PublicCheckSetupIdentityDataAsync(session, tenantContext);
+    }
+
+    [Fact]
+    public async Task CheckSetupIdentity_SystemTenant_FailedTenantHasNoIdentityCk_Throws()
+    {
+        // Same race can happen for the system tenant itself on a cold-start where the
+        // Identity service has not yet finished its own bootstrap. Throwing keeps the
+        // behaviour symmetrical so the system tenant also lands on the retry list.
+        StubCreateIdentityDataResponse(CreateIdentityDataResult.FailedTenantHasNoIdentityCk);
+        A.CallTo(() => _systemContext.TenantId).Returns("octosystem");
+
+        // Configure system-tenant version lookup to return a "not yet provisioned" value so
+        // CheckSetupIdentityDataAsync does NOT early-return before sending the command.
+        A.CallTo(() => _systemContext.GetConfigurationAsync(
+                A<Meshmakers.Octo.Runtime.Contracts.MongoDb.Repositories.IOctoAdminSession>._,
+                A<string>._,
+                A<DefaultConfigurationVersion>._))
+            .Returns(Task.FromResult<DefaultConfigurationVersion?>(
+                new DefaultConfigurationVersion { Version = -1 }));
+
+        var session = A.Fake<Meshmakers.Octo.Runtime.Contracts.MongoDb.Repositories.IOctoAdminSession>();
+        var tenantContext = A.Fake<ITenantContext>();
+        A.CallTo(() => tenantContext.TenantId).Returns("octosystem");
+
+        var sut = new TestCreator(_systemContext, _commandClient,
+            blueprintService: null, embeddedSources: null, prefix: null);
+
+        await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            sut.PublicCheckSetupIdentityDataAsync(session, tenantContext));
+    }
+
+    private void StubCreateIdentityDataResponse(CreateIdentityDataResult result)
+    {
+        A.CallTo(() => _commandClient.GetResponseWithRetry<EnumCommandResponse<CreateIdentityDataResult>>(
+                A<CreateIdentityDataCommandRequest>._,
+                A<int>._,
+                A<TimeSpan?>._,
+                A<CancellationToken>._,
+                A<TimeSpan?>._))
+            .Returns(Task.FromResult(new EnumCommandResponse<CreateIdentityDataResult> { Response = result }));
+    }
+
     // ---------- helpers ----------
 
     private void StubApply(bool success)
@@ -280,6 +364,11 @@ public class DefaultConfigurationCreatorServiceStandardizedTests
             ApplyServiceManagedBlueprintsAsync(tenantId, throwOnFailure);
 
         public Task PublicSetupAsync(string tenantId) => SetupAsync(tenantId);
+
+        public Task PublicCheckSetupIdentityDataAsync(
+            Meshmakers.Octo.Runtime.Contracts.MongoDb.Repositories.IOctoAdminSession session,
+            ITenantContext tenantContext) =>
+            CheckSetupIdentityDataAsync(session, tenantContext);
 
         protected override Task SetupTenantAsync(string tenantId) => Task.CompletedTask;
 
