@@ -101,6 +101,7 @@ stages:
               sshKeySecureFile: '$(SSHPrivateKeyFile)'
           - template: templates/steps/set-version.yml@pipelineTemplates
           - task: DotNetCoreCLI@2
+            retryCountOnTaskFailure: 2
             displayName: 'Restore NuGet packages'
             inputs:
               command: 'restore'
@@ -108,12 +109,14 @@ stages:
               restoreArguments: '--force /p:OctoNugetPrivateServer=$(nugetPrivateServer)'
               noCache: true
           - task: DotNetCoreCLI@2
+            retryCountOnTaskFailure: 2
             displayName: 'Build'
             inputs:
               command: 'build'
               projects: $(SolutionFile)
               arguments: '--configuration $(BuildConfiguration) /p:OctoNugetPrivateServer=$(nugetPrivateServer) /p:OctoPublishCatalog="$(effectivePublishCatalog)" /p:OctoPrivateGitHubApiKey=$(GitHubPAT) /p:OctoPublicGitHubApiKey=$(GitHubPAT)'
           - task: DotNetCoreCLI@2
+            retryCountOnTaskFailure: 2
             displayName: 'Test'
             inputs:
               command: 'test'
