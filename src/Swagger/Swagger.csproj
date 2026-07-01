@@ -12,6 +12,10 @@
     <ItemGroup>
         <PackageReference Include="Asp.Versioning.Mvc.ApiExplorer" Version="10.0.0" />
         <PackageReference Include="Microsoft.AspNetCore.OpenApi" Version="10.0.9" />
+        <!-- Pin transitive Microsoft.OpenApi to 2.7.5: 2.0.0 (pulled in by AspNetCore.OpenApi 10.0.9)
+             is in the vulnerable range of advisory GHSA-v5pm-xwqc-g5wc (>= 2.0.0-preview11, <= 2.7.4);
+             2.7.5 is the first patched release. NuGetAudit fails the build otherwise (warnings as errors). -->
+        <PackageReference Include="Microsoft.OpenApi" Version="2.7.5" />
         <PackageReference Include="Swashbuckle.AspNetCore.SwaggerUI" Version="10.2.1" />
         <PackageReference Include="Meshmakers.Octo.Communication.Contracts" Version="$(OctoCoreLibVersion)" />
     </ItemGroup>
