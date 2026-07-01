@@ -30,6 +30,14 @@ internal class TenantMiddleware(RequestDelegate next)
 
         if (!string.IsNullOrWhiteSpace(tenantId))
         {
+            // Feature lifecycle endpoints (…/enable, …/disable) manage the enabled-state itself
+            // and must never be blocked by the enabled-gate below (otherwise a disabled feature
+            // could never be re-enabled via its own API — the AB#4287 regression).
+            var path = context.Request.Path.Value;
+            var isLifecycleEndpoint = path != null
+                                      && (path.EndsWith("/enable", StringComparison.OrdinalIgnoreCase)
+                                          || path.EndsWith("/disable", StringComparison.OrdinalIgnoreCase));
+
             // Check if the tenant exists
             var tenantRepository = await systemContext.TryFindTenantRepositoryAsync(tenantId).ConfigureAwait(false);
             if (tenantRepository == null)
@@ -39,8 +47,9 @@ internal class TenantMiddleware(RequestDelegate next)
             }
 
             // Check if the service can be enabled, check if the service is enabled for the tenant,
-            // but allow access to system api endpoints
+            // but allow access to system api endpoints and to the feature lifecycle endpoints
             if (configurationService.CanBeEnabled()
+                && !isLifecycleEndpoint
                 && !await configurationService.IsEnabledAsync(tenantId).ConfigureAwait(false))
             {
                 context.Response.StatusCode = StatusCodes.Status403Forbidden;
