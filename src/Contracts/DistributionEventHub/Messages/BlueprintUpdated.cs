@@ -10,7 +10,6 @@ namespace Meshmakers.Octo.Services.Contracts.DistributionEventHub.Messages;
 /// <param name="EntitiesAdded">Entities created during update.</param>
 /// <param name="EntitiesUpdated">Entities updated during update.</param>
 /// <param name="EntitiesDeleted">Entities deleted during update.</param>
-/// <param name="BackupId">Backup created before the update, if any.</param>
 /// <param name="CorrelationId">Correlates the event with the operation.</param>
 /// <param name="Timestamp">When the operation completed.</param>
 public record BlueprintUpdated(
@@ -21,6 +20,5 @@ public record BlueprintUpdated(
     int EntitiesAdded,
     int EntitiesUpdated,
     int EntitiesDeleted,
-    string? BackupId,
     Guid CorrelationId,
     DateTime Timestamp) : EventBase(CorrelationId, Timestamp);
