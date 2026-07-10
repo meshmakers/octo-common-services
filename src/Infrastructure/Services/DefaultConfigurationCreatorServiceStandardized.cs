@@ -7,6 +7,7 @@ using Meshmakers.Octo.Runtime.Contracts.Blueprints;
 using Meshmakers.Octo.Runtime.Contracts.CkModelMigrations;
 using Meshmakers.Octo.Runtime.Contracts.MongoDb;
 using Meshmakers.Octo.Runtime.Contracts.MongoDb.Repositories;
+using Meshmakers.Octo.Runtime.Contracts.MongoDb.TenantLifecycle;
 using Meshmakers.Octo.Services.Contracts.DistributionEventHub.Commands;
 using Meshmakers.Octo.Services.Infrastructure.Migrations;
 
@@ -39,6 +40,7 @@ public abstract class DefaultConfigurationCreatorServiceStandardized : DefaultCo
     private readonly string _identityDataVersionKey;
     private readonly int _expectedIdentityDataVersion;
     private readonly FailedTenantRegistry? _failedTenantRegistry;
+    private readonly ITenantLifecycleStore? _tenantLifecycleStore;
     private readonly List<string> _deferredStartTenantIds = new();
     private readonly List<string> _deferredIdentityDataTenantIds = new();
     private readonly HashSet<string> _pendingIdentityDataTenantIds = new();
@@ -81,7 +83,8 @@ public abstract class DefaultConfigurationCreatorServiceStandardized : DefaultCo
         bool? autoEnable = false,
         FailedTenantRegistry? failedTenantRegistry = null,
         IBlueprintService? blueprintService = null,
-        IEnumerable<IBlueprintEmbeddedSource>? embeddedBlueprintSources = null)
+        IEnumerable<IBlueprintEmbeddedSource>? embeddedBlueprintSources = null,
+        ITenantLifecycleStore? tenantLifecycleStore = null)
         : base(logger, blueprintService, embeddedBlueprintSources)
     {
         _logger = logger;
@@ -95,6 +98,30 @@ public abstract class DefaultConfigurationCreatorServiceStandardized : DefaultCo
         _identityDataVersionKey = identityDataVersionKey;
         _expectedIdentityDataVersion = expectedIdentityDataVersion;
         _failedTenantRegistry = failedTenantRegistry;
+        _tenantLifecycleStore = tenantLifecycleStore;
+    }
+
+    /// <summary>
+    /// Best-effort update of the durable tenant-lifecycle record. A store failure (or the store not being
+    /// wired for this service) must never break tenant setup — the lifecycle record is observability /
+    /// resume metadata, not part of the setup transaction (AB#4348).
+    /// </summary>
+    private async Task TryUpdateLifecycleAsync(string tenantId, Func<ITenantLifecycleStore, Task> operation)
+    {
+        if (_tenantLifecycleStore is null)
+        {
+            return;
+        }
+
+        try
+        {
+            await operation(_tenantLifecycleStore).ConfigureAwait(false);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Tenant lifecycle store update failed for tenant '{TenantId}'; continuing.",
+                tenantId);
+        }
     }
 
     // Service-managed blueprint apply (ServiceManagedBlueprintPrefix,
@@ -241,6 +268,14 @@ public abstract class DefaultConfigurationCreatorServiceStandardized : DefaultCo
         _logger.LogInformation("Setting up default configuration for tenant '{TenantId}'", tenantId);
 
         var tenantContext = await _systemContext.FindTenantContextAsync(tenantId).ConfigureAwait(false);
+
+        // Record that this tenant's setup is in progress. EnsureCreatingAsync inserts a Creating record
+        // only when none exists (or resets a stale Deleting/Failed one) and never downgrades an already
+        // Active tenant, so re-running setup on startup lazily backfills existing tenants as they reach
+        // MarkActiveAsync below (AB#4348).
+        await TryUpdateLifecycleAsync(tenantContext.TenantId,
+            s => s.EnsureCreatingAsync(tenantContext.TenantId, tenantContext.DatabaseName, Guid.Empty))
+            .ConfigureAwait(false);
 
         // Ensure the CK cache is loaded for this tenant before any operations that require it.
         // After a tenant restore, the tenant database exists (with CK models from the backup),
@@ -427,6 +462,11 @@ public abstract class DefaultConfigurationCreatorServiceStandardized : DefaultCo
             if (serviceConfiguration != null &&
                 serviceConfiguration.Version >= _expectedIdentityDataVersion)
             {
+                // Identity data already at the expected version → the tenant is provisioned. Mark it
+                // Active so an already-set-up tenant is durably recorded as ready (AB#4348).
+                await TryUpdateLifecycleAsync(tenantContext.TenantId,
+                    s => s.MarkActiveAsync(tenantContext.TenantId, tenantContext.DatabaseName))
+                    .ConfigureAwait(false);
                 return;
             }
         }
@@ -454,6 +494,13 @@ public abstract class DefaultConfigurationCreatorServiceStandardized : DefaultCo
                     new DefaultConfigurationVersion { Version = _expectedIdentityDataVersion })
                     .ConfigureAwait(false);
             }
+
+            // Identity default configuration (roles/groups/clients) is now seeded — the tenant is usable
+            // (ProvisionCurrentUser will find roles and AllowedTenantsResolver can resolve it). Mark it
+            // Active durably so a restart no longer strands a half-provisioned tenant (AB#4348).
+            await TryUpdateLifecycleAsync(tenantContext.TenantId,
+                s => s.MarkActiveAsync(tenantContext.TenantId, tenantContext.DatabaseName))
+                .ConfigureAwait(false);
         }
         else if (r.Response == CreateIdentityDataResult.FailedTenantHasNoIdentityCk)
         {
@@ -696,6 +743,10 @@ public abstract class DefaultConfigurationCreatorServiceStandardized : DefaultCo
                     tenantId, retryCount);
                 _failedTenantRegistry.Remove(tenantId);
                 await OnTenantRetriesExhaustedAsync(tenantId, retryCount).ConfigureAwait(false);
+                await TryUpdateLifecycleAsync(tenantId,
+                    s => s.MarkFailedAsync(tenantId,
+                        $"Tenant startup gave up after {retryCount} retries; manual intervention required."))
+                    .ConfigureAwait(false);
                 continue;
             }
 
