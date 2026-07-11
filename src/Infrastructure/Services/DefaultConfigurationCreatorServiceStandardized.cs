@@ -41,6 +41,13 @@ public abstract class DefaultConfigurationCreatorServiceStandardized : DefaultCo
     private readonly int _expectedIdentityDataVersion;
     private readonly FailedTenantRegistry? _failedTenantRegistry;
     private readonly ITenantLifecycleStore? _tenantLifecycleStore;
+
+    // Per-instance owner id for the durable reconcile lease, so the Mongo lease is single-flight across
+    // service instances / pods (AB#4348 Phase 2).
+    private readonly string _reconcilerOwnerId = $"{Environment.MachineName}:{Guid.NewGuid():N}";
+    private static readonly TimeSpan ReconcileLeaseDuration = TimeSpan.FromMinutes(2);
+    private const int MaxReconcilePerTick = 50;
+
     private readonly List<string> _deferredStartTenantIds = new();
     private readonly List<string> _deferredIdentityDataTenantIds = new();
     private readonly HashSet<string> _pendingIdentityDataTenantIds = new();
@@ -121,6 +128,87 @@ public abstract class DefaultConfigurationCreatorServiceStandardized : DefaultCo
         {
             _logger.LogWarning(ex, "Tenant lifecycle store update failed for tenant '{TenantId}'; continuing.",
                 tenantId);
+        }
+    }
+
+    /// <summary>
+    /// Durable single-flight reconcile (AB#4348 Phase 2). Repeatedly claims one stalled
+    /// <c>Creating</c> tenant from the persistent lifecycle store (behind a Mongo lease) and drives its
+    /// identity default-configuration setup to completion. On success <see cref="CheckSetupIdentityDataAsync"/>
+    /// marks the tenant Active (Phase 1), which also clears the lease. On failure the lease is left to
+    /// expire so the tenant is retried on a later tick rather than in a tight loop; once the attempt
+    /// budget is exhausted the tenant is marked Failed for an operator. No-op when the store is not wired
+    /// (only the owning service has it).
+    /// </summary>
+    private async Task ReconcileStalledTenantsAsync()
+    {
+        if (_tenantLifecycleStore is null)
+        {
+            return;
+        }
+
+        for (var processed = 0; processed < MaxReconcilePerTick; processed++)
+        {
+            TenantLifecycleRecord? claimed;
+            try
+            {
+                claimed = await _tenantLifecycleStore
+                    .TryClaimForReconcileAsync(_reconcilerOwnerId, ReconcileLeaseDuration)
+                    .ConfigureAwait(false);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Failed to claim a tenant for reconcile; will retry next tick.");
+                return;
+            }
+
+            if (claimed is null)
+            {
+                // Nothing left with a free lease that needs reconciling.
+                break;
+            }
+
+            var tenantId = claimed.TenantId;
+
+            if (claimed.AttemptCount > MaxRetries)
+            {
+                _logger.LogError(
+                    "Giving up on stalled tenant '{TenantId}' after {Attempts} reconcile attempts. " +
+                    "Manual intervention required.", tenantId, claimed.AttemptCount);
+                await TryUpdateLifecycleAsync(tenantId,
+                    s => s.MarkFailedAsync(tenantId,
+                        $"Reconcile gave up after {claimed.AttemptCount} attempts.")).ConfigureAwait(false);
+                continue;
+            }
+
+            try
+            {
+                _logger.LogInformation("Reconciling stalled tenant '{TenantId}' (attempt {Attempt}/{Max})",
+                    tenantId, claimed.AttemptCount, MaxRetries);
+
+                var tenantContext = await _systemContext.FindTenantContextAsync(tenantId).ConfigureAwait(false);
+                using var session = await tenantContext.GetAdminSessionAsync().ConfigureAwait(false);
+                session.StartTransaction();
+                await CheckSetupIdentityDataAsync(session, tenantContext).ConfigureAwait(false);
+                await session.CommitTransactionAsync().ConfigureAwait(false);
+
+                // Success: the tenant is now Active (and its lease cleared) via the Phase 1 hook. Drop it
+                // from the in-memory pending set too, so the legacy retry path stops chasing it.
+                lock (_pendingIdentityDataTenantIds)
+                {
+                    _pendingIdentityDataTenantIds.Remove(tenantId);
+                }
+
+                _logger.LogInformation("Reconcile completed tenant '{TenantId}'", tenantId);
+            }
+            catch (Exception ex)
+            {
+                // Leave the lease to expire (ReconcileLeaseDuration) so the tenant is retried on a later
+                // tick instead of being immediately re-claimed in this same loop.
+                _logger.LogWarning(ex,
+                    "Reconcile attempt for tenant '{TenantId}' failed; it will be retried after the lease expires.",
+                    tenantId);
+            }
         }
     }
 
@@ -725,6 +813,12 @@ public abstract class DefaultConfigurationCreatorServiceStandardized : DefaultCo
                 }
             }
         }
+
+        // Durable reconcile (AB#4348 Phase 2): drive tenants that the persistent lifecycle store still
+        // records as Creating to completion — including ones stranded by a pod restart, which the
+        // in-memory sets above can no longer see. A Mongo lease keeps this single-flight across instances.
+        // Only the owning service (asset-repo) wires the store, so this is a no-op elsewhere.
+        await ReconcileStalledTenantsAsync().ConfigureAwait(false);
 
         if (_failedTenantRegistry == null || !_failedTenantRegistry.HasFailedTenants)
         {
