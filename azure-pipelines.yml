@@ -42,7 +42,7 @@ resources:
       type: github
       name: meshmakers/octo-pipeline-templates
       endpoint: meshmakers-access-token
-      ref: refs/tags/tpl-v0.4.11
+      ref: refs/tags/tpl-v0.5.1
 
 trigger:
   batch: true
@@ -100,6 +100,13 @@ stages:
               sshPassphrase: '$(SSHPassphrase)'
               sshKeySecureFile: '$(SSHPrivateKeyFile)'
           - template: templates/steps/set-version.yml@pipelineTemplates
+          # CK SemVer honesty gate (AB#4420): System.Notification is published
+          # DURING the dotnet build (/p:OctoPublishCatalog), so the gate must
+          # be able to fail first.
+          - template: templates/steps/validate-ck-versions.yml@pipelineTemplates
+            parameters:
+              constructionKitPaths:
+                - 'src/Notifications/ConstructionKit'
           - task: DotNetCoreCLI@2
             retryCountOnTaskFailure: 2
             displayName: 'Restore NuGet packages'
