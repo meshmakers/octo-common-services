@@ -36,6 +36,37 @@ This relaxation is safe for all consumers: the gate only fires when `CanBeEnable
 services with no toggleable feature (e.g. Identity Services) never define `/enable` `/disable`
 tenant routes, so their behaviour is unchanged.
 
+## Tenant Setup — Failure Handling (AB#4690)
+
+`DefaultConfigurationCreatorServiceBase.SetupAsync` is the entry point every service uses to provision a
+tenant (driven by `PosCreateTenant` / `PosUpdateTenant` and by the startup loop). A setup that throws
+used to be logged and forgotten, which left the tenant half-provisioned until the pod restarted — for
+Identity, which owns the roles/groups seed, that meant no administrator could be provisioned at all.
+
+Two mechanisms now prevent that:
+
+**Durable per-service retry.** `SetupAsync` records a failure in `ITenantSetupRetryStore`
+(`octo-construction-kit-engine-mongodb`, keyed by `ServiceId` + tenant) and clears the entry on success.
+`RetryFailedTenantsAsync` — driven every 30 s by `FailedTenantRetryBackgroundService`, which every
+service already registers — claims one pending tenant at a time behind a Mongo lease and re-runs
+`SetupAsync`, up to 10 attempts with a 60 s minimum interval. Wiring is opt-in per service: pass
+`tenantSetupRetryStore` to the base constructor (Identity and Asset-Repo do). Services that do not are
+unchanged, because the whole path is a no-op when the store is null.
+
+> A subclass that overrides `RetryFailedTenantsAsync` **must** call `base.RetryFailedTenantsAsync()` or
+> `RetryPendingTenantSetupsAsync()`, otherwise its queue is never drained.
+> `DefaultConfigurationCreatorServiceStandardized` does this alongside its own reconcile pass.
+
+**`Active` requires a real identity seed.** `CheckSetupIdentityDataAsync` used to mark a tenant Active as
+soon as `CreateIdentityDataCommandRequest` answered `Success`. That consumer only creates ApiScopes,
+ApiResources and Clients — **not roles or groups** — so a tenant whose Identity-side setup never ran was
+recorded as fully provisioned while having zero roles (observed live on staging-1). The consumer now
+answers `CreateIdentityDataResult.SuccessIdentityDataSeedPending` when the tenant has no roles, and the
+creator treats that as a transient not-ready condition: it sets lifecycle phase `IdentityDataPending`
+and throws, so the tenant stays `Creating` and every retry path keeps driving it. The enum value is
+additive — an older producer never sends it, an older consumer falls into its unexpected-result branch,
+which does not mark the tenant provisioned either.
+
 ## Tests
 
 `tests/Infrastructure.Tests` — xUnit + FakeItEasy. `Infrastructure.csproj` exposes internals to this

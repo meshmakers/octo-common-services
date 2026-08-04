@@ -2,6 +2,7 @@ using System.Collections.Concurrent;
 using Meshmakers.Octo.ConstructionKit.Contracts;
 using Meshmakers.Octo.ConstructionKit.Contracts.BlueprintCatalogs;
 using Meshmakers.Octo.Runtime.Contracts.Blueprints;
+using Meshmakers.Octo.Runtime.Contracts.MongoDb.TenantLifecycle;
 using Microsoft.Extensions.Logging;
 
 namespace Meshmakers.Octo.Services.Infrastructure.Services;
@@ -18,13 +19,34 @@ namespace Meshmakers.Octo.Services.Infrastructure.Services;
 public abstract class DefaultConfigurationCreatorServiceBase(
     ILogger<DefaultConfigurationCreatorServiceBase> logger,
     IBlueprintService? blueprintService = null,
-    IEnumerable<IBlueprintEmbeddedSource>? embeddedBlueprintSources = null)
+    IEnumerable<IBlueprintEmbeddedSource>? embeddedBlueprintSources = null,
+    ITenantSetupRetryStore? tenantSetupRetryStore = null)
     : IDefaultConfigurationCreatorService
 {
     private static readonly ConcurrentDictionary<string, bool> TenantsInHandling = new();
 
+    /// <summary>Retry budget for a durably-recorded failed tenant setup before it is left to an operator.</summary>
+    private const int MaxSetupAttempts = 10;
+
+    /// <summary>Tenants claimed per <see cref="RetryFailedTenantsAsync"/> tick.</summary>
+    private const int MaxSetupRetriesPerTick = 10;
+
+    private static readonly TimeSpan SetupRetryLeaseDuration = TimeSpan.FromMinutes(5);
+    private static readonly TimeSpan MinSetupRetryInterval = TimeSpan.FromSeconds(60);
+
+    // Per-instance owner id for the durable retry lease, so it stays single-flight across service
+    // instances / pods even though the creator service itself is transient / scoped (AB#4690).
+    private readonly string _setupRetryOwnerId = $"{Environment.MachineName}:{Guid.NewGuid():N}";
+
     /// <inheritdoc />
     public bool DeferTenantStart { get; set; }
+
+    /// <summary>
+    ///     Identifies this service in the shared <see cref="ITenantSetupRetryStore"/>, so each service
+    ///     retries only its own failed setups. Defaults to the assembly name of the concrete creator, which
+    ///     is stable across restarts and readable in the database; override to pin it explicitly.
+    /// </summary>
+    protected virtual string ServiceId => GetType().Assembly.GetName().Name ?? GetType().FullName!;
 
     public virtual Task InitializeAsync()
     {
@@ -58,16 +80,104 @@ public abstract class DefaultConfigurationCreatorServiceBase(
             {
                 await RefreshTenantStateAsync(tenantId).ConfigureAwait(false);
             }
+
+            // Setup completed — drop any durable retry entry from an earlier failure (AB#4690).
+            await TryUpdateSetupRetryAsync(tenantId, s => s.ClearAsync(ServiceId, tenantId))
+                .ConfigureAwait(false);
         }
         catch (Exception ex)
         {
             logger.LogError(ex, "Setup tenant failed: '{TenantId}'", tenantId);
+
+            // Record the failure durably so RetryFailedTenantsAsync can drive this tenant to completion.
+            // Without it, a tenant whose setup fails once (e.g. its database is briefly unreachable right
+            // after a delete + recreate under the same name) stays half-provisioned until the service is
+            // restarted or an unrelated tenant event happens to arrive (AB#4690).
+            await TryUpdateSetupRetryAsync(tenantId,
+                s => s.RecordFailureAsync(ServiceId, tenantId, ex.Message)).ConfigureAwait(false);
+
             throw;
         }
         finally
         {
             TenantsInHandling.Remove(tenantId, out _);
             logger.LogInformation("Setup tenant handling done: '{TenantId}'", tenantId);
+        }
+    }
+
+    /// <summary>
+    ///     Best-effort update of the durable setup-retry queue. A store failure (or the store not being
+    ///     wired for this service) must never change the outcome of tenant setup — the queue is recovery
+    ///     metadata, not part of the setup itself (AB#4690).
+    /// </summary>
+    private async Task TryUpdateSetupRetryAsync(string tenantId, Func<ITenantSetupRetryStore, Task> operation)
+    {
+        if (tenantSetupRetryStore is null)
+        {
+            return;
+        }
+
+        try
+        {
+            await operation(tenantSetupRetryStore).ConfigureAwait(false);
+        }
+        catch (Exception ex)
+        {
+            logger.LogWarning(ex, "Tenant setup retry store update failed for tenant '{TenantId}'; continuing.",
+                tenantId);
+        }
+    }
+
+    /// <summary>
+    ///     Drives durably-recorded failed tenant setups to completion (AB#4690). Claims one pending tenant
+    ///     of this service at a time behind a Mongo lease and re-runs <see cref="SetupAsync"/>, which clears
+    ///     the entry on success and re-records it on failure. Entries that exhausted
+    ///     <see cref="MaxSetupAttempts"/> are left in place for an operator instead of being retried
+    ///     forever. No-op when the store is not wired.
+    /// </summary>
+    protected async Task RetryPendingTenantSetupsAsync()
+    {
+        if (tenantSetupRetryStore is null)
+        {
+            return;
+        }
+
+        for (var processed = 0; processed < MaxSetupRetriesPerTick; processed++)
+        {
+            TenantSetupRetryRecord? claimed;
+            try
+            {
+                claimed = await tenantSetupRetryStore.TryClaimAsync(ServiceId, _setupRetryOwnerId,
+                    SetupRetryLeaseDuration, MinSetupRetryInterval, MaxSetupAttempts).ConfigureAwait(false);
+            }
+            catch (Exception ex)
+            {
+                logger.LogWarning(ex, "Failed to claim a tenant for setup retry; will retry next tick.");
+                return;
+            }
+
+            if (claimed is null)
+            {
+                // Nothing pending, or everything pending is leased / still inside its retry interval.
+                break;
+            }
+
+            try
+            {
+                logger.LogInformation(
+                    "Retrying failed setup of tenant '{TenantId}' (attempt {Attempt}/{Max}). Last error: {LastError}",
+                    claimed.TenantId, claimed.AttemptCount + 1, MaxSetupAttempts, claimed.LastError);
+
+                await SetupAsync(claimed.TenantId).ConfigureAwait(false);
+            }
+            catch (Exception ex)
+            {
+                // SetupAsync already re-recorded the failure (which also released the lease), so the tenant
+                // is picked up again once the retry interval has passed.
+                logger.LogWarning(ex,
+                    "Setup retry for tenant '{TenantId}' failed; it will be retried after {Interval}.",
+                    claimed.TenantId, MinSetupRetryInterval);
+            }
         }
     }
 
@@ -78,9 +188,14 @@ public abstract class DefaultConfigurationCreatorServiceBase(
     }
 
     /// <inheritdoc />
+    /// <remarks>
+    ///     Overriding implementations MUST call <c>base.RetryFailedTenantsAsync()</c> (or
+    ///     <see cref="RetryPendingTenantSetupsAsync"/> directly), otherwise the durable setup-retry queue is
+    ///     never drained for that service (AB#4690).
+    /// </remarks>
     public virtual Task RetryFailedTenantsAsync()
     {
-        return Task.CompletedTask;
+        return RetryPendingTenantSetupsAsync();
     }
 
     protected abstract Task SetupTenantAsync(string tenantId);

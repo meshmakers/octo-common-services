@@ -91,8 +91,9 @@ public abstract class DefaultConfigurationCreatorServiceStandardized : DefaultCo
         FailedTenantRegistry? failedTenantRegistry = null,
         IBlueprintService? blueprintService = null,
         IEnumerable<IBlueprintEmbeddedSource>? embeddedBlueprintSources = null,
-        ITenantLifecycleStore? tenantLifecycleStore = null)
-        : base(logger, blueprintService, embeddedBlueprintSources)
+        ITenantLifecycleStore? tenantLifecycleStore = null,
+        ITenantSetupRetryStore? tenantSetupRetryStore = null)
+        : base(logger, blueprintService, embeddedBlueprintSources, tenantSetupRetryStore)
     {
         _logger = logger;
         _systemContext = systemContext;
@@ -590,6 +591,23 @@ public abstract class DefaultConfigurationCreatorServiceStandardized : DefaultCo
                 s => s.MarkActiveAsync(tenantContext.TenantId, tenantContext.DatabaseName))
                 .ConfigureAwait(false);
         }
+        else if (r.Response == CreateIdentityDataResult.SuccessIdentityDataSeedPending)
+        {
+            // AB#4690 — the service-owned identity data was written, but the tenant itself still has no
+            // roles: the Identity service's own tenant setup (which installs the roles/groups seed) has not
+            // completed. Marking the tenant Active here is exactly the bug this branch exists to prevent —
+            // it produced tenants sitting at Active with zero roles, where ProvisionCurrentUser can only
+            // ever answer 503. Record the phase and throw, so the tenant stays Creating and every retry path
+            // (SetupTenantAsync, StartDeferredTenantsAsync, RetryFailedTenantsAsync, the reconciler) keeps
+            // driving it until Identity has seeded it.
+            await TryUpdateLifecycleAsync(tenantContext.TenantId,
+                s => s.SetPhaseAsync(tenantContext.TenantId, TenantLifecyclePhase.IdentityDataPending,
+                    "Identity default configuration (roles) is not seeded yet.")).ConfigureAwait(false);
+
+            throw new InvalidOperationException(
+                $"Identity default configuration for tenant '{tenantContext.TenantId}' is not seeded yet " +
+                "(the tenant has no roles); retry pending");
+        }
         else if (r.Response == CreateIdentityDataResult.FailedTenantHasNoIdentityCk)
         {
             // AB#4208 — at tenant create / cold start the Identity service and every other
@@ -819,6 +837,12 @@ public abstract class DefaultConfigurationCreatorServiceStandardized : DefaultCo
         // in-memory sets above can no longer see. A Mongo lease keeps this single-flight across instances.
         // Only the owning service (asset-repo) wires the store, so this is a no-op elsewhere.
         await ReconcileStalledTenantsAsync().ConfigureAwait(false);
+
+        // Durable per-service setup retry (AB#4690). Complements the reconcile above: that one only drives
+        // CheckSetupIdentityDataAsync for tenants the lifecycle store still records as Creating, while this
+        // re-runs the whole SetupTenantAsync for a setup that threw. Both are idempotent and no-ops when the
+        // respective store is not wired.
+        await RetryPendingTenantSetupsAsync().ConfigureAwait(false);
 
         if (_failedTenantRegistry == null || !_failedTenantRegistry.HasFailedTenants)
         {

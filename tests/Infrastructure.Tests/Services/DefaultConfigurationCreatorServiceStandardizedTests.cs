@@ -5,6 +5,7 @@ using Meshmakers.Octo.ConstructionKit.Contracts.BlueprintCatalogs;
 using Meshmakers.Octo.Runtime.Contracts;
 using Meshmakers.Octo.Runtime.Contracts.Blueprints;
 using Meshmakers.Octo.Runtime.Contracts.MongoDb;
+using Meshmakers.Octo.Runtime.Contracts.MongoDb.TenantLifecycle;
 using Meshmakers.Octo.Services.Contracts.DistributionEventHub.Commands;
 using Meshmakers.Octo.Services.Infrastructure;
 using Meshmakers.Octo.Services.Infrastructure.Services;
@@ -245,6 +246,36 @@ public class DefaultConfigurationCreatorServiceStandardizedTests
     }
 
     [Fact]
+    public async Task CheckSetupIdentity_ChildTenant_SeedPending_Throws_AndDoesNotMarkActive()
+    {
+        // Arrange — AB#4690. The Identity consumer created the service-owned identity data but reports that
+        // the tenant itself has no roles yet: its identity default configuration (the
+        // System.Identity.Bootstrap seed) has not run. Treating that as Success is exactly the bug — it
+        // produced tenants recorded as Active with zero roles, where ProvisionCurrentUser can only ever
+        // answer 503. The creator must throw so the tenant stays Creating and keeps being retried, and it
+        // must not mark the tenant Active.
+        StubCreateIdentityDataResponse(CreateIdentityDataResult.SuccessIdentityDataSeedPending);
+        A.CallTo(() => _systemContext.TenantId).Returns("octosystem");
+
+        var lifecycleStore = A.Fake<ITenantLifecycleStore>();
+        var session = A.Fake<Meshmakers.Octo.Runtime.Contracts.MongoDb.Repositories.IOctoAdminSession>();
+        var tenantContext = A.Fake<ITenantContext>();
+        A.CallTo(() => tenantContext.TenantId).Returns("child-tenant");
+
+        var sut = new TestCreator(_systemContext, _commandClient,
+            blueprintService: null, embeddedSources: null, prefix: null, lifecycleStore: lifecycleStore);
+
+        // Act + Assert
+        await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            sut.PublicCheckSetupIdentityDataAsync(session, tenantContext));
+
+        A.CallTo(() => lifecycleStore.MarkActiveAsync(A<string>._, A<string>._, A<CancellationToken>._))
+            .MustNotHaveHappened();
+        A.CallTo(() => lifecycleStore.SetPhaseAsync("child-tenant", TenantLifecyclePhase.IdentityDataPending,
+            A<string>._, A<CancellationToken>._)).MustHaveHappenedOnceExactly();
+    }
+
+    [Fact]
     public async Task CheckSetupIdentity_ChildTenant_Success_DoesNotThrow()
     {
         // Positive control — the Success path must remain a normal return so a healthy
@@ -340,7 +371,8 @@ public class DefaultConfigurationCreatorServiceStandardizedTests
             ICommandClient<CreateIdentityDataCommandRequest> commandClient,
             IBlueprintService? blueprintService,
             IEnumerable<IBlueprintEmbeddedSource>? embeddedSources,
-            string? prefix)
+            string? prefix,
+            ITenantLifecycleStore? lifecycleStore = null)
             : base(
                 NullLogger<DefaultConfigurationCreatorServiceStandardized>.Instance,
                 systemContext,
@@ -348,7 +380,8 @@ public class DefaultConfigurationCreatorServiceStandardizedTests
                 identityDataVersionKey: "test-id-data-version",
                 expectedIdentityDataVersion: 1,
                 blueprintService: blueprintService,
-                embeddedBlueprintSources: embeddedSources)
+                embeddedBlueprintSources: embeddedSources,
+                tenantLifecycleStore: lifecycleStore)
         {
             _prefix = prefix;
         }
