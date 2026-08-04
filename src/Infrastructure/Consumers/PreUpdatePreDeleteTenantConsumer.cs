@@ -53,7 +53,7 @@ internal class PreUpdatePreDeleteTenantConsumer(
         return Task.CompletedTask;
     }
 
-    public Task ConsumeAsync(IDistributedContext<PreDeleteTenant> context)
+    public async Task ConsumeAsync(IDistributedContext<PreDeleteTenant> context)
     {
         logger.LogInformation("Pre delete tenant received: {TenantId}", context.Message.TenantId);
 
@@ -80,7 +80,15 @@ internal class PreUpdatePreDeleteTenantConsumer(
             }
         }
 
+        // Drop this process's cached MongoDB clients for the tenant's database (AB#4690). The delete also
+        // drops the database user, which invalidates the authentication of every connection already open in
+        // those pools — and the driver never re-authenticates an existing connection. Without this, a tenant
+        // re-created under the same name inherits a pool that can only answer MongoDB error 13
+        // ("... requires authentication"), which is what left a re-created tenant unprovisioned until the
+        // pod was restarted. Runs outside the lock (it awaits) and before the record is removed, so the
+        // database name is still resolvable.
+        await systemContext.InvalidateTenantRepositoryClientsAsync(tenantId).ConfigureAwait(false);
+
         logger.LogInformation("Pre delete tenant handling done: '{TenantId}'", context.Message.TenantId);
-        return Task.CompletedTask;
     }
 }

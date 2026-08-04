@@ -2,6 +2,7 @@ using System.Collections.Concurrent;
 using Meshmakers.Common.Shared;
 using Meshmakers.Octo.Common.DistributionEventHub.Consumers;
 using Meshmakers.Octo.ConstructionKit.Contracts.Services;
+using Meshmakers.Octo.Runtime.Contracts.MongoDb;
 using Meshmakers.Octo.Services.Contracts.DistributionEventHub.Messages;
 using Meshmakers.Octo.Services.Infrastructure.Services;
 using Microsoft.Extensions.Logging;
@@ -12,6 +13,7 @@ namespace Meshmakers.Octo.Services.Infrastructure.Consumers;
 internal class PosCreatePosUpdateTenantConsumer(
     ILogger<PosCreatePosUpdateTenantConsumer> logger,
     ICkCacheService ckCacheService,
+    ISystemContext systemContext,
     IDefaultConfigurationCreatorService defaultConfigurationCreatorService)
     : IDistributedConsumer<PosCreateTenant>, IDistributedConsumer<PosUpdateTenant>
 {
@@ -41,6 +43,15 @@ internal class PosCreatePosUpdateTenantConsumer(
             var tenantId = context.Message.TenantId.NormalizeString();
             UnloadCacheIfLoaded(tenantId);
 
+            // Belt and braces for AB#4690: the delete-side invalidation already drops the cached MongoDB
+            // clients of a tenant's database, but a resolve in the short window between that event and the
+            // physical drop could have re-populated the cache with connections authenticated as the
+            // now-dropped user. Dropping them again here — before any setup work touches the database —
+            // makes a re-created tenant independent of that timing. Best-effort: on PosCreateTenant the
+            // tenant record may not be committed yet, in which case the database name cannot be resolved
+            // and the (now durable) setup retry covers the next attempt.
+            await systemContext.InvalidateTenantRepositoryClientsAsync(tenantId).ConfigureAwait(false);
+
             await defaultConfigurationCreatorService.SetupAsync(context.Message.TenantId).ConfigureAwait(false);
         }
         finally
@@ -64,6 +75,15 @@ internal class PosCreatePosUpdateTenantConsumer(
         {
             var tenantId = context.Message.TenantId.NormalizeString();
             UnloadCacheIfLoaded(tenantId);
+
+            // Belt and braces for AB#4690: the delete-side invalidation already drops the cached MongoDB
+            // clients of a tenant's database, but a resolve in the short window between that event and the
+            // physical drop could have re-populated the cache with connections authenticated as the
+            // now-dropped user. Dropping them again here — before any setup work touches the database —
+            // makes a re-created tenant independent of that timing. Best-effort: on PosCreateTenant the
+            // tenant record may not be committed yet, in which case the database name cannot be resolved
+            // and the (now durable) setup retry covers the next attempt.
+            await systemContext.InvalidateTenantRepositoryClientsAsync(tenantId).ConfigureAwait(false);
 
             await defaultConfigurationCreatorService.SetupAsync(context.Message.TenantId).ConfigureAwait(false);
         }

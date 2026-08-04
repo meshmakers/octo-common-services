@@ -45,6 +45,21 @@ Identity, which owns the roles/groups seed, that meant no administrator could be
 
 Two mechanisms now prevent that:
 
+**Stale MongoDB connection pools are dropped with the tenant.** Dropping a tenant drops its database
+user, which invalidates the authentication of every connection already open in this process's cached
+client for that database — and the driver never re-authenticates an existing connection. A tenant
+re-created under the same name would inherit a pool that can only answer MongoDB error 13
+(`"... requires authentication"`), which is the root cause of AB#4690. `PreUpdatePreDeleteTenantConsumer`
+therefore calls `ISystemContext.InvalidateTenantRepositoryClientsAsync` on `PreDeleteTenant` (while the
+tenant record still exists, so the database name resolves), and `PosCreatePosUpdateTenantConsumer` repeats
+it before running setup, which closes the window where a resolve between the two re-populated the cache.
+
+**One broken tenant no longer blocks startup.** `DefaultConfigurationInitializationService` guards each
+child tenant's `SetupAsync` individually: a failure is logged (and durably recorded, see below) and the
+loop continues, instead of aborting and failing the host start for every remaining tenant. The **system**
+tenant is deliberately still fatal — without it nothing works, so a broken instance must not come up
+looking healthy.
+
 **Durable per-service retry.** `SetupAsync` records a failure in `ITenantSetupRetryStore`
 (`octo-construction-kit-engine-mongodb`, keyed by `ServiceId` + tenant) and clears the entry on success.
 `RetryFailedTenantsAsync` — driven every 30 s by `FailedTenantRetryBackgroundService`, which every
