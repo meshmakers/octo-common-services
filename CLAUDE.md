@@ -51,8 +51,13 @@ client for that database — and the driver never re-authenticates an existing c
 re-created under the same name would inherit a pool that can only answer MongoDB error 13
 (`"... requires authentication"`), which is the root cause of AB#4690. `PreUpdatePreDeleteTenantConsumer`
 therefore calls `ISystemContext.InvalidateTenantRepositoryClientsAsync` on `PreDeleteTenant` (while the
-tenant record still exists, so the database name resolves), and `PosCreatePosUpdateTenantConsumer` repeats
-it before running setup, which closes the window where a resolve between the two re-populated the cache.
+tenant record still exists, so the database name resolves), and `PosCreatePosUpdateTenantConsumer`
+repeats it on `PosCreateTenant` before running setup, which closes the window where a resolve between
+the two re-populated the cache. Invalidation **evicts without disposing** (the evicted client may still
+be held by live tenant contexts) and is deliberately **not** called on `PosUpdateTenant`: that event
+fires on every CK model import and drops no database user — the first AB#4690 iteration invalidated
+(and disposed) there, which made every sequential CK batch import (FixAll) fail from the second model
+on with `ObjectDisposedException('CoreServerSessionPool')`.
 
 **One broken tenant no longer blocks startup.** `DefaultConfigurationInitializationService` guards each
 child tenant's `SetupAsync` individually: a failure is logged (and durably recorded, see below) and the

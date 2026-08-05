@@ -76,15 +76,13 @@ internal class PosCreatePosUpdateTenantConsumer(
             var tenantId = context.Message.TenantId.NormalizeString();
             UnloadCacheIfLoaded(tenantId);
 
-            // Belt and braces for AB#4690: the delete-side invalidation already drops the cached MongoDB
-            // clients of a tenant's database, but a resolve in the short window between that event and the
-            // physical drop could have re-populated the cache with connections authenticated as the
-            // now-dropped user. Dropping them again here — before any setup work touches the database —
-            // makes a re-created tenant independent of that timing. Best-effort: on PosCreateTenant the
-            // tenant record may not be committed yet, in which case the database name cannot be resolved
-            // and the (now durable) setup retry covers the next attempt.
-            await systemContext.InvalidateTenantRepositoryClientsAsync(tenantId).ConfigureAwait(false);
-
+            // Deliberately NO InvalidateTenantRepositoryClientsAsync here (unlike PosCreateTenant):
+            // a tenant update drops no database user, so there is nothing to re-authenticate — and
+            // PosUpdateTenant fires on every CK model import, so evicting here would churn a fresh
+            // MongoDB client (new connection pool) per imported model for no benefit. The first
+            // AB#4690 iteration invalidated (and disposed) here, which broke sequential CK batch
+            // imports (FixAll): the event fired by batch step N disposed the client under batch
+            // step N+1 — ObjectDisposedException('CoreServerSessionPool').
             await defaultConfigurationCreatorService.SetupAsync(context.Message.TenantId).ConfigureAwait(false);
         }
         finally
