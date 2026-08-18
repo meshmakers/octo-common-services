@@ -2,6 +2,7 @@ using System.Collections.Concurrent;
 using Meshmakers.Octo.ConstructionKit.Contracts;
 using Meshmakers.Octo.ConstructionKit.Contracts.BlueprintCatalogs;
 using Meshmakers.Octo.Runtime.Contracts.Blueprints;
+using Meshmakers.Octo.Runtime.Contracts.MongoDb;
 using Meshmakers.Octo.Runtime.Contracts.MongoDb.TenantLifecycle;
 using Microsoft.Extensions.Logging;
 
@@ -20,7 +21,8 @@ public abstract class DefaultConfigurationCreatorServiceBase(
     ILogger<DefaultConfigurationCreatorServiceBase> logger,
     IBlueprintService? blueprintService = null,
     IEnumerable<IBlueprintEmbeddedSource>? embeddedBlueprintSources = null,
-    ITenantSetupRetryStore? tenantSetupRetryStore = null)
+    ITenantSetupRetryStore? tenantSetupRetryStore = null,
+    ITenantLifecycleStore? tenantLifecycleStore = null)
     : IDefaultConfigurationCreatorService
 {
     private static readonly ConcurrentDictionary<string, bool> TenantsInHandling = new();
@@ -37,6 +39,19 @@ public abstract class DefaultConfigurationCreatorServiceBase(
     // Per-instance owner id for the durable retry lease, so it stays single-flight across service
     // instances / pods even though the creator service itself is transient / scoped (AB#4690).
     private readonly string _setupRetryOwnerId = $"{Environment.MachineName}:{Guid.NewGuid():N}";
+
+    /// <summary>
+    ///     Durable tenant-lifecycle store (AB#4348), when the service wires it. Read by the Deleting
+    ///     gate in <see cref="SetupAsync"/> and by the Standardized settle sweep (AB#4829); null keeps
+    ///     both a no-op.
+    /// </summary>
+    protected ITenantLifecycleStore? TenantLifecycleStore { get; } = tenantLifecycleStore;
+
+    /// <summary>
+    ///     Durable per-service setup-retry queue (AB#4690), when the service wires it. Exposed for the
+    ///     Standardized settle sweep, which clears a deleted tenant's re-seeded entries (AB#4829).
+    /// </summary>
+    protected ITenantSetupRetryStore? TenantSetupRetryStore { get; } = tenantSetupRetryStore;
 
     /// <inheritdoc />
     public bool DeferTenantStart { get; set; }
@@ -65,6 +80,18 @@ public abstract class DefaultConfigurationCreatorServiceBase(
 
         try
         {
+            // AB#4829: a durable Deleting tombstone means a delete is tearing this tenant down (or its
+            // settle period is still running). Setting the tenant up now would fail against the
+            // half-deleted tenant, re-record a retry row the delete just cleared, and its CK import
+            // could resurrect the dropped database as an empty shell. Skip quietly; the tombstone's
+            // settle sweep owns the cleanup, so nothing is recorded or cleared here.
+            if (await IsTenantBeingDeletedAsync(tenantId).ConfigureAwait(false))
+            {
+                logger.LogInformation("Setup of tenant '{TenantId}' skipped: a delete is in progress.",
+                    tenantId);
+                return;
+            }
+
             await SetupTenantAsync(tenantId).ConfigureAwait(false);
 
             // Phase 2 of the platform-services initiative — lifecycle-only refresh hook.
@@ -112,19 +139,44 @@ public abstract class DefaultConfigurationCreatorServiceBase(
     /// </summary>
     private async Task TryUpdateSetupRetryAsync(string tenantId, Func<ITenantSetupRetryStore, Task> operation)
     {
-        if (tenantSetupRetryStore is null)
+        if (TenantSetupRetryStore is null)
         {
             return;
         }
 
         try
         {
-            await operation(tenantSetupRetryStore).ConfigureAwait(false);
+            await operation(TenantSetupRetryStore).ConfigureAwait(false);
         }
         catch (Exception ex)
         {
             logger.LogWarning(ex, "Tenant setup retry store update failed for tenant '{TenantId}'; continuing.",
                 tenantId);
+        }
+    }
+
+    /// <summary>
+    ///     Best-effort read of the Deleting tombstone (AB#4829). The lifecycle gate is recovery
+    ///     metadata, not part of setup — a store outage must never stop tenants from being
+    ///     provisioned, so any failure reads as "not being deleted".
+    /// </summary>
+    private async Task<bool> IsTenantBeingDeletedAsync(string tenantId)
+    {
+        if (TenantLifecycleStore is null)
+        {
+            return false;
+        }
+
+        try
+        {
+            var record = await TenantLifecycleStore.GetAsync(tenantId).ConfigureAwait(false);
+            return record is { State: TenantLifecycleState.Deleting };
+        }
+        catch (Exception ex)
+        {
+            logger.LogWarning(ex,
+                "Tenant lifecycle read failed for tenant '{TenantId}'; proceeding with setup.", tenantId);
+            return false;
         }
     }
 
@@ -137,7 +189,7 @@ public abstract class DefaultConfigurationCreatorServiceBase(
     /// </summary>
     protected async Task RetryPendingTenantSetupsAsync()
     {
-        if (tenantSetupRetryStore is null)
+        if (TenantSetupRetryStore is null)
         {
             return;
         }
@@ -147,7 +199,7 @@ public abstract class DefaultConfigurationCreatorServiceBase(
             TenantSetupRetryRecord? claimed;
             try
             {
-                claimed = await tenantSetupRetryStore.TryClaimAsync(ServiceId, _setupRetryOwnerId,
+                claimed = await TenantSetupRetryStore.TryClaimAsync(ServiceId, _setupRetryOwnerId,
                     SetupRetryLeaseDuration, MinSetupRetryInterval, MaxSetupAttempts).ConfigureAwait(false);
             }
             catch (Exception ex)
@@ -169,6 +221,20 @@ public abstract class DefaultConfigurationCreatorServiceBase(
                     claimed.TenantId, claimed.AttemptCount + 1, MaxSetupAttempts, claimed.LastError);
 
                 await SetupAsync(claimed.TenantId).ConfigureAwait(false);
+            }
+            catch (TenantException ex) when (ex.IsTenantNotFound)
+            {
+                // AB#4829: the registry miss is terminal — no retry can ever complete this tenant's
+                // setup, and every attempt used to re-record the entry and hammer the just-deleted
+                // tenant until the attempt budget was dead. Drop the entry instead. This cannot collide
+                // with the PosCreateTenant uncommitted-record race: a claim happens at least
+                // MinSetupRetryInterval after the failure was recorded, long after any legitimate
+                // create transaction has committed.
+                logger.LogInformation(
+                    "Dropping setup retry for tenant '{TenantId}': the tenant no longer exists.",
+                    claimed.TenantId);
+                await TryUpdateSetupRetryAsync(claimed.TenantId,
+                    s => s.ClearAsync(ServiceId, claimed.TenantId)).ConfigureAwait(false);
             }
             catch (Exception ex)
             {

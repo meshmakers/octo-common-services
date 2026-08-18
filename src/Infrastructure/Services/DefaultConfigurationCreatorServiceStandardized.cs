@@ -40,7 +40,6 @@ public abstract class DefaultConfigurationCreatorServiceStandardized : DefaultCo
     private readonly string _identityDataVersionKey;
     private readonly int _expectedIdentityDataVersion;
     private readonly FailedTenantRegistry? _failedTenantRegistry;
-    private readonly ITenantLifecycleStore? _tenantLifecycleStore;
 
     // Per-instance owner id for the durable reconcile lease, so the Mongo lease is single-flight across
     // service instances / pods (AB#4348 Phase 2).
@@ -93,7 +92,8 @@ public abstract class DefaultConfigurationCreatorServiceStandardized : DefaultCo
         IEnumerable<IBlueprintEmbeddedSource>? embeddedBlueprintSources = null,
         ITenantLifecycleStore? tenantLifecycleStore = null,
         ITenantSetupRetryStore? tenantSetupRetryStore = null)
-        : base(logger, blueprintService, embeddedBlueprintSources, tenantSetupRetryStore)
+        : base(logger, blueprintService, embeddedBlueprintSources, tenantSetupRetryStore,
+            tenantLifecycleStore)
     {
         _logger = logger;
         _systemContext = systemContext;
@@ -106,7 +106,6 @@ public abstract class DefaultConfigurationCreatorServiceStandardized : DefaultCo
         _identityDataVersionKey = identityDataVersionKey;
         _expectedIdentityDataVersion = expectedIdentityDataVersion;
         _failedTenantRegistry = failedTenantRegistry;
-        _tenantLifecycleStore = tenantLifecycleStore;
     }
 
     /// <summary>
@@ -116,14 +115,14 @@ public abstract class DefaultConfigurationCreatorServiceStandardized : DefaultCo
     /// </summary>
     private async Task TryUpdateLifecycleAsync(string tenantId, Func<ITenantLifecycleStore, Task> operation)
     {
-        if (_tenantLifecycleStore is null)
+        if (TenantLifecycleStore is null)
         {
             return;
         }
 
         try
         {
-            await operation(_tenantLifecycleStore).ConfigureAwait(false);
+            await operation(TenantLifecycleStore).ConfigureAwait(false);
         }
         catch (Exception ex)
         {
@@ -143,7 +142,7 @@ public abstract class DefaultConfigurationCreatorServiceStandardized : DefaultCo
     /// </summary>
     private async Task ReconcileStalledTenantsAsync()
     {
-        if (_tenantLifecycleStore is null)
+        if (TenantLifecycleStore is null)
         {
             return;
         }
@@ -153,7 +152,7 @@ public abstract class DefaultConfigurationCreatorServiceStandardized : DefaultCo
             TenantLifecycleRecord? claimed;
             try
             {
-                claimed = await _tenantLifecycleStore
+                claimed = await TenantLifecycleStore
                     .TryClaimForReconcileAsync(_reconcilerOwnerId, ReconcileLeaseDuration)
                     .ConfigureAwait(false);
             }
@@ -208,6 +207,120 @@ public abstract class DefaultConfigurationCreatorServiceStandardized : DefaultCo
                 // tick instead of being immediately re-claimed in this same loop.
                 _logger.LogWarning(ex,
                     "Reconcile attempt for tenant '{TenantId}' failed; it will be retried after the lease expires.",
+                    tenantId);
+            }
+        }
+    }
+
+    /// <summary>
+    ///     How long a completed delete's Deleting tombstone is held before the sweep finishes it. Must
+    ///     outlive the in-flight horizon of the tenant-event storm: PosUpdateTenant echoes still queued
+    ///     per service instance and setup passes that resolved their tenant context before the delete's
+    ///     registry commit. During this window a re-create of the same tenant id answers a retryable
+    ///     409 (the create endpoint's Deleting guard) — the price for guaranteeing the database name
+    ///     comes back reusable instead of being permanently blocked by a resurrected shell (AB#4829).
+    /// </summary>
+    private static readonly TimeSpan DeleteSettlePeriod = TimeSpan.FromSeconds(90);
+
+    /// <summary>
+    ///     Delete settle sweep (AB#4829). A tenant delete cannot stop events and setups already in
+    ///     flight across the platform, so it leaves its Deleting tombstone in place and this sweep
+    ///     completes the delete once <see cref="DeleteSettlePeriod"/> has passed:
+    ///     <list type="bullet">
+    ///       <item>Tenant still fully registered — the delete died before its metadata commit. The
+    ///       tombstone is rolled back so the tenant becomes usable again (its pending retries are
+    ///       left untouched).</item>
+    ///       <item>Registry entry gone — the delete is completed: a database a late CK import
+    ///       resurrected as an empty shell is re-dropped (unless the name was legitimately re-claimed
+    ///       by another tenant in the meantime), the tenant's re-seeded setup-retry rows are cleared
+    ///       across all services, and only then is the tombstone removed, re-opening the tenant id.</item>
+    ///     </list>
+    ///     Every operation is idempotent, so concurrent sweeps from multiple instances are harmless.
+    ///     No-op when the lifecycle store is not wired (only the delete owner, asset-repo, has it).
+    /// </summary>
+    private async Task ReconcileDeletingTenantsAsync()
+    {
+        if (TenantLifecycleStore is null)
+        {
+            return;
+        }
+
+        IReadOnlyList<TenantLifecycleRecord> records;
+        try
+        {
+            records = await TenantLifecycleStore.ListAsync().ConfigureAwait(false);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Failed to list lifecycle records for the delete settle sweep; will retry next tick.");
+            return;
+        }
+
+        foreach (var record in records)
+        {
+            if (record.State != TenantLifecycleState.Deleting
+                || DateTime.UtcNow - record.LastTransitionUtc < DeleteSettlePeriod)
+            {
+                continue;
+            }
+
+            var tenantId = record.TenantId;
+            try
+            {
+                if (await _systemContext.TryFindTenantContextAsync(tenantId).ConfigureAwait(false) is not null)
+                {
+                    _logger.LogWarning(
+                        "Rolling back the Deleting tombstone of tenant '{TenantId}': the tenant is still " +
+                        "registered, so its delete died before the metadata commit.", tenantId);
+                    await TenantLifecycleStore.RemoveAsync(tenantId).ConfigureAwait(false);
+                    continue;
+                }
+
+                if (!string.IsNullOrEmpty(record.DatabaseName)
+                    && await _systemContext.IsDatabaseExistingAsync(record.DatabaseName).ConfigureAwait(false))
+                {
+                    var owner = await _systemContext.TryGetTenantIdByDatabaseNameAsync(record.DatabaseName)
+                        .ConfigureAwait(false);
+                    if (owner is null)
+                    {
+                        _logger.LogInformation(
+                            "Re-dropping database '{DatabaseName}' of deleted tenant '{TenantId}': a late " +
+                            "import resurrected it after the delete.", record.DatabaseName, tenantId);
+                        await _systemContext.DropTenantDatabaseAsync(
+                                new TenantDeletionHandle(record.DatabaseName, record.CorrelationId), tenantId)
+                            .ConfigureAwait(false);
+                    }
+                    else
+                    {
+                        _logger.LogError(
+                            "Database '{DatabaseName}' of deleted tenant '{TenantId}' now belongs to tenant " +
+                            "'{Owner}'; leaving it alone. If the old tenant had writes in flight during the " +
+                            "delete, the new tenant's CK models should be verified.",
+                            record.DatabaseName, tenantId, owner);
+                    }
+                }
+
+                if (TenantSetupRetryStore is not null)
+                {
+                    var cleared = await TenantSetupRetryStore.ClearAllForTenantAsync(tenantId)
+                        .ConfigureAwait(false);
+                    if (cleared > 0)
+                    {
+                        _logger.LogInformation(
+                            "Removed {Count} re-seeded setup-retry entries of deleted tenant '{TenantId}'.",
+                            cleared, tenantId);
+                    }
+                }
+
+                await TenantLifecycleStore.RemoveAsync(tenantId).ConfigureAwait(false);
+                _logger.LogInformation(
+                    "Delete of tenant '{TenantId}' has settled; tenant id and database name are available again.",
+                    tenantId);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex,
+                    "Delete settle sweep for tenant '{TenantId}' failed; it will be retried next tick.",
                     tenantId);
             }
         }
@@ -359,9 +472,9 @@ public abstract class DefaultConfigurationCreatorServiceStandardized : DefaultCo
         var tenantContext = await _systemContext.FindTenantContextAsync(tenantId).ConfigureAwait(false);
 
         // Record that this tenant's setup is in progress. EnsureCreatingAsync inserts a Creating record
-        // only when none exists (or resets a stale Deleting/Failed one) and never downgrades an already
-        // Active tenant, so re-running setup on startup lazily backfills existing tenants as they reach
-        // MarkActiveAsync below (AB#4348).
+        // only when none exists (or resets a stale Failed one), never downgrades an already Active
+        // tenant, and leaves a Deleting tombstone untouched (AB#4829), so re-running setup on startup
+        // lazily backfills existing tenants as they reach MarkActiveAsync below (AB#4348).
         await TryUpdateLifecycleAsync(tenantContext.TenantId,
             s => s.EnsureCreatingAsync(tenantContext.TenantId, tenantContext.DatabaseName, Guid.Empty))
             .ConfigureAwait(false);
@@ -837,6 +950,12 @@ public abstract class DefaultConfigurationCreatorServiceStandardized : DefaultCo
         // in-memory sets above can no longer see. A Mongo lease keeps this single-flight across instances.
         // Only the owning service (asset-repo) wires the store, so this is a no-op elsewhere.
         await ReconcileStalledTenantsAsync().ConfigureAwait(false);
+
+        // Delete settle sweep (AB#4829): complete deletes whose settle period has passed — re-drop a
+        // resurrected shell database, clear re-seeded setup retries, then remove the tombstone. Runs
+        // before the durable setup retry below so a deleted tenant's re-seeded rows are gone before
+        // that lane could claim them. No-op without the lifecycle store (only asset-repo wires it).
+        await ReconcileDeletingTenantsAsync().ConfigureAwait(false);
 
         // Durable per-service setup retry (AB#4690). Complements the reconcile above: that one only drives
         // CheckSetupIdentityDataAsync for tenants the lifecycle store still records as Creating, while this
