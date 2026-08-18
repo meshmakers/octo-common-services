@@ -82,7 +82,10 @@ internal class PosCreatePosUpdateTenantConsumer(
             // would only fail with "does not exist", re-record a durable retry row the delete just
             // cleared, and add three bus-retry rounds of error-level noise. Unlike PosCreateTenant
             // above (whose record may legitimately not be committed yet), dropping it is always safe.
-            if (await systemContext.TryFindTenantContextAsync(tenantId).ConfigureAwait(false) is null)
+            // Registry-only probe, deliberately NOT TryFindTenantContextAsync: that builds a tenant
+            // context and runs the resolve-time CK imports per event, and it throws (instead of the
+            // old quiet skip) while the system tenant is still bootstrapping.
+            if (!await systemContext.IsTenantRegisteredAsync(tenantId).ConfigureAwait(false))
             {
                 logger.LogInformation("Pos update tenant skipped, tenant is no longer registered: '{TenantId}'",
                     context.Message.TenantId);

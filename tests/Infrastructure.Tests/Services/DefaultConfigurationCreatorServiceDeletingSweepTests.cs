@@ -72,11 +72,15 @@ public class DefaultConfigurationCreatorServiceDeletingSweepTests
 
         await CreateSut().RetryFailedTenantsAsync();
 
-        A.CallTo(() => _systemContext.DropTenantDatabaseAsync(
-                new TenantDeletionHandle(DatabaseName, _correlationId), TenantId))
-            .MustHaveHappenedOnceExactly();
-        A.CallTo(() => _retryStore.ClearAllForTenantAsync(TenantId, A<CancellationToken>._)).MustHaveHappened();
-        A.CallTo(() => _lifecycleStore.RemoveAsync(TenantId, A<CancellationToken>._)).MustHaveHappened();
+        // Ordering pin (replaces the deleted controller test's .Then() assertion): the owner check,
+        // the re-drop and the retry-row clear must all happen BEFORE the tombstone removal — removing
+        // it first would re-open the tenant id while the old tenant's leftovers still exist.
+        A.CallTo(() => _systemContext.TryGetTenantIdByDatabaseNameAsync(DatabaseName)).MustHaveHappened()
+            .Then(A.CallTo(() => _systemContext.DropTenantDatabaseAsync(
+                new TenantDeletionHandle(DatabaseName, _correlationId), TenantId)).MustHaveHappenedOnceExactly())
+            .Then(A.CallTo(() => _retryStore.ClearAllForTenantAsync(TenantId, A<CancellationToken>._))
+                .MustHaveHappened())
+            .Then(A.CallTo(() => _lifecycleStore.RemoveAsync(TenantId, A<CancellationToken>._)).MustHaveHappened());
     }
 
     [Fact]
@@ -94,8 +98,8 @@ public class DefaultConfigurationCreatorServiceDeletingSweepTests
 
         A.CallTo(() => _systemContext.DropTenantDatabaseAsync(A<TenantDeletionHandle>._, A<string>._))
             .MustNotHaveHappened();
-        A.CallTo(() => _retryStore.ClearAllForTenantAsync(TenantId, A<CancellationToken>._)).MustHaveHappened();
-        A.CallTo(() => _lifecycleStore.RemoveAsync(TenantId, A<CancellationToken>._)).MustHaveHappened();
+        A.CallTo(() => _retryStore.ClearAllForTenantAsync(TenantId, A<CancellationToken>._)).MustHaveHappened()
+            .Then(A.CallTo(() => _lifecycleStore.RemoveAsync(TenantId, A<CancellationToken>._)).MustHaveHappened());
     }
 
     [Fact]

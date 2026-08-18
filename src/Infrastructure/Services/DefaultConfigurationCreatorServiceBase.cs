@@ -1,4 +1,5 @@
 using System.Collections.Concurrent;
+using Meshmakers.Common.Shared;
 using Meshmakers.Octo.ConstructionKit.Contracts;
 using Meshmakers.Octo.ConstructionKit.Contracts.BlueprintCatalogs;
 using Meshmakers.Octo.Runtime.Contracts.Blueprints;
@@ -70,6 +71,12 @@ public abstract class DefaultConfigurationCreatorServiceBase(
 
     public async Task SetupAsync(string tenantId)
     {
+        // Normalize once: the delete writes lifecycle tombstones and clears retry rows under the
+        // normalized id, while events may carry mixed case. An un-normalized id here bypassed the
+        // Deleting gate and recorded retry rows under a key ClearAllForTenantAsync never matched
+        // (AB#4829). This also keys TenantsInHandling consistently.
+        tenantId = tenantId.NormalizeString();
+
         logger.LogInformation("Setup tenant: '{TenantId}'", tenantId);
 
         if (!TenantsInHandling.TryAdd(tenantId, true))

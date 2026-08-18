@@ -41,8 +41,7 @@ public class PosCreatePosUpdateTenantConsumerTests
     [Fact]
     public async Task PosUpdate_IsDropped_WhenTheTenantIsNoLongerRegistered()
     {
-        A.CallTo(() => _systemContext.TryFindTenantContextAsync(A<string>._))
-            .Returns((ITenantContext?)null);
+        A.CallTo(() => _systemContext.IsTenantRegisteredAsync(A<string>._)).Returns(false);
 
         await CreateSut().ConsumeAsync(ContextFor(new PosUpdateTenant("gone-tenant", Guid.NewGuid(), DateTime.UtcNow)));
 
@@ -52,8 +51,7 @@ public class PosCreatePosUpdateTenantConsumerTests
     [Fact]
     public async Task PosUpdate_RunsSetup_ForARegisteredTenant()
     {
-        A.CallTo(() => _systemContext.TryFindTenantContextAsync(A<string>._))
-            .Returns(A.Fake<ITenantContext>());
+        A.CallTo(() => _systemContext.IsTenantRegisteredAsync(A<string>._)).Returns(true);
 
         await CreateSut().ConsumeAsync(ContextFor(new PosUpdateTenant("live-tenant", Guid.NewGuid(), DateTime.UtcNow)));
 
@@ -61,12 +59,24 @@ public class PosCreatePosUpdateTenantConsumerTests
     }
 
     [Fact]
+    public async Task PosUpdate_GuardUsesTheRegistryProbe_NotAFullResolve()
+    {
+        // Review follow-up: TryFindTenantContextAsync builds a tenant context and runs the
+        // resolve-time CK model imports — per PosUpdateTenant event, i.e. once per CK import, on top
+        // of the resolve SetupAsync does anyway. The guard must use the registry-only probe.
+        A.CallTo(() => _systemContext.IsTenantRegisteredAsync(A<string>._)).Returns(true);
+
+        await CreateSut().ConsumeAsync(ContextFor(new PosUpdateTenant("live-tenant", Guid.NewGuid(), DateTime.UtcNow)));
+
+        A.CallTo(() => _systemContext.TryFindTenantContextAsync(A<string>._)).MustNotHaveHappened();
+    }
+
+    [Fact]
     public async Task PosCreate_RunsSetup_EvenWhenTheTenantIsNotYetVisible()
     {
         // Regression pin: the create event may arrive before the create transaction committed. Gating
         // it on registry visibility would reintroduce the lost-setup hole the durable retry closed.
-        A.CallTo(() => _systemContext.TryFindTenantContextAsync(A<string>._))
-            .Returns((ITenantContext?)null);
+        A.CallTo(() => _systemContext.IsTenantRegisteredAsync(A<string>._)).Returns(false);
 
         await CreateSut().ConsumeAsync(ContextFor(new PosCreateTenant("fresh-tenant", Guid.NewGuid(), DateTime.UtcNow)));
 

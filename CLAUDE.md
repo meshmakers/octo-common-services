@@ -99,9 +99,12 @@ is an event storm that trails the delete by seconds to minutes). Four mechanisms
   passing `tenantLifecycleStore` to the base constructor (Identity does; Standardized subclasses
   forward it). Best-effort — a store outage never blocks provisioning.
 - **`PosUpdateTenant` echo guard.** `PosCreatePosUpdateTenantConsumer` drops update events whose
-  tenant is no longer registered — by definition post-delete echoes. `PosCreateTenant` is deliberately
-  NOT gated: its record may legitimately not be committed yet (see AB#4690 above); the durable retry
-  covers that race.
+  tenant is no longer registered — by definition post-delete echoes. The check is the registry-only
+  probe `ISystemContext.IsTenantRegisteredAsync` (no context construction, no resolve-time CK imports
+  — PosUpdateTenant fires per CK import, so a full resolve here would double every setup pass's
+  resolve work, and it would throw during system-tenant bootstrap where the old flow skipped
+  quietly). `PosCreateTenant` is deliberately NOT gated: its record may legitimately not be committed
+  yet (see AB#4690 above); the durable retry covers that race.
 - **Terminal not-found classification.** The drain loop treats `TenantException.IsTenantNotFound` as
   terminal and drops the entry instead of hammering a tenant that cannot come back. Safe on the retry
   path: a claim happens ≥ 60 s after the failure was recorded, long after any legitimate create

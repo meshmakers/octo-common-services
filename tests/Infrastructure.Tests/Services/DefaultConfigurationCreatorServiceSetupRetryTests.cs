@@ -230,6 +230,37 @@ public class DefaultConfigurationCreatorServiceSetupRetryTests
         Assert.Equal([tenantId], sut.SetupCalls);
     }
 
+    /// <summary>
+    ///     AB#4829 review follow-up. The delete writes tombstones and clears retry rows under the
+    ///     NORMALIZED tenant id, but events may carry mixed case — an un-normalized lookup bypassed
+    ///     the Deleting gate entirely and recorded retry rows under a key the delete's
+    ///     ClearAllForTenantAsync never matched.
+    /// </summary>
+    [Fact]
+    public async Task Setup_NormalizesTheTenantId_ForTheDeletingGate()
+    {
+        var lifecycleStore = A.Fake<ITenantLifecycleStore>();
+        A.CallTo(() => lifecycleStore.GetAsync("t-mixed", A<CancellationToken>._))
+            .Returns(new TenantLifecycleRecord { TenantId = "t-mixed", State = TenantLifecycleState.Deleting });
+        var sut = new RetryTestCreator(_store, lifecycleStore: lifecycleStore);
+
+        await sut.SetupAsync(" T-Mixed ");
+
+        Assert.Empty(sut.SetupCalls);
+    }
+
+    [Fact]
+    public async Task Setup_UsesTheNormalizedTenantId_Downstream()
+    {
+        var sut = new RetryTestCreator(_store, _ => throw new InvalidOperationException("boom"));
+
+        await Assert.ThrowsAsync<InvalidOperationException>(() => sut.SetupAsync(" T-Mixed "));
+
+        Assert.Equal(["t-mixed"], sut.SetupCalls);
+        A.CallTo(() => _store.RecordFailureAsync(ServiceId, "t-mixed", "boom", A<CancellationToken>._))
+            .MustHaveHappenedOnceExactly();
+    }
+
     [Fact]
     public async Task WithoutAStore_EverythingIsANoOp()
     {
