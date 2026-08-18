@@ -87,6 +87,37 @@ and throws, so the tenant stays `Creating` and every retry path keeps driving it
 additive — an older producer never sends it, an older consumer falls into its unexpected-result branch,
 which does not mark the tenant provisioned either.
 
+## Tenant Delete — Settle Semantics (AB#4829)
+
+A tenant delete cannot stop events and setups already in flight (broadcast queues are per-instance and
+unordered relative to the delete, and `PosUpdateTenant` fires on every CK model import, so provisioning
+is an event storm that trails the delete by seconds to minutes). Four mechanisms make deletes converge:
+
+- **`SetupAsync` Deleting gate.** While a durable `Deleting` tombstone exists, setup is skipped
+  quietly: no retry row is recorded, and no CK import can lazily re-create the dropped database. The
+  lifecycle store is registered platform-wide by `AddMongoDbRuntimeRepository`; a service opts in by
+  passing `tenantLifecycleStore` to the base constructor (Identity does; Standardized subclasses
+  forward it). Best-effort — a store outage never blocks provisioning.
+- **`PosUpdateTenant` echo guard.** `PosCreatePosUpdateTenantConsumer` drops update events whose
+  tenant is no longer registered — by definition post-delete echoes. The check is the registry-only
+  probe `ISystemContext.IsTenantRegisteredAsync` (no context construction, no resolve-time CK imports
+  — PosUpdateTenant fires per CK import, so a full resolve here would double every setup pass's
+  resolve work, and it would throw during system-tenant bootstrap where the old flow skipped
+  quietly). `PosCreateTenant` is deliberately NOT gated: its record may legitimately not be committed
+  yet (see AB#4690 above); the durable retry covers that race.
+- **Terminal not-found classification.** The drain loop treats `TenantException.IsTenantNotFound` as
+  terminal and drops the entry instead of hammering a tenant that cannot come back. Safe on the retry
+  path: a claim happens ≥ 60 s after the failure was recorded, long after any legitimate create
+  transaction committed.
+- **Delete settle sweep.** `ReconcileDeletingTenantsAsync` (Standardized reconcile lane; no-op without
+  the lifecycle store, i.e. everywhere but asset-repo) completes deletes whose `Deleting` tombstone is
+  older than 90 s: it re-drops a shell database a late import resurrected (never one another tenant
+  has claimed — checked via `TryGetTenantIdByDatabaseNameAsync`), clears re-seeded retry rows across
+  all services, and removes the tombstone, re-opening the tenant id. A tombstone whose tenant is still
+  fully registered marks a delete that died before its metadata commit and is rolled back instead —
+  crashed deletes converge in both directions. The delete endpoint (asset-repo) writes the settle
+  tombstone via `ITenantLifecycleStore.EnsureDeletingAsync` after the drop.
+
 ## Tests
 
 `tests/Infrastructure.Tests` — xUnit + FakeItEasy. `Infrastructure.csproj` exposes internals to this

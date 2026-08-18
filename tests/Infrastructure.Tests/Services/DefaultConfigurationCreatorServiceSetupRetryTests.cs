@@ -127,6 +127,140 @@ public class DefaultConfigurationCreatorServiceSetupRetryTests
             .MustHaveHappenedOnceExactly();
     }
 
+    /// <summary>
+    ///     AB#4829. A pending entry whose tenant is gone from the registry can never be driven to
+    ///     completion — every retry threw "does not exist", re-recorded the entry, and hammered the
+    ///     just-deleted tenant every 60s until the attempt budget was exhausted, leaving a dead row.
+    ///     The drain loop must recognize the terminal registry miss and drop the entry instead. On the
+    ///     retry path this cannot collide with the PosCreateTenant uncommitted-record race: the first
+    ///     claim happens at least MinSetupRetryInterval after the failure was recorded, long after any
+    ///     legitimate create transaction has committed.
+    /// </summary>
+    [Fact]
+    public async Task RetryFailedTenants_DropsTheEntry_WhenTheTenantNoLongerExists()
+    {
+        var tenantId = $"t-{Guid.NewGuid():N}";
+        A.CallTo(() => _store.TryClaimAsync(ServiceId, A<string>._, A<TimeSpan>._, A<TimeSpan>._, A<int>._,
+                A<CancellationToken>._))
+            .ReturnsNextFromSequence(
+                new TenantSetupRetryRecord { ServiceId = ServiceId, TenantId = tenantId, AttemptCount = 1 },
+                null);
+        var sut = new RetryTestCreator(_store,
+            id => throw Meshmakers.Octo.Runtime.Contracts.MongoDb.TenantException.TenantDoesNotExist(id));
+
+        await sut.RetryFailedTenantsAsync();
+
+        // The entry is gone afterwards — not merely re-recorded for the next 60s round.
+        A.CallTo(() => _store.ClearAsync(ServiceId, tenantId, A<CancellationToken>._))
+            .MustHaveHappenedOnceExactly();
+    }
+
+    [Fact]
+    public async Task RetryFailedTenants_KeepsRetrying_OnOrdinaryFailures()
+    {
+        // The terminal treatment is reserved for the registry miss — an ordinary failure keeps its
+        // durable entry so the 60s loop can drive the tenant to completion (AB#4690 semantics).
+        var tenantId = $"t-{Guid.NewGuid():N}";
+        A.CallTo(() => _store.TryClaimAsync(ServiceId, A<string>._, A<TimeSpan>._, A<TimeSpan>._, A<int>._,
+                A<CancellationToken>._))
+            .ReturnsNextFromSequence(
+                new TenantSetupRetryRecord { ServiceId = ServiceId, TenantId = tenantId, AttemptCount = 1 },
+                null);
+        var sut = new RetryTestCreator(_store, _ => throw new InvalidOperationException("still broken"));
+
+        await sut.RetryFailedTenantsAsync();
+
+        A.CallTo(() => _store.ClearAsync(A<string>._, A<string>._, A<CancellationToken>._)).MustNotHaveHappened();
+        A.CallTo(() => _store.RecordFailureAsync(ServiceId, tenantId, "still broken", A<CancellationToken>._))
+            .MustHaveHappenedOnceExactly();
+    }
+
+    /// <summary>
+    ///     AB#4829. The delete marks the tenant Deleting (durable tombstone) before it starts tearing
+    ///     things down. A setup triggered while that tombstone lives (a late PosUpdateTenant echo, the
+    ///     startup loop, a retry claim) must not run — it would fail against the half-deleted tenant,
+    ///     re-record a retry row the delete just cleared, and its CK import could resurrect the dropped
+    ///     database as an empty shell.
+    /// </summary>
+    [Fact]
+    public async Task Setup_IsSkipped_WhileTheTenantIsBeingDeleted()
+    {
+        var tenantId = $"t-{Guid.NewGuid():N}";
+        var lifecycleStore = A.Fake<ITenantLifecycleStore>();
+        A.CallTo(() => lifecycleStore.GetAsync(tenantId, A<CancellationToken>._))
+            .Returns(new TenantLifecycleRecord { TenantId = tenantId, State = TenantLifecycleState.Deleting });
+        var sut = new RetryTestCreator(_store, lifecycleStore: lifecycleStore);
+
+        await sut.SetupAsync(tenantId);
+
+        Assert.Empty(sut.SetupCalls);
+        // The retry queue is the delete's to clean; skipping must neither record nor clear.
+        A.CallTo(() => _store.RecordFailureAsync(A<string>._, A<string>._, A<string>._, A<CancellationToken>._))
+            .MustNotHaveHappened();
+        A.CallTo(() => _store.ClearAsync(A<string>._, A<string>._, A<CancellationToken>._)).MustNotHaveHappened();
+    }
+
+    [Fact]
+    public async Task Setup_Runs_ForATenantWithoutADeletingTombstone()
+    {
+        var tenantId = $"t-{Guid.NewGuid():N}";
+        var lifecycleStore = A.Fake<ITenantLifecycleStore>();
+        A.CallTo(() => lifecycleStore.GetAsync(tenantId, A<CancellationToken>._))
+            .Returns((TenantLifecycleRecord?)null);
+        var sut = new RetryTestCreator(_store, lifecycleStore: lifecycleStore);
+
+        await sut.SetupAsync(tenantId);
+
+        Assert.Equal([tenantId], sut.SetupCalls);
+    }
+
+    [Fact]
+    public async Task Setup_Proceeds_WhenTheLifecycleStoreIsUnavailable()
+    {
+        // The lifecycle gate is recovery metadata, not part of setup — a store outage must not stop
+        // tenants from being provisioned (same contract as the retry store, AB#4690).
+        var tenantId = $"t-{Guid.NewGuid():N}";
+        var lifecycleStore = A.Fake<ITenantLifecycleStore>();
+        A.CallTo(() => lifecycleStore.GetAsync(tenantId, A<CancellationToken>._))
+            .ThrowsAsync(new TimeoutException("store down"));
+        var sut = new RetryTestCreator(_store, lifecycleStore: lifecycleStore);
+
+        await sut.SetupAsync(tenantId);
+
+        Assert.Equal([tenantId], sut.SetupCalls);
+    }
+
+    /// <summary>
+    ///     AB#4829 review follow-up. The delete writes tombstones and clears retry rows under the
+    ///     NORMALIZED tenant id, but events may carry mixed case — an un-normalized lookup bypassed
+    ///     the Deleting gate entirely and recorded retry rows under a key the delete's
+    ///     ClearAllForTenantAsync never matched.
+    /// </summary>
+    [Fact]
+    public async Task Setup_NormalizesTheTenantId_ForTheDeletingGate()
+    {
+        var lifecycleStore = A.Fake<ITenantLifecycleStore>();
+        A.CallTo(() => lifecycleStore.GetAsync("t-mixed", A<CancellationToken>._))
+            .Returns(new TenantLifecycleRecord { TenantId = "t-mixed", State = TenantLifecycleState.Deleting });
+        var sut = new RetryTestCreator(_store, lifecycleStore: lifecycleStore);
+
+        await sut.SetupAsync(" T-Mixed ");
+
+        Assert.Empty(sut.SetupCalls);
+    }
+
+    [Fact]
+    public async Task Setup_UsesTheNormalizedTenantId_Downstream()
+    {
+        var sut = new RetryTestCreator(_store, _ => throw new InvalidOperationException("boom"));
+
+        await Assert.ThrowsAsync<InvalidOperationException>(() => sut.SetupAsync(" T-Mixed "));
+
+        Assert.Equal(["t-mixed"], sut.SetupCalls);
+        A.CallTo(() => _store.RecordFailureAsync(ServiceId, "t-mixed", "boom", A<CancellationToken>._))
+            .MustHaveHappenedOnceExactly();
+    }
+
     [Fact]
     public async Task WithoutAStore_EverythingIsANoOp()
     {
@@ -143,8 +277,10 @@ public class DefaultConfigurationCreatorServiceSetupRetryTests
     {
         private readonly Func<string, Task> _setupTenant;
 
-        public RetryTestCreator(ITenantSetupRetryStore? store, Func<string, Task>? setupTenant = null)
-            : base(NullLogger<DefaultConfigurationCreatorServiceBase>.Instance, tenantSetupRetryStore: store)
+        public RetryTestCreator(ITenantSetupRetryStore? store, Func<string, Task>? setupTenant = null,
+            ITenantLifecycleStore? lifecycleStore = null)
+            : base(NullLogger<DefaultConfigurationCreatorServiceBase>.Instance, tenantSetupRetryStore: store,
+                tenantLifecycleStore: lifecycleStore)
         {
             _setupTenant = setupTenant ?? (_ => Task.CompletedTask);
         }
