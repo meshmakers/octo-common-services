@@ -118,6 +118,33 @@ is an event storm that trails the delete by seconds to minutes). Four mechanisms
   crashed deletes converge in both directions. The delete endpoint (asset-repo) writes the settle
   tombstone via `ITenantLifecycleStore.EnsureDeletingAsync` after the drop.
 
+## Tenant Capability Keys and State Reader (AB#4255)
+
+Every capability an operator can switch per tenant — Stream Data, Communication, Reporting, AI
+Services — is backed by one enabled flag stored as an `RtTenantConfiguration` document **in the
+tenant's own database** (`ITenantContext.Set/Get/DeleteConfigurationAsync`). The Standardized creator
+writes the flag under the `serviceEnabledKey` its subclass passes in; the middleware's 403 gate and
+`IConfigurationService.IsEnabledAsync` read it back. Two things are easy to get wrong when another
+service needs that flag:
+
+- **The key literals live here now** — `TenantCapabilityConfigurationKeys` (`Communication`,
+  `Reporting`, `AiServices`) in `src/Infrastructure/Services/`. The owning services' `internal`
+  constants are copies of these literals and are being switched over to reference this class; do not
+  introduce a fourth copy. Stream Data is engine-owned (`StreamDataConfigurationKeys.StreamDataEnabledKey`,
+  value type `StreamDataGlobalSettings`) and is deliberately not listed.
+- **"Disabled" has two shapes.** Communication, Reporting and AI *delete* the document on Disable;
+  Stream Data keeps it with `IsEnabled = false`. `ITenantCapabilityStateReader` (registered by
+  `AddOctoServiceInfrastructure`) normalises both — missing key or `false` ⇒ disabled — and returns the
+  enabled `TenantCapability` values in declaration order. It reads Stream Data through the engine's
+  `IsStreamDataEnabledAsync` and the other three through `GetConfigurationAsync`, so it needs no call
+  to the owning service. Read failures propagate: a caller that gates a destructive operation on this
+  answer must never see an unreadable state as "disabled". The parent/child overload resolves the child
+  via `TryGetChildTenantContextAsync` (which runs the resolve-time CK auto-imports) and throws
+  `TenantException.TenantDoesNotExist` for anything that is not a direct child.
+
+First consumer: the asset repository's tenant `Delete`/`Detach` refuse with 409 while any capability is
+enabled (AB#4255 step 1). Step 2 (verified teardown on Disable) builds on the same reader.
+
 ## Tests
 
 `tests/Infrastructure.Tests` — xUnit + FakeItEasy. `Infrastructure.csproj` exposes internals to this
