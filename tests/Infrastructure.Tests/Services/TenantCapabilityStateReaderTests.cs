@@ -156,6 +156,18 @@ public class TenantCapabilityStateReaderTests
     }
 
     [Fact]
+    public async Task GetEnabled_AbortsTheParentSession_WhenTheResolveFails()
+    {
+        A.CallTo(() => _parent.TryGetChildTenantContextAsync(_parentSession, "child-a"))
+            .Throws(new InvalidOperationException("registry down"));
+
+        await Assert.ThrowsAsync<InvalidOperationException>(() => _sut.GetEnabledCapabilitiesAsync(_parent, "child-a"));
+
+        A.CallTo(() => _parentSession.AbortTransactionAsync()).MustHaveHappenedOnceExactly();
+        A.CallTo(() => _parentSession.CommitTransactionAsync()).MustNotHaveHappened();
+    }
+
+    [Fact]
     public async Task GetEnabled_ThrowsTenantNotFound_WhenTheChildIsNotResolvable()
     {
         A.CallTo(() => _parent.TryGetChildTenantContextAsync(_parentSession, "stranger"))

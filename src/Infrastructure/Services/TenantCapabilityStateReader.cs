@@ -41,9 +41,17 @@ public class TenantCapabilityStateReader : ITenantCapabilityStateReader
         using (var session = await parentContext.GetAdminSessionAsync().ConfigureAwait(false))
         {
             session.StartTransaction();
-            childContext = await parentContext.TryGetChildTenantContextAsync(session, childTenantId)
-                .ConfigureAwait(false);
-            await session.CommitTransactionAsync().ConfigureAwait(false);
+            try
+            {
+                childContext = await parentContext.TryGetChildTenantContextAsync(session, childTenantId)
+                    .ConfigureAwait(false);
+                await session.CommitTransactionAsync().ConfigureAwait(false);
+            }
+            catch
+            {
+                await session.AbortTransactionAsync().ConfigureAwait(false);
+                throw;
+            }
         }
 
         if (childContext == null)
