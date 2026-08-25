@@ -402,19 +402,38 @@ public abstract class DefaultConfigurationCreatorServiceStandardized : DefaultCo
 
         using var session = await tenantContext.GetAdminSessionAsync().ConfigureAwait(false);
         session.StartTransaction();
-
-        // If there is a configuration version, check if we need to update the configuration
-        var configurationEnabled =
-            await tenantContext.GetConfigurationAsync(session, _serviceEnabledKey,
-                new DefaultConfigurationEnabled { IsEnabled = false }).ConfigureAwait(false);
-        if (configurationEnabled == null || !configurationEnabled.IsEnabled)
+        try
         {
-            throw ConfigurationException.TenantAlreadyDisabled(tenantId);
+            // If there is a configuration version, check if we need to update the configuration
+            var configurationEnabled =
+                await tenantContext.GetConfigurationAsync(session, _serviceEnabledKey,
+                    new DefaultConfigurationEnabled { IsEnabled = false }).ConfigureAwait(false);
+            if (configurationEnabled == null || !configurationEnabled.IsEnabled)
+            {
+                throw ConfigurationException.TenantAlreadyDisabled(tenantId);
+            }
+
+            // AB#4255: the owning service reports what still has to be torn down before the capability
+            // may be switched off. Consulted only for an enabled tenant (so disabling twice stays the
+            // idempotent "already disabled" answer) and before the flag is removed, so a refusal leaves
+            // the tenant exactly as it was.
+            var disableBlocker = await GetDisableBlockerAsync(tenantId).ConfigureAwait(false);
+            if (disableBlocker != null)
+            {
+                _logger.LogWarning("Rejected disable for tenant '{TenantId}': {Reason}", tenantId,
+                    disableBlocker);
+                throw ConfigurationException.TenantDisableBlocked(disableBlocker);
+            }
+
+            await tenantContext.DeleteConfigurationAsync(session, _serviceEnabledKey).ConfigureAwait(false);
+
+            await session.CommitTransactionAsync().ConfigureAwait(false);
         }
-
-        await tenantContext.DeleteConfigurationAsync(session, _serviceEnabledKey).ConfigureAwait(false);
-
-        await session.CommitTransactionAsync().ConfigureAwait(false);
+        catch
+        {
+            await session.AbortTransactionAsync().ConfigureAwait(false);
+            throw;
+        }
 
         await StopTenantAsync(tenantId).ConfigureAwait(false);
     }
@@ -583,6 +602,27 @@ public abstract class DefaultConfigurationCreatorServiceStandardized : DefaultCo
 
         // Currently left intentionally empty
         return Task.CompletedTask;
+    }
+
+    /// <summary>
+    /// Reports why the service's capability cannot be disabled for the tenant right now, or <c>null</c> when
+    /// nothing stands in the way (AB#4255).
+    /// </summary>
+    /// <remarks>
+    /// Called by <see cref="DisableAsync"/> after the already-disabled check and before the enabled flag is
+    /// removed. A non-null answer is surfaced verbatim to the operator as a conflict
+    /// (<see cref="ConfigurationException.TenantDisableBlocked"/>, HTTP 409 at the controllers), leaves the
+    /// flag untouched and skips <see cref="StopTenantAsync"/> — so the message must be complete and actionable:
+    /// name the resources that are still deployed and how to remove them. Override this instead of tearing
+    /// resources down inside <see cref="StopTenantAsync"/>: the decision belongs to the operator, and the
+    /// verified end state is what allows a later tenant delete or detach. A failing read must throw, never
+    /// answer <c>null</c> — an unreadable state is not a torn-down state.
+    /// </remarks>
+    /// <param name="tenantId">The tenant id</param>
+    /// <returns>The operator-facing refusal, or <c>null</c> to proceed with the disable</returns>
+    protected virtual Task<string?> GetDisableBlockerAsync(string tenantId)
+    {
+        return Task.FromResult<string?>(null);
     }
 
     /// <summary>

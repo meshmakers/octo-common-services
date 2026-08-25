@@ -143,7 +143,27 @@ service needs that flag:
   `TenantException.TenantDoesNotExist` for anything that is not a direct child.
 
 First consumer: the asset repository's tenant `Delete`/`Detach` refuse with 409 while any capability is
-enabled (AB#4255 step 1). Step 2 (verified teardown on Disable) builds on the same reader.
+enabled (AB#4255 step 1).
+
+### Disable is a verified precondition, not a teardown (AB#4255 step 2)
+
+`DefaultConfigurationCreatorServiceStandardized.DisableAsync` consults
+`protected virtual Task<string?> GetDisableBlockerAsync(tenantId)` **after** the already-disabled check
+(disabling twice stays the idempotent "already disabled" answer) and **before** the enabled flag is
+removed. A non-null answer is thrown as `ConfigurationException.TenantDisableBlocked(reason)` — the only
+`ConfigurationException` with `IsConflict = true`, which the owning service's controller maps to **409**
+(`catch (ConfigurationException e) when (e.IsConflict)`) while every other one stays a 400. The
+transaction is aborted, the flag stays, `StopTenantAsync` does not run. The reason is surfaced verbatim
+to CLI/MCP/Studio, so the override must produce a complete operator message: which resources are still
+deployed and how to remove them.
+
+Why a precondition instead of tearing down inside `StopTenantAsync`: the DB deployment state is what the
+operator mirrors back (reverse-sync), so checking it before the flag flip *is* confirming the actual end
+state; a flag flip that helm-uninstalls a production tenant's workloads would be a dangerous side effect;
+and a refusal is remediable through the existing undeploy paths, whereas an automatic cascade silently
+no-ops for Edge pools and after a controller restart. The hook answers the Communication and Reporting
+requirements of AB#4255 in one shape; AI Services simply never overrides it. A failing read in the
+override must throw — an unreadable state is not a torn-down state.
 
 ## Tests
 
