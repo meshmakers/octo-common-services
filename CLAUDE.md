@@ -162,8 +162,11 @@ operator mirrors back (reverse-sync), so checking it before the flag flip *is* c
 state; a flag flip that helm-uninstalls a production tenant's workloads would be a dangerous side effect;
 and a refusal is remediable through the existing undeploy paths, whereas an automatic cascade silently
 no-ops for Edge pools and after a controller restart. The hook answers the Communication and Reporting
-requirements of AB#4255 in one shape; AI Services simply never overrides it. A failing read in the
-override must throw — an unreadable state is not a torn-down state.
+requirements of AB#4255 in one shape. **Reporting and AI Services never override it**: Reporting owns
+no resources outside the tenant database and renders synchronously inside the request; the AI service's
+per-tenant worker pod is operator-owned and its sessions/leases are tenant data. Their controllers still
+map `IsConflict` to 409 for contract parity, so a future blocker cannot degrade to a 400. A failing read
+in an override must throw — an unreadable state is not a torn-down state.
 
 ## Tests
 
