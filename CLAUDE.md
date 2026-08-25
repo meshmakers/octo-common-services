@@ -131,7 +131,8 @@ service needs that flag:
   `Reporting`, `AiServices`) in `src/Infrastructure/Services/`. The owning services' `internal`
   constants are copies of these literals and are being switched over to reference this class; do not
   introduce a fourth copy. Stream Data is engine-owned (`StreamDataConfigurationKeys.StreamDataEnabledKey`,
-  value type `StreamDataGlobalSettings`) and is deliberately not listed.
+  value type `StreamDataGlobalSettings`) and is deliberately not listed — its disable precondition
+  lives in the engine as well (see below).
 - **"Disabled" has two shapes.** Communication, Reporting and AI *delete* the document on Disable;
   Stream Data keeps it with `IsEnabled = false`. `ITenantCapabilityStateReader` (registered by
   `AddOctoServiceInfrastructure`) normalises both — missing key or `false` ⇒ disabled — and returns the
@@ -167,6 +168,17 @@ no resources outside the tenant database and renders synchronously inside the re
 per-tenant worker pod is operator-owned and its sessions/leases are tenant data. Their controllers still
 map `IsConflict` to 409 for contract parity, so a future blocker cannot degrade to a 400. A failing read
 in an override must throw — an unreadable state is not a torn-down state.
+
+**Stream Data cannot use the hook** — its disable goes through the engine
+(`ITenantContext.DisableStreamDataAsync`), never through a Standardized creator — but carries the same
+contract: `TenantContext.DisableStreamDataAsync` (octo-construction-kit-engine-mongodb) refuses with
+`StreamDataDisableBlockedException` while any archive of the tenant is still `Activated`, naming the
+archives, and the asset repository's `StreamDataController` maps that exception to 409 with an
+`OperationFailedErrorDto` that appends the `DisableArchive` / `DeleteArchive` remediation. Disabled,
+Failed and Created archives never block; the flag flip keeps the model, the entities and the tables. The
+engine also drops the tenant's CrateDB namespace together with the tenant database
+(`TenantContext.DropTenantDatabaseAsync`, best-effort), so a Delete leaves no orphaned schema and the
+guard only has to ensure nothing is live.
 
 ## Tests
 
