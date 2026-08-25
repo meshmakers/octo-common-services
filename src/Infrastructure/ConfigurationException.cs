@@ -9,6 +9,13 @@ public class ConfigurationException : OctoServiceException
     {
     }
 
+    /// <summary>
+    /// True when the request was refused because the tenant is in a state that conflicts with it (HTTP 409),
+    /// as opposed to a configuration error in the request itself (HTTP 400). Mirrors
+    /// <c>TenantException.IsConflict</c>.
+    /// </summary>
+    public bool IsConflict { get; private init; }
+
     private ConfigurationException(string message) : base(message)
     {
     }
@@ -45,6 +52,17 @@ public class ConfigurationException : OctoServiceException
     public static Exception TenantIsAutoEnabled(string tenantId)
     {
         return new ConfigurationException($"Tenant '{tenantId}' is auto enabled.");
+    }
+
+    /// <summary>
+    /// The capability cannot be disabled for the tenant right now because resources it owns are still
+    /// deployed. <paramref name="reason"/> is the complete, operator-facing message produced by the owning
+    /// service's <c>GetDisableBlockerAsync</c> hook (AB#4255): it names the resources and how to remove them.
+    /// </summary>
+    public static Exception TenantDisableBlocked(string reason)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(reason);
+        return new ConfigurationException(reason) { IsConflict = true };
     }
 
     public static Exception LogManagerConfigurationNotFound()
