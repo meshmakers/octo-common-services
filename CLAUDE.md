@@ -176,9 +176,11 @@ contract: `TenantContext.DisableStreamDataAsync` (octo-construction-kit-engine-m
 archives, and the asset repository's `StreamDataController` maps that exception to 409 with an
 `OperationFailedErrorDto` that appends the `DisableArchive` / `DeleteArchive` remediation. Disabled,
 Failed and Created archives never block; the flag flip keeps the model, the entities and the tables. The
-engine also drops the tenant's CrateDB namespace together with the tenant database
-(`TenantContext.DropTenantDatabaseAsync`, best-effort), so a Delete leaves no orphaned schema and the
-guard only has to ensure nothing is live.
+engine also drops the CrateDB tables of the tenant's own archives when a tenant is dropped for good
+(`DeleteChildTenantMetadataAsync(..., dropStreamData: true)` → `DropTenantDatabaseAsync`, best-effort),
+so a Delete leaves no orphaned tables and the guard only has to ensure nothing is live. The deleting
+settle sweep here re-drops only the database (its handle carries no archives — the tables were dropped
+by the original delete).
 
 ## Tests
 
