@@ -36,6 +36,7 @@ public static class ServiceCollectionExtensions
         services.AddScoped<IMultiTenancyResolverService, MultiTenancyResolverService>();
         services.AddScoped<IKnownOriginsProvider, KnownOriginsProvider>();
         services.AddScoped<IDiagnosticsService, DiagnosticsService>();
+        services.AddSingleton<ITenantCapabilityStateReader, TenantCapabilityStateReader>();
         services.AddSingletonMultipleInterfaces<CorsPolicyProvider, ICorsPolicyProvider>();
         services.AddExceptionHandler<OctoExceptionHandler>();
         return new OctoInfrastructureBuilder(services);

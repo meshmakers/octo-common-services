@@ -118,6 +118,70 @@ is an event storm that trails the delete by seconds to minutes). Four mechanisms
   crashed deletes converge in both directions. The delete endpoint (asset-repo) writes the settle
   tombstone via `ITenantLifecycleStore.EnsureDeletingAsync` after the drop.
 
+## Tenant Capability Keys and State Reader (AB#4255)
+
+Every capability an operator can switch per tenant — Stream Data, Communication, Reporting, AI
+Services — is backed by one enabled flag stored as an `RtTenantConfiguration` document **in the
+tenant's own database** (`ITenantContext.Set/Get/DeleteConfigurationAsync`). The Standardized creator
+writes the flag under the `serviceEnabledKey` its subclass passes in; the middleware's 403 gate and
+`IConfigurationService.IsEnabledAsync` read it back. Two things are easy to get wrong when another
+service needs that flag:
+
+- **The key literals live here now** — `TenantCapabilityConfigurationKeys` (`Communication`,
+  `Reporting`, `AiServices`) in `src/Infrastructure/Services/`. The owning services' `internal`
+  constants are copies of these literals and are being switched over to reference this class; do not
+  introduce a fourth copy. Stream Data is engine-owned (`StreamDataConfigurationKeys.StreamDataEnabledKey`,
+  value type `StreamDataGlobalSettings`) and is deliberately not listed — its disable precondition
+  lives in the engine as well (see below).
+- **"Disabled" has two shapes.** Communication, Reporting and AI *delete* the document on Disable;
+  Stream Data keeps it with `IsEnabled = false`. `ITenantCapabilityStateReader` (registered by
+  `AddOctoServiceInfrastructure`) normalises both — missing key or `false` ⇒ disabled — and returns the
+  enabled `TenantCapability` values in declaration order. It reads Stream Data through the engine's
+  `IsStreamDataEnabledAsync` and the other three through `GetConfigurationAsync`, so it needs no call
+  to the owning service. Read failures propagate: a caller that gates a destructive operation on this
+  answer must never see an unreadable state as "disabled". The parent/child overload resolves the child
+  via `TryGetChildTenantContextAsync` (which runs the resolve-time CK auto-imports) and throws
+  `TenantException.TenantDoesNotExist` for anything that is not a direct child.
+
+First consumer: the asset repository's tenant `Delete`/`Detach` refuse with 409 while any capability is
+enabled (AB#4255 step 1).
+
+### Disable is a verified precondition, not a teardown (AB#4255 step 2)
+
+`DefaultConfigurationCreatorServiceStandardized.DisableAsync` consults
+`protected virtual Task<string?> GetDisableBlockerAsync(tenantId)` **after** the already-disabled check
+(disabling twice stays the idempotent "already disabled" answer) and **before** the enabled flag is
+removed. A non-null answer is thrown as `ConfigurationException.TenantDisableBlocked(reason)` — the only
+`ConfigurationException` with `IsConflict = true`, which the owning service's controller maps to **409**
+(`catch (ConfigurationException e) when (e.IsConflict)`) while every other one stays a 400. The
+transaction is aborted, the flag stays, `StopTenantAsync` does not run. The reason is surfaced verbatim
+to CLI/MCP/Studio, so the override must produce a complete operator message: which resources are still
+deployed and how to remove them.
+
+Why a precondition instead of tearing down inside `StopTenantAsync`: the DB deployment state is what the
+operator mirrors back (reverse-sync), so checking it before the flag flip *is* confirming the actual end
+state; a flag flip that helm-uninstalls a production tenant's workloads would be a dangerous side effect;
+and a refusal is remediable through the existing undeploy paths, whereas an automatic cascade silently
+no-ops for Edge pools and after a controller restart. The hook answers the Communication and Reporting
+requirements of AB#4255 in one shape. **Reporting and AI Services never override it**: Reporting owns
+no resources outside the tenant database and renders synchronously inside the request; the AI service's
+per-tenant worker pod is operator-owned and its sessions/leases are tenant data. Their controllers still
+map `IsConflict` to 409 for contract parity, so a future blocker cannot degrade to a 400. A failing read
+in an override must throw — an unreadable state is not a torn-down state.
+
+**Stream Data cannot use the hook** — its disable goes through the engine
+(`ITenantContext.DisableStreamDataAsync`), never through a Standardized creator — but carries the same
+contract: `TenantContext.DisableStreamDataAsync` (octo-construction-kit-engine-mongodb) refuses with
+`StreamDataDisableBlockedException` while any archive of the tenant is still `Activated`, naming the
+archives, and the asset repository's `StreamDataController` maps that exception to 409 with an
+`OperationFailedErrorDto` that appends the `DisableArchive` / `DeleteArchive` remediation. Disabled,
+Failed and Created archives never block; the flag flip keeps the model, the entities and the tables. The
+engine also drops the CrateDB tables of the tenant's own archives when a tenant is dropped for good
+(`DeleteChildTenantMetadataAsync(..., dropStreamData: true)` → `DropTenantDatabaseAsync`, best-effort),
+so a Delete leaves no orphaned tables and the guard only has to ensure nothing is live. The deleting
+settle sweep here re-drops only the database (its handle carries no archives — the tables were dropped
+by the original delete).
+
 ## Tests
 
 `tests/Infrastructure.Tests` — xUnit + FakeItEasy. `Infrastructure.csproj` exposes internals to this
