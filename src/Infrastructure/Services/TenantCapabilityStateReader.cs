@@ -101,8 +101,11 @@ public class TenantCapabilityStateReader : ITenantCapabilityStateReader
 
         enabled.Sort();
 
-        _logger.LogDebug("Tenant '{TenantId}' has {Count} enabled capabilities: {Capabilities}",
-            tenantContext.TenantId, enabled.Count, string.Join(", ", enabled));
+        if (_logger.IsEnabled(LogLevel.Debug))
+        {
+            _logger.LogDebug("Tenant '{TenantId}' has {Count} enabled capabilities: {Capabilities}",
+                tenantContext.TenantId, enabled.Count, string.Join(", ", enabled));
+        }
 
         return enabled;
     }
