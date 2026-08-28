@@ -38,6 +38,11 @@ internal class ObservabilityBuilder(
             // octo-construction-kit-engine-mongodb. Meter name kept as a string to avoid
             // cross-layer reference into the MongoDB engine.
             .AddMeter("Meshmakers.Octo.MongoDb")
+            // On-demand workload lifecycle (AB#4919) — emitted by WorkloadLifecycleMetrics in
+            // octo-communication-controller-services. Same rule: a string, not a reference into a
+            // service. Registering it here for every service is harmless — a service that emits
+            // nothing on this meter simply exports nothing.
+            .AddMeter("Meshmakers.Octo.Communication")
             .AddPrometheusExporter());
 
         // Add Tracing for ASP.NET Core and our custom ActivitySource and export to Jaeger
