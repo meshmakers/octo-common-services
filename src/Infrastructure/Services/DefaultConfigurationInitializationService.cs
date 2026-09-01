@@ -60,7 +60,7 @@ public class DefaultConfigurationInitializationService : IAsyncInitializationSer
             using (var systemSession = await _systemContext.GetAdminSessionAsync().ConfigureAwait(false))
             {
                 systemSession.StartTransaction();
-                var tenants = await _systemContext.GetChildTenantsAsync(systemSession).ConfigureAwait(false);
+                var tenants = await _systemContext.GetAllTenantsAsync(systemSession).ConfigureAwait(false);
                 tenantList = tenants.Items.ToList();
                 await systemSession.CommitTransactionAsync().ConfigureAwait(false);
             }
