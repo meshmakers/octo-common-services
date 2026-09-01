@@ -70,8 +70,8 @@ optional in the compiler's sense only — without it the defaults apply, so a co
 it keeps today's behaviour, but its enforcement mode is then **not settable at all**: the environment
 variable is inert and the service stays on `LogOnly` while the rest of the estate moves to `Enforce`.
 
-**Every host of the middleware must call both halves.** As of AB#5047 all five do — the `Use…`/`Add…`
-pairs are:
+**Every host of the middleware must call both halves.** As of AB#5047 all five do, and AB#5051 added
+a sixth — the `Use…`/`Add…` pairs are:
 
 | Service | `UseOctoTenantAuthorization()` | `AddOctoTenantAuthorization(builder.Configuration)` |
 |---|---|---|
@@ -80,12 +80,39 @@ pairs are:
 | octo-asset-repo-services | `Configuration/OctoApplicationBuilderExtensions.cs` | `Program.cs` (AB#5047) |
 | octo-bot-services | `Program.cs` | `Program.cs` (AB#5047) |
 | octo-mcp-service | `Program.cs` | `Program.cs` (AB#5047) |
+| octo-ai-services | `Program.cs` | `Program.cs` (AB#5051) |
 
 They all pass `builder.Configuration` into the same helper, so the section name (a `const` here) and
 the `OCTO_` env prefix every service registers cannot drift apart — a per-service section name would
-be exactly the silent outlier this inventory exists to prevent. When adding a sixth host, add both
+be exactly the silent outlier this inventory exists to prevent. When adding a seventh host, add both
 calls and a row here; `grep -rn "UseOctoTenantAuthorization" --include='*.cs'` across the checkout is
 the audit.
+
+**octo-platform-services deliberately has no gate (AB#5051).** It is the only service whose
+`{tenantId}` route value is not the addressed tenant: `system/v1/tenants/{tenantId}/blueprints|ck-models`
+are cross-tenant *operator* routes where the tenant id is the subject being inspected, and its only
+other tenant route (`{tenantId}/_configuration`) is `[AllowAnonymous]`. Wiring the gate there would
+403 the operator use case, because the **user**-token path below is unconditional. Instead AB#5051
+switched that service from `ValidateAudience = false` to requiring `aud=octoAPI`, which is its
+transport-level narrowing. Details in `octo-platform-services/CLAUDE.md`.
+
+🔴 **The `AuthenticationType` blind spot — check this before trusting the gate in any host.** The
+middleware skips every principal whose `Identity.AuthenticationType` is not `Bearer` (a guard against
+false 403s on cookie principals). The JWT bearer handler labels its identity from
+`TokenValidationParameters.AuthenticationType`, whose default is **`AuthenticationTypes.Federation`**,
+not `Bearer` — verified against `Microsoft.IdentityModel.Tokens` 8.x. A host that does not set
+
+```csharp
+options.TokenValidationParameters.AuthenticationType = JwtBearerDefaults.AuthenticationScheme;
+```
+
+therefore runs the gate as a **silent no-op on every bearer request**. octo-mcp-service set it in
+AB#4315 and octo-ai-services in AB#5051; as of AB#5051 **octo-asset-repo-services, octo-bot-services
+and octo-communication-controller-services do not**, so their `Use…`/`Add…` pair currently gates
+nothing and an estate-wide flip to `Enforce` would not change their behaviour. Fixing them is a
+behaviour change for user tokens (the user path has no `LogOnly` staging), so it belongs in its own
+work item rather than as a side effect — but until it lands, "the service is wired" and "the service
+is protected" are not the same statement.
 
 `tests/Infrastructure.Tests/Configuration/TenantAuthorizationOptionsBindingTests.cs` pins the two
 properties a fleet-wide switch depends on: the unregistered default is `LogOnly` with an empty
