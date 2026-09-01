@@ -87,6 +87,29 @@ and throws, so the tenant stays `Creating` and every retry path keeps driving it
 additive — an older producer never sends it, an older consumer falls into its unexpected-result branch,
 which does not mark the tenant provisioned either.
 
+## `DistClientDto` — secrets and roles over the bus (AB#5027)
+
+`CreateIdentityDataCommandRequest.Clients` is the only channel a backend service has for creating an
+OAuth client: the identity REST API needs an `octo_api` bearer token, i.e. an identity the caller does
+not have yet at provisioning time. To let the Communication Controller create the **pipeline service
+account** (a `client_credentials` client that must have a secret and roles), `DistClientDto` gained
+three optional properties:
+
+| Property | Default | Meaning |
+|---|---|---|
+| `ClientSecret` | `null` | **Plaintext**. The identity service hashes it (SHA-256, Duende's shared-secret convention) and stores only the hash. `null` means "do not (re-)issue" — the consumer then preserves whatever the existing client has, which is what makes a repeat provisioning run a no-op. |
+| `RequireClientSecret` | `false` | Reproduces the value the identity consumer used to hard-code, so every pre-existing producer keeps creating public clients unchanged. |
+| `AssignedRoleNames` | `null` | Role names assigned through the identity `AssignedRole` association — additive, idempotent, unknown names skipped with a warning. There was no bus path for client roles before. |
+
+Two rules for anyone touching this DTO:
+
+- 🔴 **Never log a `DistClientDto`.** `ToString()` is **overridden** to print only the client id,
+  precisely because the compiler-generated record `ToString()` prints every property — a single
+  `logger.LogDebug("{Dto}", dto)` would otherwise write a live client secret into the log pipeline.
+  Keep the override if you add properties.
+- The properties are additive, so an **older identity service silently ignores them** and would
+  create a secretless client. Ship identity before any producer that relies on them.
+
 ## Tenant Delete — Settle Semantics (AB#4829)
 
 A tenant delete cannot stop events and setups already in flight (broadcast queues are per-instance and

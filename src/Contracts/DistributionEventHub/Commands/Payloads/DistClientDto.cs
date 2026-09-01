@@ -63,4 +63,57 @@ public record DistClientDto(string ClientId, string ClientName, string ClientUri
     ///     Gets or sets whether session ID is required for back-channel logout.
     /// </summary>
     public bool BackChannelLogoutSessionRequired { get; init; } = true;
+
+    /// <summary>
+    ///     Optional <b>plaintext</b> client secret (AB#5027). The identity service hashes it
+    ///     (SHA-256, the Duende shared-secret convention) before it is stored — the plaintext is never
+    ///     persisted on the identity side. Leave <c>null</c> for a public client; that is the historic
+    ///     behaviour of every producer that predates this property.
+    ///     <para>
+    ///     🔴 Never log this value, in no log level and not truncated. <see cref="ToString" /> is
+    ///     overridden on this record for exactly that reason — the compiler-generated record
+    ///     <c>ToString()</c> prints every property, so a single <c>LogDebug("{Dto}", dto)</c> would
+    ///     leak the secret into the log pipeline.
+    ///     </para>
+    ///     <para>
+    ///     Idempotency contract: a producer must only send a secret when it actually intends to
+    ///     (re-)issue one. The consumer overwrites the client's secret whenever this is non-empty and
+    ///     preserves the existing one whenever it is null — so "send nothing" is the no-rotation path.
+    ///     </para>
+    /// </summary>
+    public string? ClientSecret { get; init; }
+
+    /// <summary>
+    ///     Gets or sets whether the client must authenticate with a secret (AB#5027). Defaults to
+    ///     <c>false</c>, which is what the consumer hard-coded before this property existed, so
+    ///     every pre-existing producer keeps creating public clients unchanged. Set it to
+    ///     <c>true</c> together with <see cref="ClientSecret" /> for a <c>client_credentials</c>
+    ///     service account — a secretless client with that grant would hand a token to anyone who
+    ///     knows the client id.
+    /// </summary>
+    public bool RequireClientSecret { get; init; }
+
+    /// <summary>
+    ///     Optional role names to assign to the client through the identity <c>AssignedRole</c>
+    ///     association (AB#5027). Applied additively and idempotently: roles already assigned are
+    ///     left alone, roles not listed here are <b>not</b> removed, and an unknown role name is
+    ///     skipped with a warning rather than failing the whole identity-data setup.
+    ///     <para>
+    ///     Before this property there was no bus path at all for client roles — the only ways were
+    ///     the identity REST API (which needs an OAuth token, i.e. an identity the caller does not
+    ///     have yet at provisioning time) or a blueprint seed.
+    ///     </para>
+    /// </summary>
+    public string[]? AssignedRoleNames { get; init; }
+
+    /// <summary>
+    ///     Redacting override. The compiler-generated record <c>ToString()</c> prints every property
+    ///     including <see cref="ClientSecret" />; a structured-logging call that passes the DTO as a
+    ///     single argument would therefore write a live client secret into the logs. Only the client
+    ///     id is safe to print, and it is the only field worth printing for diagnostics.
+    /// </summary>
+    public override string ToString()
+    {
+        return $"{nameof(DistClientDto)} {{ {nameof(ClientId)} = {ClientId} }}";
+    }
 }
