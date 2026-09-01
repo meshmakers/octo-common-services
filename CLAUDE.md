@@ -66,7 +66,31 @@ Two halves close it, and they must ship in this order:
 
 Bind it with `services.AddOctoTenantAuthorization(configuration)` (section `TenantAuthorization`, i.e.
 `OCTO_TENANTAUTHORIZATION__SERVICETOKENENFORCEMENT` / `…__CROSSTENANTSERVICECLIENTIDS__0`). The call is
-optional — without it the defaults apply, so a consumer that never wires it is unchanged.
+optional in the compiler's sense only — without it the defaults apply, so a consumer that never wires
+it keeps today's behaviour, but its enforcement mode is then **not settable at all**: the environment
+variable is inert and the service stays on `LogOnly` while the rest of the estate moves to `Enforce`.
+
+**Every host of the middleware must call both halves.** As of AB#5047 all five do — the `Use…`/`Add…`
+pairs are:
+
+| Service | `UseOctoTenantAuthorization()` | `AddOctoTenantAuthorization(builder.Configuration)` |
+|---|---|---|
+| octo-identity-services | `Program.cs` | `Program.cs` (AB#5032) |
+| octo-communication-controller-services | `Program.cs` | `Program.cs` (AB#5032) |
+| octo-asset-repo-services | `Configuration/OctoApplicationBuilderExtensions.cs` | `Program.cs` (AB#5047) |
+| octo-bot-services | `Program.cs` | `Program.cs` (AB#5047) |
+| octo-mcp-service | `Program.cs` | `Program.cs` (AB#5047) |
+
+They all pass `builder.Configuration` into the same helper, so the section name (a `const` here) and
+the `OCTO_` env prefix every service registers cannot drift apart — a per-service section name would
+be exactly the silent outlier this inventory exists to prevent. When adding a sixth host, add both
+calls and a row here; `grep -rn "UseOctoTenantAuthorization" --include='*.cs'` across the checkout is
+the audit.
+
+`tests/Infrastructure.Tests/Configuration/TenantAuthorizationOptionsBindingTests.cs` pins the two
+properties a fleet-wide switch depends on: the unregistered default is `LogOnly` with an empty
+allow-list, and the section binds from both the config section and
+`OCTO_TENANTAUTHORIZATION__SERVICETOKENENFORCEMENT`.
 
 **The `tenant_id` match is the mechanism; the allow-list is expected to stay empty.** Both consumers
 the exemption was believed to exist for already mint **tenant-bound** tokens, verified in code:
