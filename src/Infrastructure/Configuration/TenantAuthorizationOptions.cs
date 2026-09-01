@@ -41,7 +41,56 @@ public enum ServiceTokenTenantEnforcementMode
 }
 
 /// <summary>
-///     Configuration of <c>TenantAuthorizationMiddleware</c> (AB#5032).
+///     How the tenant check of <c>TenantAuthorizationMiddleware</c> treats <b>user tokens</b>
+///     (tokens carrying a <c>sub</c> claim).
+/// </summary>
+/// <remarks>
+///     <para>
+///         The user path had no staging at all until AB#5054, because it was believed to have been
+///         live everywhere since AB#5032. It was not: the middleware only looks at a principal whose
+///         <c>Identity.AuthenticationType</c> reads <c>"Bearer"</c>, and that label comes from
+///         <c>TokenValidationParameters.AuthenticationType</c>, which the JWT handler leaves at the
+///         framework default <c>"AuthenticationTypes.Federation"</c> unless a host sets it. Only
+///         octo-mcp-service ever did. So in identity, communication-controller, asset-repo, bot and
+///         ai-services the check has never run on a single request, and switching the label on flips
+///         the user path from "never checked" to "always refused" in one step — for the most-used
+///         API on the platform.
+///     </para>
+///     <para>
+///         Hence the same two-step rollout the service path already has: first observe
+///         (<see cref="LogOnly" />), then enforce. The default is <see cref="Enforce" /> so that a
+///         host where the check is genuinely live today (octo-mcp-service) is not weakened by this
+///         option existing, and so that a host that never opts down is closed rather than open. The
+///         zero value is the enforcing one on purpose: a default-constructed options object must
+///         never be the permissive one.
+///     </para>
+/// </remarks>
+public enum UserTokenTenantEnforcementMode
+{
+    /// <summary>
+    ///     <b>Default.</b> A user token may only address the tenant it was issued for
+    ///     (<c>tenant_id</c> claim). Everything else is refused with <c>403 Forbidden</c> —
+    ///     including a user token that carries no <c>tenant_id</c> claim at all, which cannot be
+    ///     attributed to a tenant (fail closed). <c>allowed_tenants</c> is deliberately not
+    ///     consulted: it is a tenant-<i>selection</i> hint, not an API authorization.
+    /// </summary>
+    Enforce = 0,
+
+    /// <summary>
+    ///     Migration mode. Request outcomes are identical to a host whose gate never ran, but every
+    ///     access an enforcing run would refuse is logged as a warning naming the subject, the
+    ///     client id, the token tenant and the route tenant. That log is the consumer inventory an
+    ///     operator needs before switching an environment to <see cref="Enforce" />.
+    /// </summary>
+    /// <remarks>
+    ///     There is deliberately no third "off" value. <see cref="LogOnly" /> already changes no
+    ///     request outcome, so a silent mode would only buy the ability to hide the inventory.
+    /// </remarks>
+    LogOnly = 1
+}
+
+/// <summary>
+///     Configuration of <c>TenantAuthorizationMiddleware</c> (AB#5032, AB#5054).
 /// </summary>
 /// <remarks>
 ///     Bind with <c>services.AddOctoTenantAuthorization(configuration)</c>. Without any registration the
@@ -61,6 +110,15 @@ public class TenantAuthorizationOptions
     /// </summary>
     public ServiceTokenTenantEnforcementMode ServiceTokenEnforcement { get; set; } =
         ServiceTokenTenantEnforcementMode.LogOnly;
+
+    /// <summary>
+    ///     How user tokens (with a <c>sub</c> claim) are treated (AB#5054). Defaults to
+    ///     <see cref="UserTokenTenantEnforcementMode.Enforce" />, i.e. the behaviour of every host
+    ///     where the check actually runs today — this option can only ever be used to <i>loosen</i>
+    ///     a specific host during its migration, never to silently leave one unprotected.
+    /// </summary>
+    public UserTokenTenantEnforcementMode UserTokenEnforcement { get; set; } =
+        UserTokenTenantEnforcementMode.Enforce;
 
     /// <summary>
     ///     Client ids of service clients that genuinely fan out across tenants with a single token and

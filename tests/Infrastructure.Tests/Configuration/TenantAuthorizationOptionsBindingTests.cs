@@ -39,6 +39,79 @@ public class TenantAuthorizationOptionsBindingTests
     }
 
     /// <summary>
+    ///     🔴 AB#5054: the user path's default is the <b>opposite</b> of the service path's. A host
+    ///     where the user check is genuinely live today (octo-mcp-service, octo-ai-services since
+    ///     AB#5056) must not be weakened by the staging option merely existing, and a host that
+    ///     forgets to opt down must be closed rather than open. The zero enum value is the enforcing
+    ///     one for the same reason, so even a default-constructed options object enforces.
+    /// </summary>
+    [Fact]
+    public void WithoutRegistration_UserTokenPath_Enforces()
+    {
+        var provider = new ServiceCollection().AddOptions().BuildServiceProvider();
+
+        var options = provider.GetRequiredService<IOptions<TenantAuthorizationOptions>>().Value;
+
+        Assert.Equal(UserTokenTenantEnforcementMode.Enforce, options.UserTokenEnforcement);
+        Assert.Equal(UserTokenTenantEnforcementMode.Enforce, default(UserTokenTenantEnforcementMode));
+    }
+
+    /// <summary>
+    ///     The operator knob for the AB#5054 migration, spelled the way it is set in Helm.
+    /// </summary>
+    [Fact]
+    public void AddOctoTenantAuthorization_BindsUserTokenEnforcementFromEnvironmentVariable()
+    {
+        const string variable = "OCTO_TENANTAUTHORIZATION__USERTOKENENFORCEMENT";
+        var previous = Environment.GetEnvironmentVariable(variable);
+        try
+        {
+            Environment.SetEnvironmentVariable(variable, "LogOnly");
+
+            var configuration = new ConfigurationBuilder()
+                .AddEnvironmentVariables("OCTO_")
+                .Build();
+
+            var provider = new ServiceCollection()
+                .AddOctoTenantAuthorization(configuration)
+                .BuildServiceProvider();
+
+            var options = provider.GetRequiredService<IOptions<TenantAuthorizationOptions>>().Value;
+
+            Assert.Equal(UserTokenTenantEnforcementMode.LogOnly, options.UserTokenEnforcement);
+        }
+        finally
+        {
+            Environment.SetEnvironmentVariable(variable, previous);
+        }
+    }
+
+    /// <summary>
+    ///     A service may set the migration mode in code, and configuration must still win — that is
+    ///     what lets an operator flip a service to <c>Enforce</c> without a release. Registration
+    ///     order carries this: the code default is registered <b>before</b> the section binding.
+    /// </summary>
+    [Fact]
+    public void ConfigurationOverridesTheCodeDefault_WhenRegisteredFirst()
+    {
+        var configuration = new ConfigurationBuilder()
+            .AddInMemoryCollection(new Dictionary<string, string?>
+            {
+                ["TenantAuthorization:UserTokenEnforcement"] = "Enforce"
+            })
+            .Build();
+
+        var provider = new ServiceCollection()
+            .AddOctoTenantAuthorization(o => o.UserTokenEnforcement = UserTokenTenantEnforcementMode.LogOnly)
+            .AddOctoTenantAuthorization(configuration)
+            .BuildServiceProvider();
+
+        var options = provider.GetRequiredService<IOptions<TenantAuthorizationOptions>>().Value;
+
+        Assert.Equal(UserTokenTenantEnforcementMode.Enforce, options.UserTokenEnforcement);
+    }
+
+    /// <summary>
     ///     The section name is part of the platform contract — every service binds
     ///     <c>TenantAuthorization</c>, so one operator-set value reaches all of them.
     /// </summary>

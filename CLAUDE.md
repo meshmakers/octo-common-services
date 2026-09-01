@@ -106,18 +106,90 @@ not `Bearer` — verified against `Microsoft.IdentityModel.Tokens` 8.x. A host t
 options.TokenValidationParameters.AuthenticationType = JwtBearerDefaults.AuthenticationScheme;
 ```
 
-therefore runs the gate as a **silent no-op on every bearer request**. octo-mcp-service set it in
-AB#4315 and octo-ai-services in AB#5051; as of AB#5051 **octo-asset-repo-services, octo-bot-services
-and octo-communication-controller-services do not**, so their `Use…`/`Add…` pair currently gates
-nothing and an estate-wide flip to `Enforce` would not change their behaviour. Fixing them is a
-behaviour change for user tokens (the user path has no `LogOnly` staging), so it belongs in its own
-work item rather than as a side effect — but until it lands, "the service is wired" and "the service
-is protected" are not the same statement.
+therefore runs the gate as a **silent no-op on every bearer request** — the user check *and* the
+service-token audit log above, which is why several services' "inventory" was empty rather than clean.
 
-`tests/Infrastructure.Tests/Configuration/TenantAuthorizationOptionsBindingTests.cs` pins the two
+🔴 **Setting the line is not enough — it has to survive the composition (AB#5054).** The options
+factory runs every `IConfigureOptions<JwtBearerOptions>` in **registration order**. A host that
+registers `ConfigureOptions<ConfigureJwtBearerOptions>()` and *then* calls
+`AddJwtBearer(jwt => { jwt.TokenValidationParameters = new TokenValidationParameters { … }; })`
+replaces the whole instance afterwards, discarding the label and the explicit `ValidIssuer`. Nothing
+about that is visible: it compiles, and a unit test of the configurator class in isolation stays
+green because it never sees the composed state. octo-ai-services shipped a full release in exactly
+that condition (AB#5051 → AB#5056). **The rule is: one configurator owns the scheme, and
+`AddJwtBearer()` is called without an argument.** Audit with
+`grep -rn "AddJwtBearer(" --include='*.cs'` — every hit with an argument is a candidate.
+
+Verified inventory (AB#5054), which is the thing to re-check rather than trust:
+
+| Host | sets `AuthenticationType` | second configurator replacing `TokenValidationParameters` | user path effective |
+|---|---|---|---|
+| octo-mcp-service | ✅ AB#4315 | no | ✅ since AB#4315 |
+| octo-ai-services | ✅ AB#5051 | had one → removed AB#5056 | ✅ since AB#5056 |
+| octo-asset-repo-services | ✅ AB#5054 | no (delegate folded into the configurator) | ✅ since AB#5054, staged |
+| octo-bot-services | ✅ AB#5054 | had one → removed AB#5054 | n/a — no `{tenantId}` route exists |
+| octo-communication-controller-services | ✅ AB#5054 | had one → removed AB#5054 | ✅ since AB#5054, staged |
+| **octo-identity-services** | ❌ **still missing** | no (its delegate only sets `Audience`) | ❌ **still a no-op** |
+
+**octo-identity-services is the remaining gap.** It calls both halves and its API controllers use
+`[Authorize(AuthenticationSchemes = "Bearer")]`, so the principal the middleware inspects really is
+the JWT one — but nothing in `src/` ever sets `TokenValidationParameters.AuthenticationType`, so the
+gate has never run there either. It was left out of AB#5054 deliberately (that work item scoped the
+three services it names); arming it is the same two-step exercise and needs its own consumer
+inventory, because identity is the one service every tenant-switch flow talks to.
+
+`tests/Infrastructure.Tests/Configuration/TenantAuthorizationOptionsBindingTests.cs` pins the
 properties a fleet-wide switch depends on: the unregistered default is `LogOnly` with an empty
-allow-list, and the section binds from both the config section and
-`OCTO_TENANTAUTHORIZATION__SERVICETOKENENFORCEMENT`.
+allow-list for service tokens and **`Enforce` for user tokens**, and the section binds from both the
+config section and `OCTO_TENANTAUTHORIZATION__SERVICETOKENENFORCEMENT` /
+`…__USERTOKENENFORCEMENT`.
+
+## The user-token path is staged too (AB#5054)
+
+Fixing the label flips the **user** path from "never checked" to "always refused" in one step, and
+unlike the service path it had no staging at all. `TenantAuthorizationOptions.UserTokenEnforcement`
+adds it, with the **opposite default**:
+
+| Mode | Behaviour |
+|---|---|
+| `Enforce` (**default**, and the enum's zero value) | A user token may address only its own `tenant_id`. Everything else → **403**, including a user token with no `tenant_id` at all (fail closed). |
+| `LogOnly` | Request outcomes identical to a host whose gate never ran, but every access an enforcing run would refuse is logged as a warning naming the **subject, the client id and both tenants**. |
+
+The default is deliberately the strict one: `Enforce` means the option cannot weaken a host where the
+check is genuinely live (mcp, ai-services), and a host that forgets to opt down arrives closed. There
+is **no third "off" value** — `LogOnly` already changes no outcome, so a silent mode would only buy
+the ability to hide the inventory. `allowed_tenants` is still never consulted on this path.
+
+A service opts down in code, and **order matters**:
+
+```csharp
+builder.Services.AddOctoTenantAuthorization(o =>
+    o.UserTokenEnforcement = UserTokenTenantEnforcementMode.LogOnly);   // code default FIRST
+builder.Services.AddOctoTenantAuthorization(builder.Configuration);      // configuration wins
+```
+
+Registered the other way round the code value would win and
+`OCTO_TENANTAUTHORIZATION__USERTOKENENFORCEMENT=Enforce` would be inert — the same class of silent
+outlier AB#5047 had to fix once already.
+
+**Who is on `LogOnly` today, and why:** asset-repo and communication-controller (AB#5054). For
+asset-repo the reason is concrete rather than precautionary — **meshmakers-app queries this service's
+GraphQL endpoint cross-tenant with the user's own token**: `available-tenants.service.ts` walks the
+root tenant and its children to discover the topology, and `tenant-provisioning.service.ts` probes
+candidate tenants for the landing guard. The app's own code anticipates a 403 and degrades, but the
+degradation is user-visible (a bare `/` visit lands on `/no-tenant?reason=unresolved` for every user
+whose token tenant is not the root tenant), and that app runs in production. For the communication
+controller no cross-tenant user caller was found — Studio re-mints per tenant and guards the route
+client-side, octo-cli derives URL tenant and `acr_values` from one context value, and octo-mcp-service
+RFC 8693-exchanges before calling — but that is an argument, not the log, so it takes one release in
+`LogOnly` too. bot-services stays on `Enforce`: it has **no `{tenantId}` route segment at all** (job
+tenants travel as query arguments / TUS metadata), so the middleware returns early and there is
+nothing to stage.
+
+Tests: `tests/Infrastructure.Tests/Middleware/TenantAuthorizationMiddlewareTests.cs` (foreign tenant
+and missing claim denied by default, both logged-and-allowed when staging, matching tenant never
+logged, and the two staged paths independent — a `LogOnly` user path must not re-open the AB#5032
+service-token exemption).
 
 **The `tenant_id` match is the mechanism; the allow-list is expected to stay empty.** Both consumers
 the exemption was believed to exist for already mint **tenant-bound** tokens, verified in code:

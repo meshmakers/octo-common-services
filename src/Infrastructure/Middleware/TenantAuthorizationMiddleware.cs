@@ -28,6 +28,20 @@ namespace Meshmakers.Octo.Services.Infrastructure.Middleware;
 ///         explicit allow-list), never <c>allowed_tenants</c> — same stance as the user path below:
 ///         <c>allowed_tenants</c> is a tenant-<i>selection</i> hint, not an API authorization.
 ///     </para>
+///     <para>
+///         <b>User tokens (AB#5054).</b> 🔴 Everything in this class only ever runs on a principal
+///         whose <c>Identity.AuthenticationType</c> reads <c>"Bearer"</c> — the guard a few lines
+///         down that keeps cookie principals out. That label is not the scheme name; it comes from
+///         <c>TokenValidationParameters.AuthenticationType</c>, which the JWT bearer handler leaves
+///         at the framework default <c>"AuthenticationTypes.Federation"</c> unless the host sets it.
+///         A host that does not set it runs this whole middleware as a no-op on every bearer
+///         request — the user check included, and the service-token audit log with it, which is why
+///         the inventory of several services stayed empty. Setting the label therefore switches the
+///         user path from "never checked" to "always refused" in a single step, so it is staged the
+///         same way, behind <see cref="TenantAuthorizationOptions.UserTokenEnforcement" /> — but
+///         defaulting to <see cref="UserTokenTenantEnforcementMode.Enforce" />, so a host where the
+///         check is genuinely live cannot be weakened by the option's mere existence.
+///     </para>
 /// </remarks>
 internal class TenantAuthorizationMiddleware(
     RequestDelegate next,
@@ -108,20 +122,52 @@ internal class TenantAuthorizationMiddleware(
         // The tenant_id claim identifies the tenant the user authenticated against.
         // allowed_tenants is only used for tenant selection (e.g., tenant picker UI),
         // not for authorizing API access.
-        var tokenTenantId = context.User.FindFirstValue(TenantIdClaimType);
-        if (string.IsNullOrEmpty(tokenTenantId))
+        if (!AllowUserToken(context, tenantId))
         {
-            context.Response.StatusCode = StatusCodes.Status403Forbidden;
-            return;
-        }
-
-        if (!string.Equals(tokenTenantId, tenantId, StringComparison.OrdinalIgnoreCase))
-        {
-            context.Response.StatusCode = StatusCodes.Status403Forbidden;
             return;
         }
 
         await next(context);
+    }
+
+    /// <summary>
+    ///     Decides whether a user token may address <paramref name="routeTenantId" />. Returns
+    ///     <c>true</c> to continue the pipeline; when it returns <c>false</c> the response has
+    ///     already been set to <c>403 Forbidden</c>.
+    /// </summary>
+    /// <remarks>
+    ///     Staged behind <see cref="TenantAuthorizationOptions.UserTokenEnforcement" /> since
+    ///     AB#5054, for the same reason the service path is staged — with the opposite default.
+    ///     See <see cref="UserTokenTenantEnforcementMode" /> for why.
+    /// </remarks>
+    private bool AllowUserToken(HttpContext context, string routeTenantId)
+    {
+        var tokenTenantId = context.User.FindFirstValue(TenantIdClaimType);
+        var matches = !string.IsNullOrEmpty(tokenTenantId) &&
+                      string.Equals(tokenTenantId, routeTenantId, StringComparison.OrdinalIgnoreCase);
+        if (matches)
+        {
+            return true;
+        }
+
+        if (options.Value.UserTokenEnforcement == UserTokenTenantEnforcementMode.Enforce)
+        {
+            context.Response.StatusCode = StatusCodes.Status403Forbidden;
+            return false;
+        }
+
+        // LogOnly: the inventory. The client id is what makes an entry actionable — it names the
+        // application (Studio, the accounting app, the CLI, …), which is the unit an operator can
+        // actually go and fix; the subject alone only says that *someone* did it.
+        logger.LogWarning(
+            "User token of subject '{Subject}' (client '{ClientId}') was issued for tenant '{TokenTenantId}' " +
+            "but addresses tenant '{RouteTenantId}'. This would be denied with " +
+            "UserTokenEnforcement=Enforce (AB#5054)",
+            context.User.FindFirstValue("sub") ?? context.User.FindFirstValue(ClaimTypes.NameIdentifier),
+            context.User.FindFirstValue(ClientIdClaimType) ?? "<none>",
+            string.IsNullOrEmpty(tokenTenantId) ? "<none>" : tokenTenantId,
+            routeTenantId);
+        return true;
     }
 
     /// <summary>

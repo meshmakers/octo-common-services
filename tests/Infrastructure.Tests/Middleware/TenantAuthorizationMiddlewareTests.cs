@@ -73,12 +73,17 @@ public class TenantAuthorizationMiddlewareTests
         }
     }
 
-    private static IEnumerable<Claim> UserToken(string? tenantId)
+    private static IEnumerable<Claim> UserToken(string? tenantId, string? clientId = null)
     {
         yield return new Claim("sub", "6600000000000000000000ff");
         if (tenantId != null)
         {
             yield return new Claim("tenant_id", tenantId);
+        }
+
+        if (clientId != null)
+        {
+            yield return new Claim("client_id", clientId);
         }
     }
 
@@ -257,7 +262,8 @@ public class TenantAuthorizationMiddlewareTests
     }
 
     // ---------------------------------------------------------------------------------------------
-    // User tokens are untouched by AB#5032.
+    // User tokens are untouched by AB#5032 and staged separately since AB#5054 — with the opposite
+    // default: Enforce, so no host where the check is live today is weakened by the option existing.
     // ---------------------------------------------------------------------------------------------
 
     [Fact]
@@ -303,6 +309,85 @@ public class TenantAuthorizationMiddlewareTests
         var (nextCalled, ctx, _) = Invoke(context, new TenantAuthorizationOptions
         {
             ServiceTokenEnforcement = ServiceTokenTenantEnforcementMode.Disabled
+        });
+
+        Assert.False(nextCalled);
+        Assert.Equal(StatusCodes.Status403Forbidden, ctx.Response.StatusCode);
+    }
+
+    [Fact]
+    public void UserToken_WithoutTenantClaim_IsDeniedByDefault()
+    {
+        // A user token that cannot be attributed to a tenant fails closed — the shape
+        // octo-mcp-service's RuntimeSecurityContextResolver mirrors for its per-tool tenant gate.
+        var context = CreateContext(UserToken(null));
+
+        var (nextCalled, ctx, _) = Invoke(context);
+
+        Assert.False(nextCalled);
+        Assert.Equal(StatusCodes.Status403Forbidden, ctx.Response.StatusCode);
+    }
+
+    [Fact]
+    public void UserToken_WithMatchingTenant_IsNeverLoggedWhenStaging()
+    {
+        var context = CreateContext(UserToken(RouteTenant));
+
+        var (nextCalled, ctx, logger) = Invoke(context, new TenantAuthorizationOptions
+        {
+            UserTokenEnforcement = UserTokenTenantEnforcementMode.LogOnly
+        });
+
+        Assert.True(nextCalled);
+        Assert.NotEqual(StatusCodes.Status403Forbidden, ctx.Response.StatusCode);
+        Assert.Empty(logger.Warnings);
+    }
+
+    [Fact]
+    public void UserToken_WithForeignTenant_IsLoggedButAllowedWhenStaging()
+    {
+        var context = CreateContext(UserToken(ForeignTenant, "octo-meshmakers-app"));
+
+        var (nextCalled, ctx, logger) = Invoke(context, new TenantAuthorizationOptions
+        {
+            UserTokenEnforcement = UserTokenTenantEnforcementMode.LogOnly
+        });
+
+        Assert.True(nextCalled);
+        Assert.NotEqual(StatusCodes.Status403Forbidden, ctx.Response.StatusCode);
+        var warning = Assert.Single(logger.Warnings);
+        // The client id is the actionable half of the inventory: it names the application to fix.
+        Assert.Contains("octo-meshmakers-app", warning);
+        Assert.Contains(ForeignTenant, warning);
+        Assert.Contains(RouteTenant, warning);
+    }
+
+    [Fact]
+    public void UserToken_WithoutTenantClaim_IsLoggedButAllowedWhenStaging()
+    {
+        var context = CreateContext(UserToken(null));
+
+        var (nextCalled, ctx, logger) = Invoke(context, new TenantAuthorizationOptions
+        {
+            UserTokenEnforcement = UserTokenTenantEnforcementMode.LogOnly
+        });
+
+        Assert.True(nextCalled);
+        Assert.NotEqual(StatusCodes.Status403Forbidden, ctx.Response.StatusCode);
+        Assert.Single(logger.Warnings);
+    }
+
+    [Fact]
+    public void UserTokenStaging_DoesNotLoosenTheServiceTokenPath()
+    {
+        // The two staged paths are independent: a host that opts its user path down to LogOnly for
+        // the AB#5054 migration must not thereby re-open the AB#5032 service-token exemption.
+        var context = CreateContext(ServiceToken("some-ci-client", ForeignTenant));
+
+        var (nextCalled, ctx, _) = Invoke(context, new TenantAuthorizationOptions
+        {
+            ServiceTokenEnforcement = ServiceTokenTenantEnforcementMode.Enforce,
+            UserTokenEnforcement = UserTokenTenantEnforcementMode.LogOnly
         });
 
         Assert.False(nextCalled);
