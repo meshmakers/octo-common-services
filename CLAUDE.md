@@ -36,6 +36,65 @@ This relaxation is safe for all consumers: the gate only fires when `CanBeEnable
 services with no toggleable feature (e.g. Identity Services) never define `/enable` `/disable`
 tenant routes, so their behaviour is unchanged.
 
+## Tenant Authorization — the service-token exemption (AB#5032)
+
+`UseOctoTenantAuthorization()` registers `TenantAuthorizationMiddleware`
+(`src/Infrastructure/Middleware/TenantAuthorizationMiddleware.cs`), which validates the route tenant
+against the caller's `tenant_id` claim. It used to **skip that check entirely for any token without a
+`sub` claim** — i.e. for every client-credentials token — because such a token carried nothing to
+check against. Combined with `ValidateAudience = false` in asset-repo / platform-services / MCP, that
+meant **any** client-credentials client of the authority passed the transport gate and could then
+address **any** tenant, not just the two components that need it (the AI adapter worker and — via
+`/{tenantId}/mcp` — the mesh adapter's `AnthropicAiQueryNode`). Client mirroring
+(`AutoProvisionInChildTenants`) makes it worse: one clientId/secret pair is valid instance-wide.
+
+Two halves close it, and they must ship in this order:
+
+1. **Identity stamps the tenant.** `ClientCredentialsRoleTokenValidator` (octo-identity-services) now
+   adds an unprefixed `tenant_id` claim to every `client_credentials` token, taken from the tenant the
+   token request resolved to (`acr_values=tenant:X`, falling back to the system tenant, which is the
+   directory the client store actually resolved the client from).
+2. **This middleware narrows the exemption**, staged behind
+   `TenantAuthorizationOptions.ServiceTokenEnforcement`
+   (`src/Infrastructure/Configuration/TenantAuthorizationOptions.cs`):
+
+| Mode | Behaviour |
+|---|---|
+| `Disabled` | Pre-AB#5032: service tokens are never checked, nothing is logged. |
+| `LogOnly` (**default**) | Request outcomes identical to before, but every access an enforcing run would refuse is logged as a warning naming the **client id, the token tenant and the route tenant**. This log is the consumer inventory. |
+| `Enforce` | A service token may address only its own `tenant_id`, or a tenant it is allow-listed for. Everything else → **403**, including a token with no `tenant_id` at all (fail closed). |
+
+Bind it with `services.AddOctoTenantAuthorization(configuration)` (section `TenantAuthorization`, i.e.
+`OCTO_TENANTAUTHORIZATION__SERVICETOKENENFORCEMENT` / `…__CROSSTENANTSERVICECLIENTIDS__0`). The call is
+optional — without it the defaults apply, so a consumer that never wires it is unchanged.
+
+**The `tenant_id` match is the mechanism; the allow-list is expected to stay empty.** Both consumers
+the exemption was believed to exist for already mint **tenant-bound** tokens, verified in code:
+
+| Consumer | Where | Evidence |
+|---|---|---|
+| AI adapter worker | `octo-ai-services` `Services/Mcp/McpTokenIssuer.AcquireAccessTokenAsync` | `request.Parameters.Add("acr_values", $"tenant:{tenantId}")`, and the token is **cached per tenant** (`_cache[tenantId]`). `AgentWorkspaceMaterializer` mints it with the session's tenant and writes it into that session's `.mcp.json`, which then talks to `/{tenantId}/mcp`. |
+| Mesh adapter | `octo-mesh-adapter` `Services/ServiceAccountTokenService` (3 call sites: service token, delegated token, service-account identity) | `acr_values=tenant:{configuration.TenantId}` from the adapter's own `ServiceAccountConfiguration`. `AnthropicAiQueryNode` calls `{mcpServerUrl}/{etlContext.TenantId}/mcp` with that token — its own tenant. |
+
+So once identity stamps `tenant_id`, both pass the match on their own and need no entry.
+`CrossTenantServiceClientIds` remains only as an escape hatch for a service that genuinely fans out
+across tenants with one token — none is known today. It is **configuration, not a hard-coded list**
+(client ids differ per environment and a hard-coded list would need a release to change); entries
+match case-insensitively and a trailing `*` matches a prefix.
+🔴 Never list the per-tenant pipeline service accounts (`octo-pipeline-sa-*`) there — they belong to
+exactly one tenant. An allow-list entry is a permanent hole, not a migration aid: use `LogOnly` for
+the migration.
+- The service path accepts **only** `tenant_id` and the allow-list, never `allowed_tenants` — same
+  stance as the user path: `allowed_tenants` is a tenant-*selection* hint, not an API authorization.
+  (It is user-only anyway; `AllowedTenantsResolver` has no client overload.)
+- Before flipping an environment to `Enforce`, read the log. A CLI/CI client that logs in without
+  `acr_values` gets `tenant_id = <system tenant>` and will be refused on child-tenant routes — the fix
+  is to pass the tenant at login, which `octo-cli LogInClientCredentials` already does per context.
+
+Tests: `tests/Infrastructure.Tests/Middleware/TenantAuthorizationMiddlewareTests.cs` (match allowed in
+every mode, foreign tenant denied only when enforcing, missing claim fails closed when enforcing,
+allow-list keeps the workers through, user tokens untouched including the mapped-`sub` case).
+
 ## Tenant Setup — Failure Handling (AB#4690)
 
 `DefaultConfigurationCreatorServiceBase.SetupAsync` is the entry point every service uses to provision a

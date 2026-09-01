@@ -5,6 +5,7 @@ using Meshmakers.Octo.Runtime.Contracts.MongoDb.Services;
 using Meshmakers.Octo.Sdk.ServiceClient.Authorization;
 using Meshmakers.Octo.Services.Contracts.DistributionEventHub.Messages;
 using Meshmakers.Octo.Services.Infrastructure;
+using Meshmakers.Octo.Services.Infrastructure.Configuration;
 using Meshmakers.Octo.Services.Infrastructure.Configuration.DependencyInjection;
 using Meshmakers.Octo.Services.Infrastructure.Consumers;
 using Meshmakers.Octo.Services.Infrastructure.Initialization;
@@ -89,6 +90,33 @@ public static class ServiceCollectionExtensions
         services.AddHostedService<FailedTenantRetryBackgroundService>();
 
         return builder;
+    }
+
+    /// <summary>
+    ///     Binds <see cref="TenantAuthorizationOptions" /> from configuration section
+    ///     <see cref="TenantAuthorizationOptions.SectionName" /> (AB#5032), so an operator can narrow
+    ///     the client-credentials exemption of <c>UseOctoTenantAuthorization()</c> per environment.
+    /// </summary>
+    /// <remarks>
+    ///     Optional. Without this call the middleware runs on the defaults, which reproduce the request
+    ///     behaviour of every release before AB#5032 (service tokens pass) and only add the audit log.
+    /// </remarks>
+    public static IServiceCollection AddOctoTenantAuthorization(this IServiceCollection services,
+        IConfiguration configuration)
+    {
+        services.Configure<TenantAuthorizationOptions>(
+            configuration.GetSection(TenantAuthorizationOptions.SectionName));
+        return services;
+    }
+
+    /// <summary>
+    ///     Configures <see cref="TenantAuthorizationOptions" /> in code (AB#5032).
+    /// </summary>
+    public static IServiceCollection AddOctoTenantAuthorization(this IServiceCollection services,
+        Action<TenantAuthorizationOptions> configure)
+    {
+        services.Configure(configure);
+        return services;
     }
 
     /// <summary>
