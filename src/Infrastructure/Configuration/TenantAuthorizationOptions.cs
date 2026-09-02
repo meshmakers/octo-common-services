@@ -8,9 +8,26 @@ namespace Meshmakers.Octo.Services.Infrastructure.Configuration;
 ///     Before AB#5032 a service token skipped the tenant check entirely. Together with
 ///     <c>ValidateAudience = false</c> in the JWT options that meant every client-credentials client of
 ///     the authority passed the transport check for <b>every</b> tenant. Narrowing that is a breaking
-///     change for whoever relies on it, so it is rolled out in two steps: first observe
-///     (<see cref="LogOnly" />, the default — behaviour identical to before, but every foreign-tenant
-///     access is logged), then enforce (<see cref="Enforce" />) once the log has been evaluated.
+///     change for whoever relies on it, so it was rolled out in two steps: first observe
+///     (<see cref="LogOnly" /> — behaviour identical to before, but every foreign-tenant access is
+///     logged), then enforce once the log had been evaluated.
+///     <para>
+///         <b>The default is <see cref="Enforce" /> as of AB#5077.</b> The staged rollout has served
+///         its purpose: identity stamps <c>tenant_id</c> on every client-credentials token
+///         (AB#5032), the no-<c>acr_values</c> fall-back that made the claim guessable is refused for
+///         mirrored clients (AB#5058), and the caller inventory found every production caller passing
+///         <c>acr_values</c> — only an SDK sample and a documentation <c>curl</c> recipe omit it,
+///         both on ordinary unmirrored clients. An observing default now only postpones the
+///         protection.
+///     </para>
+///     <para>
+///         🔴 What still breaks at <b>run time</b> and nowhere else: a client-credentials login that
+///         omits <c>acr_values</c> gets <c>tenant_id</c> = the system tenant, and the parent-tenant
+///         administration rule deliberately never widens a service token — so such a caller is
+///         refused on every child-tenant route. Set <c>…__SERVICETOKENENFORCEMENT=LogOnly</c> on an
+///         environment that still needs the inventory; the option exists precisely so this does not
+///         require a release.
+///     </para>
 /// </remarks>
 public enum ServiceTokenTenantEnforcementMode
 {
@@ -22,7 +39,7 @@ public enum ServiceTokenTenantEnforcementMode
     Disabled = 0,
 
     /// <summary>
-    ///     <b>Default.</b> Behaviourally identical to <see cref="Disabled" /> — every request is let
+    ///     Behaviourally identical to <see cref="Disabled" /> — every request is let
     ///     through — but a service token that addresses a tenant it was not issued for is logged as a
     ///     warning naming the client id, the route tenant and the token tenant. This is the consumer
     ///     inventory an operator needs before switching to <see cref="Enforce" />.
@@ -94,7 +111,9 @@ public enum UserTokenTenantEnforcementMode
 /// </summary>
 /// <remarks>
 ///     Bind with <c>services.AddOctoTenantAuthorization(configuration)</c>. Without any registration the
-///     defaults apply, which reproduce the behaviour before AB#5032 plus the audit log.
+///     defaults apply, and since AB#5077 those enforce on <b>both</b> paths — a host that never wires
+///     the options is closed, not open, but its environment can then no longer opt down either,
+///     because the environment variable is inert without the binding.
 /// </remarks>
 public class TenantAuthorizationOptions
 {
@@ -105,11 +124,20 @@ public class TenantAuthorizationOptions
 
     /// <summary>
     ///     How service tokens (no <c>sub</c> claim) are treated. Defaults to
-    ///     <see cref="ServiceTokenTenantEnforcementMode.LogOnly" />, i.e. the request behaviour of every
-    ///     release before AB#5032.
+    ///     <see cref="ServiceTokenTenantEnforcementMode.Enforce" /> since AB#5077 — a service token may
+    ///     address only the tenant it was issued for. Opt an environment down to
+    ///     <see cref="ServiceTokenTenantEnforcementMode.LogOnly" /> while its consumer inventory is
+    ///     still being collected.
     /// </summary>
+    /// <remarks>
+    ///     🔴 Note the asymmetry with the enum's zero value, which is
+    ///     <see cref="ServiceTokenTenantEnforcementMode.Disabled" />: anything that reaches the
+    ///     middleware with a default-constructed enum rather than through this options object gets the
+    ///     most permissive mode, not this default. Bind the options; never hand the middleware a bare
+    ///     <c>default</c>.
+    /// </remarks>
     public ServiceTokenTenantEnforcementMode ServiceTokenEnforcement { get; set; } =
-        ServiceTokenTenantEnforcementMode.LogOnly;
+        ServiceTokenTenantEnforcementMode.Enforce;
 
     /// <summary>
     ///     How user tokens (with a <c>sub</c> claim) are treated (AB#5054). Defaults to

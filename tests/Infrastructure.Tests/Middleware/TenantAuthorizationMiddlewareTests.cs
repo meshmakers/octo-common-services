@@ -162,13 +162,40 @@ public class TenantAuthorizationMiddlewareTests
         Assert.Contains(RouteTenant, warning);
     }
 
+    /// <summary>
+    ///     🔴 AB#5077 reversed this: the production default is <c>Enforce</c>, so a service token on a
+    ///     foreign tenant is refused when nobody configures anything. Asserted with no options at all,
+    ///     because "what an unconfigured host does" is the whole point of the default.
+    /// </summary>
     [Fact]
-    public void ServiceToken_WithForeignTenant_IsLoggedButAllowedByDefault()
+    public void ServiceToken_WithForeignTenant_IsDeniedByDefault()
     {
         var context = CreateContext(ServiceToken("some-ci-client", ForeignTenant));
 
         // No options at all == production default.
         var (nextCalled, ctx, logger) = Invoke(context);
+
+        Assert.False(nextCalled);
+        Assert.Equal(StatusCodes.Status403Forbidden, ctx.Response.StatusCode);
+        var warning = Assert.Single(logger.Warnings);
+        Assert.Contains("some-ci-client", warning);
+        Assert.Contains(ForeignTenant, warning);
+        Assert.Contains(RouteTenant, warning);
+    }
+
+    /// <summary>
+    ///     The migration mode still exists and still lets the request through — it is just no longer
+    ///     the default. An environment that still needs its consumer inventory opts down explicitly.
+    /// </summary>
+    [Fact]
+    public void ServiceToken_WithForeignTenant_IsLoggedButAllowedWhenLogOnly()
+    {
+        var context = CreateContext(ServiceToken("some-ci-client", ForeignTenant));
+
+        var (nextCalled, ctx, logger) = Invoke(context, new TenantAuthorizationOptions
+        {
+            ServiceTokenEnforcement = ServiceTokenTenantEnforcementMode.LogOnly
+        });
 
         Assert.True(nextCalled);
         Assert.NotEqual(StatusCodes.Status403Forbidden, ctx.Response.StatusCode);
@@ -213,12 +240,35 @@ public class TenantAuthorizationMiddlewareTests
         Assert.Contains("legacy-client", Assert.Single(logger.Warnings));
     }
 
+    /// <summary>
+    ///     🔴 AB#5077: a token with no <c>tenant_id</c> at all — the shape every client-credentials
+    ///     token had before AB#5032 — is now refused by default, i.e. fail closed. This is the case
+    ///     most likely to bite on rollout, because such a token is issued by any client-credentials
+    ///     login that omits <c>acr_values</c>, and nothing about it fails at build time.
+    /// </summary>
     [Fact]
-    public void ServiceToken_WithoutTenantClaim_IsLoggedButAllowedByDefault()
+    public void ServiceToken_WithoutTenantClaim_IsDeniedByDefault()
     {
         var context = CreateContext(ServiceToken("legacy-client", null));
 
         var (nextCalled, ctx, logger) = Invoke(context);
+
+        Assert.False(nextCalled);
+        Assert.Equal(StatusCodes.Status403Forbidden, ctx.Response.StatusCode);
+        var warning = Assert.Single(logger.Warnings);
+        Assert.Contains("legacy-client", warning);
+        Assert.Contains(RouteTenant, warning);
+    }
+
+    [Fact]
+    public void ServiceToken_WithoutTenantClaim_IsLoggedButAllowedWhenLogOnly()
+    {
+        var context = CreateContext(ServiceToken("legacy-client", null));
+
+        var (nextCalled, ctx, logger) = Invoke(context, new TenantAuthorizationOptions
+        {
+            ServiceTokenEnforcement = ServiceTokenTenantEnforcementMode.LogOnly
+        });
 
         Assert.True(nextCalled);
         Assert.NotEqual(StatusCodes.Status403Forbidden, ctx.Response.StatusCode);

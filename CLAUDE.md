@@ -61,14 +61,24 @@ Two halves close it, and they must ship in this order:
 | Mode | Behaviour |
 |---|---|
 | `Disabled` | Pre-AB#5032: service tokens are never checked, nothing is logged. |
-| `LogOnly` (**default**) | Request outcomes identical to before, but every access an enforcing run would refuse is logged as a warning naming the **client id, the token tenant and the route tenant**. This log is the consumer inventory. |
-| `Enforce` | A service token may address only its own `tenant_id`, or a tenant it is allow-listed for. Everything else → **403**, including a token with no `tenant_id` at all (fail closed). |
+| `LogOnly` | Request outcomes identical to before, but every access an enforcing run would refuse is logged as a warning naming the **client id, the token tenant and the route tenant**. This log is the consumer inventory. Was the default until AB#5077. |
+| `Enforce` (**default since AB#5077**) | A service token may address only its own `tenant_id`, or a tenant it is allow-listed for. Everything else → **403**, including a token with no `tenant_id` at all (fail closed). |
 
 Bind it with `services.AddOctoTenantAuthorization(configuration)` (section `TenantAuthorization`, i.e.
 `OCTO_TENANTAUTHORIZATION__SERVICETOKENENFORCEMENT` / `…__CROSSTENANTSERVICECLIENTIDS__0`). The call is
 optional in the compiler's sense only — without it the defaults apply, so a consumer that never wires
 it keeps today's behaviour, but its enforcement mode is then **not settable at all**: the environment
-variable is inert and the service stays on `LogOnly` while the rest of the estate moves to `Enforce`.
+variable is inert. Since AB#5077 that cuts the other way: an unwired host arrives **closed** (both
+paths enforce), but its environment can no longer opt down either, because the variable only takes
+effect through the binding.
+
+🔴 **AB#5077 flipped the service-token default to `Enforce`.** The staging had done its job: identity
+stamps the claim (AB#5032), the guessable no-`acr_values` fall-back is refused for mirrored clients
+(AB#5058), and the caller inventory found every production caller passing `acr_values`. What can still
+break does so **only at run time**: a client-credentials login that omits `acr_values` gets
+`tenant_id` = the system tenant, and the ancestor rule never widens a service token, so it is refused
+on every child-tenant route. An environment that still needs its inventory sets
+`OCTO_TENANTAUTHORIZATION__SERVICETOKENENFORCEMENT=LogOnly`.
 
 **Every host of the middleware must call both halves.** As of AB#5047 all five do, and AB#5051 added
 a sixth — the `Use…`/`Add…` pairs are:
@@ -139,7 +149,7 @@ three services it names); arming it is the same two-step exercise and needs its 
 inventory, because identity is the one service every tenant-switch flow talks to.
 
 `tests/Infrastructure.Tests/Configuration/TenantAuthorizationOptionsBindingTests.cs` pins the
-properties a fleet-wide switch depends on: the unregistered default is `LogOnly` with an empty
+properties a fleet-wide switch depends on: the unregistered default is `Enforce` with an empty
 allow-list for service tokens and **`Enforce` for user tokens**, and the section binds from both the
 config section and `OCTO_TENANTAUTHORIZATION__SERVICETOKENENFORCEMENT` /
 `…__USERTOKENENFORCEMENT`.

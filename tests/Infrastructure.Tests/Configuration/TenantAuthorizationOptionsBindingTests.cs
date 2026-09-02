@@ -23,18 +23,25 @@ namespace Infrastructure.Tests.Configuration;
 public class TenantAuthorizationOptionsBindingTests
 {
     /// <summary>
-    ///     A service that never registers the options must still resolve them, and must get the
-    ///     pre-AB#5032 request behaviour plus the audit log — never a mode that silently starts
-    ///     refusing requests.
+    ///     A service that never registers the options must still resolve them, and since AB#5077 it
+    ///     must get the <b>enforcing</b> mode on both paths: a host that forgets to wire the options
+    ///     arrives closed, not open.
     /// </summary>
+    /// <remarks>
+    ///     This assertion was the exact opposite until AB#5077, when the staged rollout ended. It is
+    ///     the one line that decides what an unwired host does, so it is asserted rather than left to
+    ///     the property initializer. Note the allow-list must stay empty: enforcement plus a
+    ///     pre-populated allow-list would be a hole nobody configured.
+    /// </remarks>
     [Fact]
-    public void WithoutRegistration_ResolvesDefaults_LogOnlyAndEmptyAllowList()
+    public void WithoutRegistration_ResolvesDefaults_EnforceAndEmptyAllowList()
     {
         var provider = new ServiceCollection().AddOptions().BuildServiceProvider();
 
         var options = provider.GetRequiredService<IOptions<TenantAuthorizationOptions>>().Value;
 
-        Assert.Equal(ServiceTokenTenantEnforcementMode.LogOnly, options.ServiceTokenEnforcement);
+        Assert.Equal(ServiceTokenTenantEnforcementMode.Enforce, options.ServiceTokenEnforcement);
+        Assert.Equal(UserTokenTenantEnforcementMode.Enforce, options.UserTokenEnforcement);
         Assert.Empty(options.CrossTenantServiceClientIds);
     }
 
@@ -222,8 +229,13 @@ public class TenantAuthorizationOptionsBindingTests
 
     /// <summary>
     ///     An unset variable must leave the default intact — an operator who only sets the allow-list
-    ///     must not accidentally end up enforcing.
+    ///     must not accidentally end up in a different mode than the one the release ships with.
     /// </summary>
+    /// <remarks>
+    ///     Since AB#5077 that default is <c>Enforce</c>, so the direction of the hazard reversed:
+    ///     binding the section no longer silently loosens anything, but an operator who needs the
+    ///     observing mode has to set the variable explicitly and will not get it by omission.
+    /// </remarks>
     [Fact]
     public void AddOctoTenantAuthorization_WithoutConfiguredValues_KeepsDefaults()
     {
@@ -235,7 +247,7 @@ public class TenantAuthorizationOptionsBindingTests
 
         var options = provider.GetRequiredService<IOptions<TenantAuthorizationOptions>>().Value;
 
-        Assert.Equal(ServiceTokenTenantEnforcementMode.LogOnly, options.ServiceTokenEnforcement);
+        Assert.Equal(ServiceTokenTenantEnforcementMode.Enforce, options.ServiceTokenEnforcement);
         Assert.Empty(options.CrossTenantServiceClientIds);
     }
 }
