@@ -328,9 +328,23 @@ on with `ObjectDisposedException('CoreServerSessionPool')`.
 
 **One broken tenant no longer blocks startup.** `DefaultConfigurationInitializationService` guards each
 child tenant's `SetupAsync` individually: a failure is logged (and durably recorded, see below) and the
-loop continues, instead of aborting and failing the host start for every remaining tenant. The **system**
-tenant is deliberately still fatal — without it nothing works, so a broken instance must not come up
-looking healthy.
+other tenants are unaffected, instead of aborting and failing the host start for every remaining tenant.
+The **system** tenant is deliberately still fatal — without it nothing works, so a broken instance must
+not come up looking healthy.
+
+**Child-tenant setup runs in parallel.** The child-tenant loop is a `Parallel.ForEachAsync` bounded at
+`Math.Min(Environment.ProcessorCount, 8)` — the same cap `DefaultConfigurationCreatorServiceStandardized.
+DeferredTenantStartParallelism` uses for the deferred-start lane. The dominant cold-start cost is the
+per-tenant CK model migrations + blueprint applies; on a fleet with ~20 tenants running these serially
+took minutes (observed ~6 min on test-2 when the identity pod was additionally CPU-throttled), which
+delayed the distribution event hub — it starts only after tenant init — long enough that downstream
+services (e.g. communication-controller) timed out their `CreateIdentityDataCommandRequest` and failed
+their rolling deploy. Parallelizing is safe because each tenant's setup is independent per-tenant work
+(its own repository, session and CK cache entry — `CkCacheService` is a per-tenant-keyed
+`ConcurrentDictionary`); the only process-shared state on the path is the three deferred/pending tenant
+collections in the Standardized creator, which are now guarded by a single `_deferredCollectionsLock`
+(taken for every mutation and snapshot, never held across an `await`). The system tenant is still set up
+first and sequentially, since child setup may depend on it.
 
 **Durable per-service retry.** `SetupAsync` records a failure in `ITenantSetupRetryStore`
 (`octo-construction-kit-engine-mongodb`, keyed by `ServiceId` + tenant) and clears the entry on success.

@@ -62,7 +62,7 @@ public class DefaultConfigurationInitializationServiceTests
         var resultSet = A.Fake<IResultSet<OctoTenant>>();
         A.CallTo(() => resultSet.Items)
             .Returns(tenantIds.Select(t => new OctoTenant(t, t)).ToList());
-        A.CallTo(() => _systemContext.GetChildTenantsAsync(A<IOctoAdminSession>._, A<int?>._, A<int?>._))
+        A.CallTo(() => _systemContext.GetAllTenantsAsync(A<IOctoAdminSession>._, A<int?>._, A<int?>._))
             .Returns(resultSet);
     }
 }

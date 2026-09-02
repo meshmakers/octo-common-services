@@ -51,6 +51,13 @@ public abstract class DefaultConfigurationCreatorServiceStandardized : DefaultCo
     private readonly List<string> _deferredIdentityDataTenantIds = new();
     private readonly HashSet<string> _pendingIdentityDataTenantIds = new();
 
+    // Guards the three deferred/pending tenant collections above. SetupTenantAsync (which adds to
+    // them) runs for many tenants in parallel via the foreground startup loop in
+    // DefaultConfigurationInitializationService, and the deferred-start / background-retry lanes
+    // mutate the same collections, so every access to them takes this lock. Never held across an
+    // await: snapshot or mutate under the lock, then do the async work outside it.
+    private readonly object _deferredCollectionsLock = new();
+
     /// <summary>
     ///     Constructor
     /// </summary>
@@ -194,7 +201,7 @@ public abstract class DefaultConfigurationCreatorServiceStandardized : DefaultCo
 
                 // Success: the tenant is now Active (and its lease cleared) via the Phase 1 hook. Drop it
                 // from the in-memory pending set too, so the legacy retry path stops chasing it.
-                lock (_pendingIdentityDataTenantIds)
+                lock (_deferredCollectionsLock)
                 {
                     _pendingIdentityDataTenantIds.Remove(tenantId);
                 }
@@ -536,7 +543,10 @@ public abstract class DefaultConfigurationCreatorServiceStandardized : DefaultCo
             _logger.LogInformation(
                 "Deferring identity data setup for tenant '{TenantId}' until distribution event hub is available",
                 tenantContext.TenantId);
-            _deferredIdentityDataTenantIds.Add(tenantContext.TenantId);
+            lock (_deferredCollectionsLock)
+            {
+                _deferredIdentityDataTenantIds.Add(tenantContext.TenantId);
+            }
         }
         else
         {
@@ -550,7 +560,10 @@ public abstract class DefaultConfigurationCreatorServiceStandardized : DefaultCo
                     "Identity data setup failed for tenant '{TenantId}'. " +
                     "Continuing with CK model import. Identity data will be retried in background",
                     tenantContext.TenantId);
-                _pendingIdentityDataTenantIds.Add(tenantContext.TenantId);
+                lock (_deferredCollectionsLock)
+                {
+                    _pendingIdentityDataTenantIds.Add(tenantContext.TenantId);
+                }
             }
         }
 
@@ -864,14 +877,20 @@ public abstract class DefaultConfigurationCreatorServiceStandardized : DefaultCo
 
         // Process deferred identity data setup first.
         // This was skipped during SetupTenantAsync because the bus was not yet available.
-        if (_deferredIdentityDataTenantIds.Count > 0)
+        string[] deferredIdentityDataTenantIds;
+        lock (_deferredCollectionsLock)
+        {
+            deferredIdentityDataTenantIds = _deferredIdentityDataTenantIds.ToArray();
+        }
+
+        if (deferredIdentityDataTenantIds.Length > 0)
         {
             _logger.LogInformation(
                 "Processing deferred identity data setup for {Count} tenant(s) with {Parallelism} parallel worker(s)",
-                _deferredIdentityDataTenantIds.Count, DeferredTenantStartParallelism);
+                deferredIdentityDataTenantIds.Length, DeferredTenantStartParallelism);
 
             await Parallel.ForEachAsync(
-                _deferredIdentityDataTenantIds.ToArray(),
+                deferredIdentityDataTenantIds,
                 parallelOptions,
                 async (deferredTenantId, _) =>
                 {
@@ -892,23 +911,32 @@ public abstract class DefaultConfigurationCreatorServiceStandardized : DefaultCo
                             "Deferred identity data setup failed for tenant '{TenantId}'. " +
                             "Will retry in background",
                             deferredTenantId);
-                        lock (_pendingIdentityDataTenantIds)
+                        lock (_deferredCollectionsLock)
                         {
                             _pendingIdentityDataTenantIds.Add(deferredTenantId);
                         }
                     }
                 }).ConfigureAwait(false);
 
-            _deferredIdentityDataTenantIds.Clear();
+            lock (_deferredCollectionsLock)
+            {
+                _deferredIdentityDataTenantIds.Clear();
+            }
+        }
+
+        string[] deferredStartTenantIds;
+        lock (_deferredCollectionsLock)
+        {
+            deferredStartTenantIds = _deferredStartTenantIds.ToArray();
         }
 
         _logger.LogInformation(
             "Starting {Count} deferred tenant(s) with {Parallelism} parallel worker(s)",
-            _deferredStartTenantIds.Count, DeferredTenantStartParallelism);
+            deferredStartTenantIds.Length, DeferredTenantStartParallelism);
 
         var failedTenants = new ConcurrentBag<string>();
         await Parallel.ForEachAsync(
-            _deferredStartTenantIds.ToArray(),
+            deferredStartTenantIds,
             parallelOptions,
             async (tenantId, _) =>
             {
@@ -925,7 +953,10 @@ public abstract class DefaultConfigurationCreatorServiceStandardized : DefaultCo
                 }
             }).ConfigureAwait(false);
 
-        _deferredStartTenantIds.Clear();
+        lock (_deferredCollectionsLock)
+        {
+            _deferredStartTenantIds.Clear();
+        }
         DeferTenantStart = false;
 
         if (!failedTenants.IsEmpty)
@@ -958,9 +989,14 @@ public abstract class DefaultConfigurationCreatorServiceStandardized : DefaultCo
     {
         // Retry pending identity data setups that failed during SetupTenantAsync
         // (e.g. because the identity service was not yet available at startup).
-        if (_pendingIdentityDataTenantIds.Count > 0)
+        List<string> tenantIds;
+        lock (_deferredCollectionsLock)
         {
-            var tenantIds = _pendingIdentityDataTenantIds.ToList();
+            tenantIds = _pendingIdentityDataTenantIds.ToList();
+        }
+
+        if (tenantIds.Count > 0)
+        {
             _logger.LogInformation("Retrying identity data setup for {Count} tenant(s)", tenantIds.Count);
             foreach (var tenantId in tenantIds)
             {
@@ -972,7 +1008,10 @@ public abstract class DefaultConfigurationCreatorServiceStandardized : DefaultCo
                     session.StartTransaction();
                     await CheckSetupIdentityDataAsync(session, tenantContext).ConfigureAwait(false);
                     await session.CommitTransactionAsync().ConfigureAwait(false);
-                    _pendingIdentityDataTenantIds.Remove(tenantId);
+                    lock (_deferredCollectionsLock)
+                    {
+                        _pendingIdentityDataTenantIds.Remove(tenantId);
+                    }
                     _logger.LogInformation(
                         "Identity data setup retry succeeded for tenant '{TenantId}'", tenantId);
                 }
@@ -1081,7 +1120,10 @@ public abstract class DefaultConfigurationCreatorServiceStandardized : DefaultCo
             _logger.LogInformation(
                 "Deferring start for tenant '{TenantId}' until distribution event hub is available",
                 context.TenantId);
-            _deferredStartTenantIds.Add(context.TenantId);
+            lock (_deferredCollectionsLock)
+            {
+                _deferredStartTenantIds.Add(context.TenantId);
+            }
         }
         else
         {
