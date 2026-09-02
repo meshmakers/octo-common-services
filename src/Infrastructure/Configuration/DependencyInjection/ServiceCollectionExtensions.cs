@@ -38,6 +38,9 @@ public static class ServiceCollectionExtensions
         services.AddScoped<IKnownOriginsProvider, KnownOriginsProvider>();
         services.AddScoped<IDiagnosticsService, DiagnosticsService>();
         services.AddSingleton<ITenantCapabilityStateReader, TenantCapabilityStateReader>();
+        // Singleton because it owns the parent/child cache that keeps the parent-tenant
+        // administration rule (AB#5060) off the database on every request.
+        services.TryAddSingleton<ITenantHierarchyReader, TenantHierarchyReader>();
         services.AddSingletonMultipleInterfaces<CorsPolicyProvider, ICorsPolicyProvider>();
         services.AddExceptionHandler<OctoExceptionHandler>();
         return new OctoInfrastructureBuilder(services);

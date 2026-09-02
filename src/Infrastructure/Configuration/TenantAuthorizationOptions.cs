@@ -121,6 +121,32 @@ public class TenantAuthorizationOptions
         UserTokenTenantEnforcementMode.Enforce;
 
     /// <summary>
+    ///     How long a resolved parent/child answer is reused before the hierarchy is read again
+    ///     (AB#5060). Defaults to 60 seconds; <see cref="TimeSpan.Zero" /> disables caching.
+    /// </summary>
+    /// <remarks>
+    ///     <para>
+    ///         Used by the parent-tenant rule: on an endpoint marked
+    ///         <c>[AllowParentTenantAdministration]</c> a <b>user</b> token may also address a tenant
+    ///         below its own. That check sits in the request path, so one hierarchy read per request
+    ///         is not acceptable. 60 s is the same order as the data-permission resolver's TTL and
+    ///         bounds the two windows that matter: a newly created child tenant is unreachable by its
+    ///         parent for at most one TTL, and a tenant that was moved or deleted keeps being
+    ///         reachable for at most one TTL. Negative answers are cached as well — the denial path is
+    ///         the attacker-controllable one, so an uncached "no" would turn every 403 into a database
+    ///         round trip.
+    ///     </para>
+    ///     <para>
+    ///         There is deliberately <b>no</b> option that switches the parent-tenant rule on or off
+    ///         globally. Its scope is the set of endpoints that carry the marker attribute, decided in
+    ///         code where the operation is; a global flag could only either break exactly those
+    ///         endpoints or — the dangerous direction — be turned into the blanket rule this was
+    ///         designed not to be.
+    ///     </para>
+    /// </remarks>
+    public TimeSpan TenantHierarchyCacheDuration { get; set; } = TimeSpan.FromSeconds(60);
+
+    /// <summary>
     ///     Client ids of service clients that genuinely fan out across tenants with a single token and
     ///     are therefore exempt from the tenant match. Matched case-insensitively against the token's
     ///     <c>client_id</c> claim.

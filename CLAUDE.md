@@ -218,6 +218,91 @@ Tests: `tests/Infrastructure.Tests/Middleware/TenantAuthorizationMiddlewareTests
 every mode, foreign tenant denied only when enforcing, missing claim fails closed when enforcing,
 allow-list keeps the workers through, user tokens untouched including the mapped-`sub` case).
 
+## The parent-tenant administration rule — opt-in per endpoint (AB#5060)
+
+A parent administrator administers their child tenants: backup, restore, archive export, fixups.
+Those operations move onto tenant routes, where the exact `tenant_id` match would 403 a parent's
+token against a child's route. The gate therefore knows a second way for a **user** token to pass:
+the route tenant is a **child** of the token tenant.
+
+🔴 **It is opt-in per endpoint, and that is the whole design.** The right to *administer* a child
+tenant is not the right to *read its data*. A blanket relaxation would hand the parent every data
+route of the child — GraphQL, entities, queries, everything — which is precisely what Gerald ruled
+out. So the rule fires only where the operation itself says it is tenant administration:
+
+```csharp
+[AllowParentTenantAdministration]           // src/Infrastructure/Authorization/
+[HttpPost("{tenantId}/v1/tenants/backup")]  // ← marks THIS operation, nothing else
+```
+
+The middleware reads it off the endpoint metadata (`GetMetadata<IAllowParentTenantAdministration>()`),
+exactly like it already honours `[AllowAnonymous]` — so it works for controllers (attribute on action
+or controller) and for minimal APIs (`.WithMetadata(new AllowParentTenantAdministrationAttribute())`),
+and the decision is visible where the operation is instead of in a path list that drifts. **An
+unmarked endpoint behaves exactly as before**, which is why shipping this widens nothing: as of
+AB#5060 **no endpoint in the estate carries the marker**.
+
+| Should carry it later | Must never carry it |
+|---|---|
+| Tenant backup / restore / clone (asset-repo `TenantController`, when those move from `system/…` to `{tenantId}/…`) | Any GraphQL endpoint (`/{tenantId}/graphql`) |
+| Archive data export / import (AB#4230, AB#4231) | Entity / query / stream-data read and write routes |
+| Operator fixup and reconcile routes that act *on* a tenant | `…/enable` / `…/disable` and other capability toggles — they change what the child *is*, and the child's own admin owns that |
+| Tenant delete / detach — only if the product ever wants a parent to do it | Identity routes of the child (users, roles, clients): membership is the child's own directory |
+
+Mechanics, and why each was chosen:
+
+- **Service tokens are excluded — this is the reason the rule is safe at all.** A client-credentials
+  token's `tenant_id` proves nothing: mirrored clients (`AutoProvisionInChildTenants`) share the
+  parent's secret, so whoever holds a child's credentials holds the parent's, and a token minted
+  without `acr_values` falls back to the **system tenant** (AB#5058, AB#5061, AB#5065) — which is the
+  **root** of the hierarchy. An ancestor rule on that path would therefore give every service client
+  of the authority every tenant route in the estate: a large amplification of a known weakness. A
+  *user* token's `tenant_id`, by contrast, means a real authentication against that tenant's user
+  directory. Service clients that genuinely fan out keep using `CrossTenantServiceClientIds`.
+- **Reach: the parent's own registry, one level.** The hierarchy is navigable **downwards only** —
+  each tenant's database holds one `RtTenant` record per *direct* child, and there is no published
+  API returning a tenant's parent. A subtree walk is therefore a descending BFS whose *width* is
+  unbounded and whose every intermediate node must be materialised as a tenant context (CK
+  auto-imports, connection pool); capping the depth does not cap that, and capping the width would
+  make an authorization answer depend on registry enumeration order. The deep case that actually
+  occurs is covered exactly anyway: for the **system** tenant the registry consulted *is* the
+  platform-wide one, so a platform operator authenticated in the system tenant reaches every tenant —
+  correct, the system tenant being the root. If a *mid-level* parent ever needs its grandchildren,
+  the honest fix is an upward walk over the system registry's `ParentTenantId` (O(depth), no
+  fan-out), which needs an engine API that does not exist today — not a fan-out dressed up as a
+  depth cap.
+- **Equality costs nothing.** The exact match is answered before the metadata lookup and before any
+  resolution, and the hierarchy is only consulted on a marked endpoint with a *different* tenant.
+  Pinned by a call counter in the tests, not by reading the code.
+- **One resolution per tenant pair per minute.** `ITenantHierarchyReader` /
+  `TenantHierarchyReader` (`src/Infrastructure/Services/`, singleton, registered by
+  `AddOctoServiceInfrastructure`) reads through `ISystemContext` — already a per-request dependency of
+  `TenantMiddleware`, so no new dependency — using `IsChildTenantExistingAsync`, deliberately **not**
+  `TryGetChildTenantContextAsync`, whose resolve runs the CK auto-imports (same reasoning as
+  `IsTenantRegisteredAsync`, AB#4829). Answers are cached for
+  `TenantAuthorizationOptions.TenantHierarchyCacheDuration` (default **60 s**, `TimeSpan.Zero`
+  disables): a new child is unreachable for at most one TTL, a deleted one reachable for at most one
+  TTL. **Negative answers are cached too** — the denial path is the attacker-controllable one. The
+  cache is capped at 1024 pairs because the route tenant comes from the URL.
+- **Fail closed everywhere.** An unreadable hierarchy, an unknown parent, or a host that marked an
+  endpoint without registering the reader all answer "not related" (the last one with a warning), so
+  the request falls back to the exact match.
+- **No global on/off switch, on purpose.** Its scope is the set of marked endpoints, decided in code.
+  A flag could only either break exactly those endpoints or — the dangerous direction — be widened
+  into the blanket rule this deliberately is not.
+- **Every grant is logged at `Information`**, naming subject, client id, both tenants and the
+  endpoint. The rule widens access and denies nothing new, so a `LogOnly` stage would observe
+  nothing; the grant log is the equivalent record of who actually uses it. It is evaluated **before**
+  the `UserTokenEnforcement` branch so that a granted access never appears in the AB#5054 `LogOnly`
+  inventory as "would be denied" — it would not be.
+
+Tests: `tests/Infrastructure.Tests/Middleware/TenantAuthorizationMiddlewareTests.cs` (granted on a
+marked test endpoint, denied on the identical unmarked one *without* asking the hierarchy, unrelated
+tenant denied, service token never allowed by the rule, equality never resolves, missing reader fails
+closed) and `tests/Infrastructure.Tests/Services/TenantHierarchyReaderTests.cs` (registry probe not
+context materialisation, positive and negative caching, TTL of zero, self is not a child, unreadable
+hierarchy fails closed).
+
 ## Tenant Setup — Failure Handling (AB#4690)
 
 `DefaultConfigurationCreatorServiceBase.SetupAsync` is the entry point every service uses to provision a

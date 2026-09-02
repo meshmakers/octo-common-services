@@ -1,5 +1,7 @@
 using System.Security.Claims;
+using Meshmakers.Octo.Services.Infrastructure.Authorization;
 using Meshmakers.Octo.Services.Infrastructure.Configuration;
+using Meshmakers.Octo.Services.Infrastructure.Services;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.Extensions.Options;
 
@@ -41,6 +43,21 @@ namespace Meshmakers.Octo.Services.Infrastructure.Middleware;
 ///         same way, behind <see cref="TenantAuthorizationOptions.UserTokenEnforcement" /> — but
 ///         defaulting to <see cref="UserTokenTenantEnforcementMode.Enforce" />, so a host where the
 ///         check is genuinely live cannot be weakened by the option's mere existence.
+///     </para>
+///     <para>
+///         <b>The parent-tenant administration rule (AB#5060).</b> On an endpoint marked
+///         <see cref="IAllowParentTenantAdministration" /> — and <b>only</b> there — a user token may
+///         also address a tenant <i>below</i> its own, because a parent administrator administers
+///         their child tenants (backup, restore, archive export). A parent administrator explicitly
+///         does <b>not</b> get access to the child's <i>data</i>, so the rule is opt-in at the
+///         operation instead of a mode of this gate: an unmarked endpoint keeps the exact match, and
+///         no GraphQL, entity or query route is ever to be marked. It applies to
+///         <b>user tokens only</b>: a client-credentials token's <c>tenant_id</c> proves nothing —
+///         mirrored clients share the parent's secret, and a token minted without <c>acr_values</c>
+///         falls back to the <i>system</i> tenant, which is the root of the hierarchy, so the same
+///         rule on that path would hand every service client of the authority every tenant route in
+///         the estate (AB#5058, AB#5061, AB#5065). Service tokens keep the exact match plus their
+///         own allow-list.
 ///     </para>
 /// </remarks>
 internal class TenantAuthorizationMiddleware(
@@ -122,7 +139,7 @@ internal class TenantAuthorizationMiddleware(
         // The tenant_id claim identifies the tenant the user authenticated against.
         // allowed_tenants is only used for tenant selection (e.g., tenant picker UI),
         // not for authorizing API access.
-        if (!AllowUserToken(context, tenantId))
+        if (!await AllowUserTokenAsync(context, endpoint, tenantId))
         {
             return;
         }
@@ -136,17 +153,54 @@ internal class TenantAuthorizationMiddleware(
     ///     already been set to <c>403 Forbidden</c>.
     /// </summary>
     /// <remarks>
-    ///     Staged behind <see cref="TenantAuthorizationOptions.UserTokenEnforcement" /> since
-    ///     AB#5054, for the same reason the service path is staged — with the opposite default.
-    ///     See <see cref="UserTokenTenantEnforcementMode" /> for why.
+    ///     <para>
+    ///         Staged behind <see cref="TenantAuthorizationOptions.UserTokenEnforcement" /> since
+    ///         AB#5054, for the same reason the service path is staged — with the opposite default.
+    ///         See <see cref="UserTokenTenantEnforcementMode" /> for why.
+    ///     </para>
+    ///     <para>
+    ///         <b>Parent-tenant rule (AB#5060), opt-in per endpoint.</b> On an endpoint marked
+    ///         <see cref="IAllowParentTenantAdministration" /> a user token may also address a tenant
+    ///         <i>below</i> its own, because administering a child tenant (backup, restore, archive
+    ///         export) is a parent administrator's job. On every other endpoint nothing changes —
+    ///         the parent explicitly does <b>not</b> get the child's data routes, which is why this
+    ///         is a marker at the operation and not a mode of the gate.
+    ///     </para>
+    ///     <para>
+    ///         The equality case is the common one and is answered first, before the metadata lookup
+    ///         and before any hierarchy resolution. The rule is evaluated <b>before</b> the
+    ///         enforcement branch on purpose: in <see cref="UserTokenTenantEnforcementMode.LogOnly" />
+    ///         an access that the rule grants must not appear in the inventory as "would be denied",
+    ///         because it would not be.
+    ///     </para>
     /// </remarks>
-    private bool AllowUserToken(HttpContext context, string routeTenantId)
+    private async Task<bool> AllowUserTokenAsync(HttpContext context, Endpoint? endpoint, string routeTenantId)
     {
         var tokenTenantId = context.User.FindFirstValue(TenantIdClaimType);
         var matches = !string.IsNullOrEmpty(tokenTenantId) &&
                       string.Equals(tokenTenantId, routeTenantId, StringComparison.OrdinalIgnoreCase);
         if (matches)
         {
+            return true;
+        }
+
+        if (!string.IsNullOrEmpty(tokenTenantId) &&
+            endpoint?.Metadata.GetMetadata<IAllowParentTenantAdministration>() != null &&
+            await IsChildTenantAsync(context, tokenTenantId, routeTenantId))
+        {
+            // Logged on every grant, at Information: this rule widens access, so the only thing an
+            // operator can be asked to review afterwards is who actually uses it. Administering a
+            // child tenant is rare — if this line ever becomes hot in a host, that is the finding,
+            // not noise to be suppressed.
+            logger.LogInformation(
+                "User token of subject '{Subject}' (client '{ClientId}') was issued for tenant '{TokenTenantId}' " +
+                "and administers its child tenant '{RouteTenantId}' on endpoint '{Endpoint}'; allowed by the " +
+                "parent-tenant administration rule (AB#5060)",
+                context.User.FindFirstValue("sub") ?? context.User.FindFirstValue(ClaimTypes.NameIdentifier),
+                context.User.FindFirstValue(ClientIdClaimType) ?? "<none>",
+                tokenTenantId,
+                routeTenantId,
+                endpoint.DisplayName ?? "<unnamed>");
             return true;
         }
 
@@ -168,6 +222,33 @@ internal class TenantAuthorizationMiddleware(
             string.IsNullOrEmpty(tokenTenantId) ? "<none>" : tokenTenantId,
             routeTenantId);
         return true;
+    }
+
+    /// <summary>
+    ///     Whether <paramref name="routeTenantId" /> is a child of <paramref name="tokenTenantId" />,
+    ///     answered by the cached <see cref="ITenantHierarchyReader" /> (AB#5060).
+    /// </summary>
+    /// <remarks>
+    ///     The reader is resolved per request rather than injected into the constructor: this
+    ///     middleware is constructed once from the root provider, and a host that does not register
+    ///     the reader (or the <c>ISystemContext</c> it needs) must not fail at startup — it simply
+    ///     runs without the parent-tenant rule, i.e. on the exact match this class had before.
+    ///     Missing means <c>false</c>, so the fallback is the closed one.
+    /// </remarks>
+    private async Task<bool> IsChildTenantAsync(HttpContext context, string tokenTenantId, string routeTenantId)
+    {
+        var services = context.RequestServices;
+        var reader = services?.GetService<ITenantHierarchyReader>();
+        if (reader == null)
+        {
+            logger.LogWarning(
+                "No {Reader} is registered, so the parent-tenant administration rule cannot be applied to " +
+                "tenant '{RouteTenantId}' and the request is judged by the exact tenant match (AB#5060)",
+                nameof(ITenantHierarchyReader), routeTenantId);
+            return false;
+        }
+
+        return await reader.IsChildTenantAsync(tokenTenantId, routeTenantId);
     }
 
     /// <summary>

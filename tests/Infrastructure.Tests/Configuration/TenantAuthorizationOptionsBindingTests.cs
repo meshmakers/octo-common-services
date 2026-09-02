@@ -112,6 +112,43 @@ public class TenantAuthorizationOptionsBindingTests
     }
 
     /// <summary>
+    ///     AB#5060: the cache TTL of the parent-tenant administration rule is the only knob that rule
+    ///     has — its <i>scope</i> is the set of marked endpoints, never a flag — and it must arrive
+    ///     with a value that keeps the hierarchy off the database on every request.
+    /// </summary>
+    [Fact]
+    public void WithoutRegistration_TenantHierarchyCache_DefaultsToOneMinute()
+    {
+        var provider = new ServiceCollection().AddOptions().BuildServiceProvider();
+
+        var options = provider.GetRequiredService<IOptions<TenantAuthorizationOptions>>().Value;
+
+        Assert.Equal(TimeSpan.FromSeconds(60), options.TenantHierarchyCacheDuration);
+    }
+
+    /// <summary>
+    ///     …and it is settable per environment like every other value of the section.
+    /// </summary>
+    [Fact]
+    public void AddOctoTenantAuthorization_BindsTheTenantHierarchyCacheDuration()
+    {
+        var configuration = new ConfigurationBuilder()
+            .AddInMemoryCollection(new Dictionary<string, string?>
+            {
+                ["TenantAuthorization:TenantHierarchyCacheDuration"] = "00:05:00"
+            })
+            .Build();
+
+        var provider = new ServiceCollection()
+            .AddOctoTenantAuthorization(configuration)
+            .BuildServiceProvider();
+
+        var options = provider.GetRequiredService<IOptions<TenantAuthorizationOptions>>().Value;
+
+        Assert.Equal(TimeSpan.FromMinutes(5), options.TenantHierarchyCacheDuration);
+    }
+
+    /// <summary>
     ///     The section name is part of the platform contract — every service binds
     ///     <c>TenantAuthorization</c>, so one operator-set value reaches all of them.
     /// </summary>

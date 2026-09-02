@@ -1,7 +1,9 @@
 using System.Security.Claims;
 using Meshmakers.Octo.Services.Infrastructure;
+using Meshmakers.Octo.Services.Infrastructure.Authorization;
 using Meshmakers.Octo.Services.Infrastructure.Configuration;
 using Meshmakers.Octo.Services.Infrastructure.Middleware;
+using Meshmakers.Octo.Services.Infrastructure.Services;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Routing;
 using Microsoft.Extensions.Logging;
@@ -23,9 +25,11 @@ public class TenantAuthorizationMiddlewareTests
 {
     private const string RouteTenant = "meshtest";
     private const string ForeignTenant = "othertenant";
+    private const string ParentTenant = "parenttenant";
 
     private static HttpContext CreateContext(IEnumerable<Claim> claims, string? routeTenantId = RouteTenant,
-        bool withBearerHeader = true)
+        bool withBearerHeader = true, bool parentTenantAdministrationEndpoint = false,
+        ITenantHierarchyReader? hierarchyReader = null)
     {
         var httpContext = new DefaultHttpContext();
         if (withBearerHeader)
@@ -39,6 +43,21 @@ public class TenantAuthorizationMiddlewareTests
             {
                 { InfrastructureCommon.TenantIdRoute, routeTenantId }
             };
+        }
+
+        // The endpoint stands in for the tenant-administration routes of AB#5060 (backup, restore,
+        // archive export). The marker is what opts an endpoint into the parent-tenant rule; the
+        // middleware reads it off the endpoint metadata, exactly like [AllowAnonymous].
+        if (parentTenantAdministrationEndpoint)
+        {
+            httpContext.SetEndpoint(new Endpoint(_ => Task.CompletedTask,
+                new EndpointMetadataCollection(new AllowParentTenantAdministrationAttribute()),
+                "POST /{tenantId}/v1/tenants/backup (test endpoint)"));
+        }
+
+        if (hierarchyReader != null)
+        {
+            httpContext.RequestServices = new SingleServiceProvider(hierarchyReader);
         }
 
         // "Bearer" is the AuthenticationType the middleware expects for the JWT path.
@@ -447,13 +466,185 @@ public class TenantAuthorizationMiddlewareTests
         Assert.NotEqual(StatusCodes.Status403Forbidden, ctx.Response.StatusCode);
     }
 
+    // ---------------------------------------------------------------------------------------------
+    // AB#5060 — the parent-tenant administration rule. A user token may address a tenant BELOW its
+    // own, but only on an endpoint that is explicitly marked as administering that tenant. A parent
+    // administrator must NOT thereby reach the child's data routes, which is why every test here
+    // pairs the granted case with the identical request on an unmarked endpoint.
+    // ---------------------------------------------------------------------------------------------
+
+    [Fact]
+    public void UserTokenOfParentTenant_MayAdministerChildTenant_OnAMarkedEndpoint()
+    {
+        var reader = new CountingHierarchyReader(ParentTenant, RouteTenant);
+        var context = CreateContext(UserToken(ParentTenant, "octo-cli"),
+            parentTenantAdministrationEndpoint: true, hierarchyReader: reader);
+
+        var (nextCalled, ctx, logger) = Invoke(context);
+
+        Assert.True(nextCalled);
+        Assert.NotEqual(StatusCodes.Status403Forbidden, ctx.Response.StatusCode);
+        Assert.Equal(1, reader.Calls);
+
+        // The grant is recorded so an operator can see who actually relies on the rule.
+        var info = Assert.Single(logger.Informations);
+        Assert.Contains("octo-cli", info);
+        Assert.Contains(ParentTenant, info);
+        Assert.Contains(RouteTenant, info);
+        // …and it is not an inventory entry: nothing here would be denied.
+        Assert.Empty(logger.Warnings);
+    }
+
+    [Fact]
+    public void UserTokenOfParentTenant_IsDeniedOnAnUnmarkedEndpoint_WithoutAskingTheHierarchy()
+    {
+        // The data routes of the child tenant are exactly what a parent administrator must not get.
+        var reader = new CountingHierarchyReader(ParentTenant, RouteTenant);
+        var context = CreateContext(UserToken(ParentTenant, "octo-cli"), hierarchyReader: reader);
+
+        var (nextCalled, ctx, _) = Invoke(context);
+
+        Assert.False(nextCalled);
+        Assert.Equal(StatusCodes.Status403Forbidden, ctx.Response.StatusCode);
+        Assert.Equal(0, reader.Calls);
+    }
+
+    [Fact]
+    public void UserTokenOfUnrelatedTenant_IsDeniedEvenOnAMarkedEndpoint()
+    {
+        var reader = new CountingHierarchyReader(ParentTenant, RouteTenant);
+        var context = CreateContext(UserToken(ForeignTenant, "octo-cli"),
+            parentTenantAdministrationEndpoint: true, hierarchyReader: reader);
+
+        var (nextCalled, ctx, logger) = Invoke(context);
+
+        Assert.False(nextCalled);
+        Assert.Equal(StatusCodes.Status403Forbidden, ctx.Response.StatusCode);
+        Assert.Equal(1, reader.Calls);
+        Assert.Empty(logger.Informations);
+    }
+
+    [Fact]
+    public void UserTokenOfTheSameTenant_NeverResolvesTheHierarchy()
+    {
+        // Equality is the common case: it must be answered before any hierarchy lookup, even on an
+        // endpoint that opts into the rule. Asserted through the reader's call counter rather than by
+        // reading the code.
+        var reader = new CountingHierarchyReader(ParentTenant, RouteTenant);
+        var context = CreateContext(UserToken(RouteTenant), parentTenantAdministrationEndpoint: true,
+            hierarchyReader: reader);
+
+        var (nextCalled, ctx, logger) = Invoke(context);
+
+        Assert.True(nextCalled);
+        Assert.NotEqual(StatusCodes.Status403Forbidden, ctx.Response.StatusCode);
+        Assert.Equal(0, reader.Calls);
+        Assert.Empty(logger.Informations);
+    }
+
+    [Theory]
+    [InlineData(ServiceTokenTenantEnforcementMode.LogOnly)]
+    [InlineData(ServiceTokenTenantEnforcementMode.Enforce)]
+    public void ServiceTokenOfParentTenant_IsNeverAllowedByTheParentTenantRule(
+        ServiceTokenTenantEnforcementMode mode)
+    {
+        // A client-credentials token's tenant_id proves nothing (mirrored clients share the parent's
+        // secret; a token minted without acr_values claims the system tenant, i.e. the root of the
+        // hierarchy). The rule must never look at one — not even on a marked endpoint.
+        var reader = new CountingHierarchyReader(ParentTenant, RouteTenant);
+        var context = CreateContext(ServiceToken("some-ci-client", ParentTenant),
+            parentTenantAdministrationEndpoint: true, hierarchyReader: reader);
+
+        var (nextCalled, ctx, _) = Invoke(context,
+            new TenantAuthorizationOptions { ServiceTokenEnforcement = mode });
+
+        Assert.Equal(0, reader.Calls);
+        if (mode == ServiceTokenTenantEnforcementMode.Enforce)
+        {
+            Assert.False(nextCalled);
+            Assert.Equal(StatusCodes.Status403Forbidden, ctx.Response.StatusCode);
+        }
+        else
+        {
+            // LogOnly lets it through as before AB#5032 — but as an inventory entry, not as a grant.
+            Assert.True(nextCalled);
+        }
+    }
+
+    [Fact]
+    public void ParentTenantGrant_IsNotListedAsAnInventoryEntryWhenStaging()
+    {
+        // In LogOnly the rule still runs first: an access it grants would NOT be denied by an
+        // enforcing run, so listing it would poison the AB#5054 inventory.
+        var reader = new CountingHierarchyReader(ParentTenant, RouteTenant);
+        var context = CreateContext(UserToken(ParentTenant, "octo-cli"),
+            parentTenantAdministrationEndpoint: true, hierarchyReader: reader);
+
+        var (nextCalled, ctx, logger) = Invoke(context, new TenantAuthorizationOptions
+        {
+            UserTokenEnforcement = UserTokenTenantEnforcementMode.LogOnly
+        });
+
+        Assert.True(nextCalled);
+        Assert.NotEqual(StatusCodes.Status403Forbidden, ctx.Response.StatusCode);
+        Assert.Empty(logger.Warnings);
+        Assert.Single(logger.Informations);
+    }
+
+    [Fact]
+    public void MarkedEndpoint_WithoutAHierarchyReader_FailsClosed()
+    {
+        // A host that marks an endpoint but never registered the reader must not silently widen
+        // anything — it falls back to the exact match and says so.
+        var context = CreateContext(UserToken(ParentTenant, "octo-cli"),
+            parentTenantAdministrationEndpoint: true);
+
+        var (nextCalled, ctx, logger) = Invoke(context);
+
+        Assert.False(nextCalled);
+        Assert.Equal(StatusCodes.Status403Forbidden, ctx.Response.StatusCode);
+        Assert.Contains(nameof(ITenantHierarchyReader), Assert.Single(logger.Warnings));
+    }
+
+    /// <summary>
+    ///     Records how often the middleware asks for a hierarchy answer, so the tests can prove that
+    ///     the equality case and the unmarked endpoints never trigger a resolution.
+    /// </summary>
+    private sealed class CountingHierarchyReader(string parentTenantId, string childTenantId)
+        : ITenantHierarchyReader
+    {
+        public int Calls { get; private set; }
+
+        public Task<bool> IsChildTenantAsync(string parent, string tenantId)
+        {
+            Calls++;
+            return Task.FromResult(
+                string.Equals(parent, parentTenantId, StringComparison.OrdinalIgnoreCase) &&
+                string.Equals(tenantId, childTenantId, StringComparison.OrdinalIgnoreCase));
+        }
+    }
+
+    /// <summary>
+    ///     The request services of a host that registered the hierarchy reader; everything else is
+    ///     unresolvable, like in a middleware unit test.
+    /// </summary>
+    private sealed class SingleServiceProvider(ITenantHierarchyReader reader) : IServiceProvider
+    {
+        public object? GetService(Type serviceType) =>
+            serviceType == typeof(ITenantHierarchyReader) ? reader : null;
+    }
+
     /// <summary>
     ///     Minimal logger that records the rendered message of every warning, so the tests can assert
-    ///     that the audit line actually names the client and both tenants.
+    ///     that the audit line actually names the client and both tenants. Information is recorded
+    ///     separately: that is where the AB#5060 grants are logged, and a grant must never show up
+    ///     among the warnings (it is not an inventory entry).
     /// </summary>
     private sealed class RecordingLogger : ILogger<TenantAuthorizationMiddleware>
     {
         public List<string> Warnings { get; } = [];
+
+        public List<string> Informations { get; } = [];
 
         public IDisposable? BeginScope<TState>(TState state) where TState : notnull => null;
 
@@ -465,6 +656,10 @@ public class TenantAuthorizationMiddlewareTests
             if (logLevel >= LogLevel.Warning)
             {
                 Warnings.Add(formatter(state, exception));
+            }
+            else if (logLevel == LogLevel.Information)
+            {
+                Informations.Add(formatter(state, exception));
             }
         }
     }
