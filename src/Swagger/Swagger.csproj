@@ -21,7 +21,7 @@
              (>= 2.0.0-preview11, <= 2.7.4); NuGetAudit fails the build otherwise (warnings as errors).
              Stays on the 2.x line: Microsoft.AspNetCore.OpenApi 10.0.x depends on Microsoft.OpenApi [2.7.5, 3.0.0),
              so 3.x would violate that range (NU1608). -->
-        <PackageReference Include="Microsoft.OpenApi" Version="2.12.2" />
+        <PackageReference Include="Microsoft.OpenApi" Version="3.10.2" />
         <PackageReference Include="Swashbuckle.AspNetCore.SwaggerUI" Version="10.2.3" />
         <PackageReference Include="Meshmakers.Octo.Communication.Contracts" Version="$(OctoCoreLibVersion)" />
     </ItemGroup>
