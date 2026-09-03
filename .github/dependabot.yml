@@ -9,3 +9,7 @@ updates:
     directory: "/" # Location of package manifests (root solution references src/, tests/ and samples/)
     schedule:
       interval: "weekly"
+    ignore:
+      # Microsoft.OpenApi stays on the 2.x line: Microsoft.AspNetCore.OpenApi 10.0.x requires [2.7.5, 3.0.0) (NU1608).
+      - dependency-name: "Microsoft.OpenApi"
+        update-types: ["version-update:semver-major"]
