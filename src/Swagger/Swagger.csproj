@@ -7,15 +7,21 @@
         <RootNamespace>Meshmakers.Octo.Services.Swagger</RootNamespace>
         <Configurations>Debug;Release;DebugL</Configurations>
         <Platforms>AnyCPU</Platforms>
+        <!-- Asp.Versioning 10.2+ analyzers AV0029/AV0030 recommend the Asp.Versioning.OpenApi integration
+             (AddApiVersioning().AddOpenApi() / MapOpenApi().WithDocumentPerVersion()). This library deliberately
+             registers one named OpenAPI document per version itself (IOpenApiBuilder.AddVersion), which
+             MapOpenApi already serves per version; both rules are documented as safe to suppress. -->
+        <NoWarn>$(NoWarn);AV0029;AV0030</NoWarn>
     </PropertyGroup>
 
     <ItemGroup>
-        <PackageReference Include="Asp.Versioning.Mvc.ApiExplorer" Version="10.0.0" />
+        <PackageReference Include="Asp.Versioning.Mvc.ApiExplorer" Version="10.2.1" />
         <PackageReference Include="Microsoft.AspNetCore.OpenApi" Version="10.0.11" />
-        <!-- Pin transitive Microsoft.OpenApi to 2.7.5: 2.0.0 (pulled in by AspNetCore.OpenApi 10.0.9)
-             is in the vulnerable range of advisory GHSA-v5pm-xwqc-g5wc (>= 2.0.0-preview11, <= 2.7.4);
-             2.7.5 is the first patched release. NuGetAudit fails the build otherwise (warnings as errors). -->
-        <PackageReference Include="Microsoft.OpenApi" Version="2.7.5" />
+        <!-- Pin transitive Microsoft.OpenApi above the vulnerable range of advisory GHSA-v5pm-xwqc-g5wc
+             (>= 2.0.0-preview11, <= 2.7.4); NuGetAudit fails the build otherwise (warnings as errors).
+             Stays on the 2.x line: Microsoft.AspNetCore.OpenApi 10.0.x depends on Microsoft.OpenApi [2.7.5, 3.0.0),
+             so 3.x would violate that range (NU1608). -->
+        <PackageReference Include="Microsoft.OpenApi" Version="2.12.2" />
         <PackageReference Include="Swashbuckle.AspNetCore.SwaggerUI" Version="10.2.3" />
         <PackageReference Include="Meshmakers.Octo.Communication.Contracts" Version="$(OctoCoreLibVersion)" />
     </ItemGroup>

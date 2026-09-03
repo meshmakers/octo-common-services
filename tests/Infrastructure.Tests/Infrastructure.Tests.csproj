@@ -3,6 +3,7 @@
     <PropertyGroup>
         <IsPackable>false</IsPackable>
         <IsTestProject>true</IsTestProject>
+        <OutputType>Exe</OutputType>
         <RootNamespace>Infrastructure.Tests</RootNamespace>
         <Configurations>Debug;Release;DebugL</Configurations>
         <Platforms>AnyCPU</Platforms>
@@ -15,7 +16,7 @@
         </PackageReference>
         <PackageReference Include="FakeItEasy" Version="9.0.1" />
         <PackageReference Include="Microsoft.NET.Test.Sdk" Version="18.9.0" />
-        <PackageReference Include="xunit" Version="2.9.3" />
+        <PackageReference Include="xunit.v3.mtp-off" Version="4.0.0" />
         <PackageReference Include="xunit.runner.visualstudio" Version="4.0.0">
             <PrivateAssets>all</PrivateAssets>
             <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
