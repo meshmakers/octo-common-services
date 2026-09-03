@@ -36,6 +36,31 @@ This relaxation is safe for all consumers: the gate only fires when `CanBeEnable
 services with no toggleable feature (e.g. Identity Services) never define `/enable` `/disable`
 tenant routes, so their behaviour is unchanged.
 
+## The `{tenantId:tenantId}` route constraint (AB#5060)
+
+`TenantIdRouteConstraint` (`src/Infrastructure/Routing/`) decides whether a path segment **can be** a
+tenant id. Register it with `builder.Services.AddOctoTenantIdRouteConstraint()` — every host that
+serves a tenant-addressed route must, or ASP.NET throws at startup on the unknown constraint key.
+
+🔴 **It is a routing constraint, not an authorization check.** Whether the caller may address that
+tenant is `TenantAuthorizationMiddleware`'s job; whether the tenant exists is the resolving service's.
+Nothing that needs a lookup belongs here — the constraint runs during route matching, before
+authentication, on every request.
+
+It accepts exactly what tenant **creation** accepts (`TenantContext.ValidateTenantIdFormat`: at most
+64 ASCII letters, digits, `-` or `_`), so it cannot reject a tenant that could exist. Keeping the two
+in step is the point: a laxer constraint lets a segment that can never name a tenant travel on into
+services that use it as a Mongo database name, a cache key or a directory name; a stricter one 404s a
+real tenant. The length bound is duplicated rather than referenced — this assembly deliberately does
+not depend on the runtime engine — and `TenantIdRouteConstraintTests` pins the shared value.
+
+⚠️ **Consolidated from seven copies.** Every tenant-serving host used to carry its own `internal`
+class plus its own `ConstraintMap.Add` line, and they had drifted: five accepted any non-null value
+(whitespace and dot segments included), two carried an empty `if (isMatch) { }` block, asset-repo
+wrote an untyped `HttpContext.Items["d"]` that nothing read, and only platform-services rejected an
+empty string. Nothing made the divergence visible, which is the reason it is one implementation now.
+Do not add a local copy back.
+
 ## Tenant Authorization — the service-token exemption (AB#5032)
 
 `UseOctoTenantAuthorization()` registers `TenantAuthorizationMiddleware`

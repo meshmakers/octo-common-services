@@ -9,6 +9,7 @@ using Meshmakers.Octo.Services.Infrastructure.Configuration;
 using Meshmakers.Octo.Services.Infrastructure.Configuration.DependencyInjection;
 using Meshmakers.Octo.Services.Infrastructure.Consumers;
 using Meshmakers.Octo.Services.Infrastructure.Initialization;
+using Meshmakers.Octo.Services.Infrastructure.Routing;
 using Meshmakers.Octo.Services.Infrastructure.Cors;
 using Meshmakers.Octo.Services.Infrastructure.DistributionEventHub;
 using Meshmakers.Octo.Services.Infrastructure.Services;
@@ -119,6 +120,29 @@ public static class ServiceCollectionExtensions
         Action<TenantAuthorizationOptions> configure)
     {
         services.Configure(configure);
+        return services;
+    }
+
+    /// <summary>
+    ///     Registers <see cref="TenantIdRouteConstraint" /> under the key <c>tenantId</c>, so route
+    ///     templates can be written as <c>{tenantId:tenantId}</c> (AB#5060).
+    /// </summary>
+    /// <remarks>
+    ///     🔴 <b>Every host that serves a tenant-addressed route must call this.</b> Without the
+    ///     registration the constraint key is unknown and ASP.NET throws at startup — loudly, which is
+    ///     the intended failure. The silent one to avoid is the opposite: dropping the constraint from
+    ///     a template to make the error go away, which leaves the route matching segments that can
+    ///     never name a tenant.
+    ///     <para>
+    ///         Until AB#5060 each host carried its own <c>internal</c> copy of the constraint and its
+    ///         own <c>ConstraintMap.Add</c> line, and the copies had drifted apart. This is the single
+    ///         registration they were all approximating.
+    ///     </para>
+    /// </remarks>
+    public static IServiceCollection AddOctoTenantIdRouteConstraint(this IServiceCollection services)
+    {
+        services.Configure<RouteOptions>(options =>
+            options.ConstraintMap[InfrastructureCommon.TenantIdRoute] = typeof(TenantIdRouteConstraint));
         return services;
     }
 
