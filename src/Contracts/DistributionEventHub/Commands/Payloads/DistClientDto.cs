@@ -107,6 +107,25 @@ public record DistClientDto(string ClientId, string ClientName, string ClientUri
     public string[]? AssignedRoleNames { get; init; }
 
     /// <summary>
+    ///     Optional client ids of ACTOR clients that may impersonate <b>this</b> client (AB#5114):
+    ///     for every named client id that resolves in the tenant, the identity service materialises
+    ///     a <c>System.Identity/MayActAs</c> association actor→this-client, which is what the
+    ///     impersonation grant and the on-behalf-of <c>requested_client_id</c> extension authorize
+    ///     against — so an adapter can obtain its pipeline service account's identity without ever
+    ///     holding the service account's secret.
+    ///     <para>
+    ///     Applied additively and idempotently, exactly like the pre-AB#5111 role semantics:
+    ///     edges already present are left alone, edges to actors not listed here are <b>not</b>
+    ///     removed (v1 — removal stays a manual/operator concern), and an actor client id that does
+    ///     not (yet) exist in the tenant is skipped with a warning rather than failing the whole
+    ///     identity-data setup (seed/provisioning ordering — the actor may arrive on a later pass).
+    ///     <c>null</c> (the default, and what every producer that predates this property sends)
+    ///     changes nothing.
+    ///     </para>
+    /// </summary>
+    public IList<string>? MayActAsClientIds { get; init; }
+
+    /// <summary>
     ///     Redacting override. The compiler-generated record <c>ToString()</c> prints every property
     ///     including <see cref="ClientSecret" />; a structured-logging call that passes the DTO as a
     ///     single argument would therefore write a live client secret into the logs. Only the client
