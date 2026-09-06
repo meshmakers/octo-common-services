@@ -21,11 +21,18 @@ public record SendNotificationsRequest : CommandBaseRequest
     /// <summary>
     /// Gets or sets the send at date
     /// </summary>
-    public DateTime SendAt { get; }
+    public DateTime SendAt { get; set; }
 
     /// <summary>
-    ///     Gets or sets the clients to create
+    ///     Gets or sets the notifications to send.
     /// </summary>
-    // ReSharper disable once CollectionNeverUpdated.Global
-    public ICollection<DistNotificationDto> Notifications { get; }
+    /// <remarks>
+    ///     AB#5136: settable so the message deserializes across the distribution-event-hub. A
+    ///     get-only collection combined with the parameterized constructor is NOT populated by
+    ///     System.Text.Json (MassTransit's serializer) on the consumer side — the list arrived empty
+    ///     at <c>FromSendNotification@1</c>, so identity's e-mail OTP / welcome / reset mails were
+    ///     published but never delivered. The wire format is unchanged (getters were always
+    ///     serialized); only deserialization needed a setter.
+    /// </remarks>
+    public ICollection<DistNotificationDto> Notifications { get; set; }
 }
