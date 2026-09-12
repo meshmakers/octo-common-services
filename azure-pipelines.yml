@@ -24,14 +24,15 @@ parameters:
     default: 'auto'
 
 resources:
+  # Chain link: exactly ONE upstream pipeline resource per repo. Pipeline
+  # resource triggers do NOT batch, so a repo with two trigger parents is
+  # started twice per main cascade. The chain is therefore a single-parent
+  # tree; artificial ordering edges (marked below) resolve real DAG joins.
+  # Full picture: octo-mesh-deployment/pipelines/orchestrator-ci.yml.
+  # CK-Mongo only: octo-sdk is upstream of CK-Mongo in the chain, so it
+  # has already published when this fires.
   pipelines:
-    - pipeline: octo-sdk
-      source: octo-sdk-CI
-      trigger:
-        branches:
-          include:
-            - main
-    - pipeline: octo-construction-kit
+    - pipeline: octo-construction-kit-engine-mongodb
       source: octo-construction-kit-engine-mongodb-CI
       trigger:
         branches:
