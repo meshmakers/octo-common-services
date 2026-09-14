@@ -206,7 +206,31 @@ internal class TenantAuthorizationMiddleware(
 
         if (options.Value.UserTokenEnforcement == UserTokenTenantEnforcementMode.Enforce)
         {
-            context.Response.StatusCode = StatusCodes.Status403Forbidden;
+            // The denial names its reason in the log AND in the response body (AB#5227): a bare 403
+            // reads as "no permission" to the operator, while the actual cause here is often that the
+            // route tenant does not exist (any more) — the parent-tenant rule only grants access to an
+            // EXISTING child, so restoring into a deleted tenant fails on this exact branch. One
+            // combined message covers "not a child" and "does not exist" without telling a caller who
+            // is neither which of the two it was.
+            var isParentAdministrationEndpoint =
+                endpoint?.Metadata.GetMetadata<IAllowParentTenantAdministration>() != null;
+            logger.LogWarning(
+                "Denied: user token of subject '{Subject}' (client '{ClientId}') was issued for tenant " +
+                "'{TokenTenantId}' but addresses tenant '{RouteTenantId}' (parent administration endpoint: " +
+                "{IsParentAdministrationEndpoint}) (AB#5054)",
+                context.User.FindFirstValue("sub") ?? context.User.FindFirstValue(ClaimTypes.NameIdentifier),
+                context.User.FindFirstValue(ClientIdClaimType) ?? "<none>",
+                string.IsNullOrEmpty(tokenTenantId) ? "<none>" : tokenTenantId,
+                routeTenantId,
+                isParentAdministrationEndpoint);
+            var message = isParentAdministrationEndpoint
+                ? $"Access to tenant '{routeTenantId}' is denied: the token was issued for tenant " +
+                  $"'{tokenTenantId}', and '{routeTenantId}' is not an existing child tenant of it. " +
+                  "If the tenant was deleted, re-create it first; a tenant created moments ago may " +
+                  "take up to a minute to be recognized."
+                : $"Access to tenant '{routeTenantId}' is denied: the token was issued for tenant " +
+                  $"'{tokenTenantId}'. Sign in to tenant '{routeTenantId}' to access it.";
+            await WriteForbiddenAsync(context, message);
             return false;
         }
 
@@ -256,12 +280,12 @@ internal class TenantAuthorizationMiddleware(
     ///     Returns <c>true</c> to continue the pipeline; when it returns <c>false</c> the response has
     ///     already been set to <c>403 Forbidden</c>.
     /// </summary>
-    private Task<bool> AllowServiceTokenAsync(HttpContext context, string routeTenantId)
+    private async Task<bool> AllowServiceTokenAsync(HttpContext context, string routeTenantId)
     {
         var settings = options.Value;
         if (settings.ServiceTokenEnforcement == ServiceTokenTenantEnforcementMode.Disabled)
         {
-            return Task.FromResult(true);
+            return true;
         }
 
         var clientId = context.User.FindFirstValue(ClientIdClaimType);
@@ -272,7 +296,7 @@ internal class TenantAuthorizationMiddleware(
             logger.LogDebug(
                 "Service token of client '{ClientId}' is allow-listed for cross-tenant access; tenant '{RouteTenantId}' not checked",
                 clientId, routeTenantId);
-            return Task.FromResult(true);
+            return true;
         }
 
         var tokenTenantId = context.User.FindFirstValue(TenantIdClaimType);
@@ -286,20 +310,22 @@ internal class TenantAuthorizationMiddleware(
                 logger.LogWarning(
                     "Denied: service token of client '{ClientId}' carries no tenant_id claim but addresses tenant '{RouteTenantId}' (AB#5032)",
                     clientId, routeTenantId);
-                context.Response.StatusCode = StatusCodes.Status403Forbidden;
-                return Task.FromResult(false);
+                await WriteForbiddenAsync(context,
+                    $"Access to tenant '{routeTenantId}' is denied: the service token carries no tenant. " +
+                    $"Request the token with acr_values=tenant:{routeTenantId}.");
+                return false;
             }
 
             logger.LogWarning(
                 "Service token of client '{ClientId}' carries no tenant_id claim and addresses tenant '{RouteTenantId}'. " +
                 "This would be denied with ServiceTokenEnforcement=Enforce (AB#5032)",
                 clientId, routeTenantId);
-            return Task.FromResult(true);
+            return true;
         }
 
         if (string.Equals(tokenTenantId, routeTenantId, StringComparison.OrdinalIgnoreCase))
         {
-            return Task.FromResult(true);
+            return true;
         }
 
         if (settings.ServiceTokenEnforcement == ServiceTokenTenantEnforcementMode.Enforce)
@@ -307,14 +333,31 @@ internal class TenantAuthorizationMiddleware(
             logger.LogWarning(
                 "Denied: service token of client '{ClientId}' was issued for tenant '{TokenTenantId}' but addresses tenant '{RouteTenantId}' (AB#5032)",
                 clientId, tokenTenantId, routeTenantId);
-            context.Response.StatusCode = StatusCodes.Status403Forbidden;
-            return Task.FromResult(false);
+            await WriteForbiddenAsync(context,
+                $"Access to tenant '{routeTenantId}' is denied: the service token was issued for tenant " +
+                $"'{tokenTenantId}'. Request the token with acr_values=tenant:{routeTenantId}.");
+            return false;
         }
 
         logger.LogWarning(
             "Service token of client '{ClientId}' was issued for tenant '{TokenTenantId}' but addresses tenant '{RouteTenantId}'. " +
             "This would be denied with ServiceTokenEnforcement=Enforce (AB#5032)",
             clientId, tokenTenantId, routeTenantId);
-        return Task.FromResult(true);
+        return true;
+    }
+
+    /// <summary>
+    ///     Sets <c>403 Forbidden</c> and writes a JSON body naming the reason (AB#5227). The shape
+    ///     (<c>{"message": ...}</c>) matches what the frontends' HTTP error interceptor renders, so
+    ///     the reason reaches the operator instead of a generic "access denied" toast. Written
+    ///     best-effort: a response that has already started keeps the bare status code.
+    /// </summary>
+    private static async Task WriteForbiddenAsync(HttpContext context, string message)
+    {
+        context.Response.StatusCode = StatusCodes.Status403Forbidden;
+        if (!context.Response.HasStarted)
+        {
+            await context.Response.WriteAsJsonAsync(new { message });
+        }
     }
 }
