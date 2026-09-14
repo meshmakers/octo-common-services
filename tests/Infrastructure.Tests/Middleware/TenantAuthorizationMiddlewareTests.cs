@@ -653,7 +653,82 @@ public class TenantAuthorizationMiddlewareTests
 
         Assert.False(nextCalled);
         Assert.Equal(StatusCodes.Status403Forbidden, ctx.Response.StatusCode);
-        Assert.Contains(nameof(ITenantHierarchyReader), Assert.Single(logger.Warnings));
+        // Two warnings: the missing reader, and the AB#5227 denial audit line.
+        Assert.Contains(logger.Warnings, w => w.Contains(nameof(ITenantHierarchyReader)));
+        Assert.Contains(logger.Warnings, w => w.Contains("Denied"));
+    }
+
+    // ---------------------------------------------------------------------------------------------
+    // AB#5227 — a denial names its reason: in the log (the bare 403 of a user deny used to be
+    // silent) and in a JSON body the frontends' HTTP error interceptor renders. The concrete case
+    // that motivated this: restoring into a DELETED tenant fails the parent-tenant rule (it only
+    // grants access to an existing child), and the operator saw a generic "access denied" toast
+    // with nothing in the logs.
+    // ---------------------------------------------------------------------------------------------
+
+    [Fact]
+    public void UserTokenDenial_OnAMarkedEndpoint_NamesTheMissingChildInLogAndBody()
+    {
+        var reader = new CountingHierarchyReader(ParentTenant, "someotherchild");
+        var context = CreateContext(UserToken(ParentTenant, "octo-data-refinery-studio"),
+            parentTenantAdministrationEndpoint: true, hierarchyReader: reader);
+        context.Response.Body = new MemoryStream();
+
+        var (nextCalled, ctx, logger) = Invoke(context);
+
+        Assert.False(nextCalled);
+        Assert.Equal(StatusCodes.Status403Forbidden, ctx.Response.StatusCode);
+
+        var warning = Assert.Single(logger.Warnings);
+        Assert.Contains("octo-data-refinery-studio", warning);
+        Assert.Contains(ParentTenant, warning);
+        Assert.Contains(RouteTenant, warning);
+
+        var body = ReadBody(ctx);
+        Assert.Contains(RouteTenant, body);
+        Assert.Contains("not an existing child tenant", body);
+        Assert.Contains("re-create it first", body);
+    }
+
+    [Fact]
+    public void UserTokenDenial_OnAnUnmarkedEndpoint_TellsTheCallerToSignIn()
+    {
+        var context = CreateContext(UserToken(ForeignTenant));
+        context.Response.Body = new MemoryStream();
+
+        var (nextCalled, ctx, _) = Invoke(context);
+
+        Assert.False(nextCalled);
+        Assert.Equal(StatusCodes.Status403Forbidden, ctx.Response.StatusCode);
+
+        var body = ReadBody(ctx);
+        Assert.Contains(RouteTenant, body);
+        Assert.Contains($"Sign in to tenant '{RouteTenant}'", body);
+        Assert.DoesNotContain("child tenant", body);
+    }
+
+    [Fact]
+    public void ServiceTokenDenial_NamesTheAcrValuesRemedy()
+    {
+        var context = CreateContext(ServiceToken("some-ci-client", ForeignTenant));
+        context.Response.Body = new MemoryStream();
+
+        var (nextCalled, ctx, _) = Invoke(context, new TenantAuthorizationOptions
+        {
+            ServiceTokenEnforcement = ServiceTokenTenantEnforcementMode.Enforce
+        });
+
+        Assert.False(nextCalled);
+        Assert.Equal(StatusCodes.Status403Forbidden, ctx.Response.StatusCode);
+
+        var body = ReadBody(ctx);
+        Assert.Contains($"acr_values=tenant:{RouteTenant}", body);
+    }
+
+    private static string ReadBody(HttpContext context)
+    {
+        context.Response.Body.Position = 0;
+        return new StreamReader(context.Response.Body).ReadToEnd();
     }
 
     /// <summary>

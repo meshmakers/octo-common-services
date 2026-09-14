@@ -338,6 +338,24 @@ closed) and `tests/Infrastructure.Tests/Services/TenantHierarchyReaderTests.cs` 
 context materialisation, positive and negative caching, TTL of zero, self is not a child, unreadable
 hierarchy fails closed).
 
+## Denials name their reason (AB#5227)
+
+Every 403 this middleware produces — user path and service path — now carries a JSON body
+`{"message": "..."}` naming the reason and the remedy, and the user-path `Enforce` denial is logged
+as a **Warning** (it used to set the bare status code silently, so an operator saw a generic
+"access denied" toast and found nothing in the logs). The body shape matches what
+`MmHttpErrorInterceptor` (octo-frontend-libraries, shared-services) renders for a 403 with a
+message, so the reason reaches the operator's toast.
+
+The motivating incident: the Studio's "Restore Tenant" flow uploaded a backup and called the
+tenant-routed `restore-from-upload` on bot-services for a tenant that had just been **deleted**.
+The parent-tenant rule above only grants access to an *existing* child, so the request failed on
+this exact branch with nothing actionable anywhere. The marked-endpoint denial message therefore
+covers both causes in one sentence ("not an existing child tenant of it — if the tenant was
+deleted, re-create it first") without telling an unrelated caller which of the two applies, and
+mentions that a tenant created moments ago may take up to one TTL of the hierarchy cache (60 s) to
+be recognized. The body is written best-effort (`Response.HasStarted` guard).
+
 ## Tenant Setup — Failure Handling (AB#4690)
 
 `DefaultConfigurationCreatorServiceBase.SetupAsync` is the entry point every service uses to provision a
