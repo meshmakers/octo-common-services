@@ -16,6 +16,10 @@
     </PropertyGroup>
 
     <ItemGroup>
+        <InternalsVisibleTo Include="Notifications.Tests" />
+    </ItemGroup>
+
+    <ItemGroup>
         <PackageReference Include="Meshmakers.Octo.Runtime.Contracts.MongoDb" Version="$(OctoCoreLibVersion)" />
         <ProjectReference Include="..\Contracts\Contracts.csproj" />
         <ProjectReference Include="..\Infrastructure\Infrastructure.csproj" />
