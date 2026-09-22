@@ -1,0 +1,38 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+    <PropertyGroup>
+        <IsPackable>false</IsPackable>
+        <IsTestProject>true</IsTestProject>
+        <OutputType>Exe</OutputType>
+        <RootNamespace>Notifications.Tests</RootNamespace>
+        <Configurations>Debug;Release;DebugL</Configurations>
+        <Platforms>AnyCPU</Platforms>
+    </PropertyGroup>
+
+    <ItemGroup>
+        <PackageReference Include="coverlet.collector" Version="10.0.1">
+            <PrivateAssets>all</PrivateAssets>
+            <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
+        </PackageReference>
+        <PackageReference Include="FakeItEasy" Version="9.0.1" />
+        <PackageReference Include="Microsoft.NET.Test.Sdk" Version="18.9.0" />
+        <PackageReference Include="xunit.v3.mtp-off" Version="4.0.0" />
+        <PackageReference Include="xunit.runner.visualstudio" Version="4.0.0">
+            <PrivateAssets>all</PrivateAssets>
+            <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
+        </PackageReference>
+    </ItemGroup>
+
+    <ItemGroup>
+      <ProjectReference Include="..\..\src\Contracts\Contracts.csproj" />
+      <!-- Notifications carries a CK model with OctoPublishCkModel=true. Building it as a test
+           dependency would run the publish too, and the CI's test step gets no GitHub token
+           (the build step does) - "GitHub token is missing", build 47437. A test run has no
+           business publishing a model, so this reference switches it off; the build step still
+           publishes exactly once. AdditionalProperties sets it as a GLOBAL property, which the
+           csproj's own PropertyGroup cannot override. -->
+      <ProjectReference Include="..\..\src\Notifications\Notifications.csproj"
+                        AdditionalProperties="OctoPublishCkModel=false" />
+    </ItemGroup>
+
+</Project>
