@@ -123,12 +123,14 @@ stages:
               command: 'build'
               projects: $(SolutionFile)
               arguments: '--configuration $(BuildConfiguration) /p:OctoNugetPrivateServer=$(nugetPrivateServer) /p:OctoPublishCatalog="$(effectivePublishCatalog)" /p:OctoPrivateGitHubApiKey=$(GitHubPAT) /p:OctoPublicGitHubApiKey=$(GitHubPAT)'
+          # --no-build: the Build step above already compiled (and published the CK model with
+          # the GitHub token). Rebuilding here would re-run the publish without a token.
           - task: DotNetCoreCLI@2
             retryCountOnTaskFailure: 2
             displayName: 'Test'
             inputs:
               command: 'test'
-              arguments: '--configuration $(buildConfiguration) /p:OctoNugetPrivateServer=$(nugetPrivateServer)'
+              arguments: '--configuration $(buildConfiguration) --no-build /p:OctoNugetPrivateServer=$(nugetPrivateServer)'
               projects: |
                 **/*Tests.csproj
                 !**/*SystemTests.csproj
