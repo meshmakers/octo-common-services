@@ -25,14 +25,7 @@
 
     <ItemGroup>
       <ProjectReference Include="..\..\src\Contracts\Contracts.csproj" />
-      <!-- Notifications carries a CK model with OctoPublishCkModel=true. Building it as a test
-           dependency would run the publish too, and the CI's test step gets no GitHub token
-           (the build step does) - "GitHub token is missing", build 47437. A test run has no
-           business publishing a model, so this reference switches it off; the build step still
-           publishes exactly once. AdditionalProperties sets it as a GLOBAL property, which the
-           csproj's own PropertyGroup cannot override. -->
-      <ProjectReference Include="..\..\src\Notifications\Notifications.csproj"
-                        AdditionalProperties="OctoPublishCkModel=false" />
+      <ProjectReference Include="..\..\src\Notifications\Notifications.csproj" />
     </ItemGroup>
 
 </Project>
