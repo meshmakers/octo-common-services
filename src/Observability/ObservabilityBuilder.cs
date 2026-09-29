@@ -56,9 +56,25 @@ internal class ObservabilityBuilder(
             // removing it is a separate decision and would break anything still scraping.
             // Guarded by the same endpoint check the tracing path uses, so a service without
             // OTLP_ENDPOINT_URL configured keeps behaving exactly as before.
-            if (tracingOtlpEndpoint != null)
+            // The endpoint comes from one of two places, and the order matters. An explicit
+            // OTLP_ENDPOINT_URL wins where someone set it. Where nobody did — which is every
+            // cluster today — fall back to OTEL_EXPORTER_OTLP_ENDPOINT, the standard variable
+            // the Dash0 operator already injects into every pod, and let the SDK read endpoint
+            // and protocol from the environment itself.
+            //
+            // The first attempt at this fix guarded on OTLP_ENDPOINT_URL alone and was therefore
+            // dead on arrival: the key is set nowhere in the cluster. The tracing path below has
+            // the same dead guard and has always had it — traces reach Dash0 through the
+            // LD_PRELOAD auto-instrumentation injector, not through this exporter, which is why
+            // nobody noticed. The injector does not know our custom meters, so metrics need the
+            // in-process exporter that this adds.
+            if (!string.IsNullOrWhiteSpace(tracingOtlpEndpoint))
             {
                 metrics.AddOtlpExporter(otlpOptions => { otlpOptions.Endpoint = new Uri(tracingOtlpEndpoint); });
+            }
+            else if (!string.IsNullOrWhiteSpace(Configuration["OTEL_EXPORTER_OTLP_ENDPOINT"]))
+            {
+                metrics.AddOtlpExporter();
             }
         });
 
