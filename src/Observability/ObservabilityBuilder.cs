@@ -28,7 +28,9 @@ internal class ObservabilityBuilder(
             .AddService(serviceName: Environment.ApplicationName));
 
         // Add Metrics for ASP.NET Core and our custom metrics and export to Prometheus
-        otel.WithMetrics(metrics => metrics
+        otel.WithMetrics(metrics =>
+        {
+            metrics
             // Metrics provider from OpenTelemetry
             .AddAspNetCoreInstrumentation()
             // Metrics provided by ASP.NET Core in .NET 8
@@ -43,7 +45,22 @@ internal class ObservabilityBuilder(
             // service. Registering it here for every service is harmless — a service that emits
             // nothing on this meter simply exports nothing.
             .AddMeter("Meshmakers.Octo.Communication")
-            .AddPrometheusExporter());
+            .AddPrometheusExporter();
+
+            // AB#5430: metrics had a Prometheus scrape endpoint and nothing else, while tracing
+            // got an OTLP exporter. Nothing scrapes that endpoint — kube-prometheus-stack was
+            // replaced by Dash0 and no pod carries a prometheus.io/scrape annotation — so every
+            // custom metric this platform emits was produced correctly and then dropped on the
+            // floor. That is why octo.workload.* (AB#4919) never appeared in Dash0 and why the
+            // OctoMeshWorkload* check rules could never fire. The Prometheus exporter stays:
+            // removing it is a separate decision and would break anything still scraping.
+            // Guarded by the same endpoint check the tracing path uses, so a service without
+            // OTLP_ENDPOINT_URL configured keeps behaving exactly as before.
+            if (tracingOtlpEndpoint != null)
+            {
+                metrics.AddOtlpExporter(otlpOptions => { otlpOptions.Endpoint = new Uri(tracingOtlpEndpoint); });
+            }
+        });
 
         // Add Tracing for ASP.NET Core and our custom ActivitySource and export to Jaeger
         otel.WithTracing(tracing =>
