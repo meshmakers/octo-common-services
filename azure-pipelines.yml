@@ -1,10 +1,5 @@
 # Root-level CI pipeline using shared templates from octo-pipeline-templates.
 #
-# Phase 1 pilot 5 of the YAML migration (see octo-mesh-deployment's
-# docs/pipeline-architecture-concept.md). Last of the 5 base libs. With
-# this merged + green, the libraries tier is fully on YAML and the Phase 2
-# release-libs-train.yml orchestrator becomes feasible.
-#
 # Build and Test compile the System.Notification CK model and publish it
 # nowhere (/p:OctoPublishCkModel=false). It is published by the shared CK step
 # after the tests (main -> private catalog, r* -> private AND public).
