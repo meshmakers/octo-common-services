@@ -45,6 +45,15 @@ internal class ObservabilityBuilder(
             // service. Registering it here for every service is harmless — a service that emits
             // nothing on this meter simply exports nothing.
             .AddMeter("Meshmakers.Octo.Communication")
+            // CK model health (AB#5432) — emitted by CkModelObservabilityMetrics in
+            // octo-asset-repo-services. Same rule again: a string, not a reference into a service.
+            // Note that asset-repo ALSO registers this meter on its own meter provider, and must:
+            // this list only reaches a service once it consumes a build of this package that
+            // contains the line, and an unregistered meter fails silently — instruments are
+            // created, measurements are taken, and every one of them is dropped. That is the
+            // AB#5430 failure mode, and a metric contract three deployed check rules depend on
+            // cannot wait a release train to find out.
+            .AddMeter("Meshmakers.Octo.AssetRepository")
             .AddPrometheusExporter();
 
             // AB#5430: metrics had a Prometheus scrape endpoint and nothing else, while tracing
