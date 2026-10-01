@@ -1,8 +1,9 @@
 # Root-level CI pipeline using shared templates from octo-pipeline-templates.
 #
-# Build and Test compile the System.Notification CK model and publish it
-# nowhere (/p:OctoPublishCkModel=false). It is published by the shared CK step
-# after the tests (main -> private catalog, r* -> private AND public).
+# Build compiles the System.Notification CK model and publishes it nowhere
+# (/p:OctoPublishCkModel=false); Test runs --no-build on that output. The model
+# is published by the shared CK step after the tests (main -> private catalog,
+# r* -> private AND public).
 
 name: $(MajorVersion).$(MinorVersion).$(date:yyMM).$(DayOfMonth)$(rev:rrr)-$(Build.SourceBranchName)
 
