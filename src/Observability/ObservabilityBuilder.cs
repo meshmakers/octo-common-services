@@ -54,6 +54,16 @@ internal class ObservabilityBuilder(
             // AB#5430 failure mode, and a metric contract three deployed check rules depend on
             // cannot wait a release train to find out.
             .AddMeter("Meshmakers.Octo.AssetRepository")
+            // StreamData (concept §13) — engine-side archive lifecycle signals from
+            // StreamDataDiagnostics in octo-construction-kit-engine, and the CrateDB data-plane
+            // signals from CrateDbDiagnostics in octo-construction-kit-engine-mongodb. Both have
+            // existed and been emitting since the StreamData work, and neither was ever
+            // registered here: nine instruments across the two meters, every measurement
+            // dropped. Same silent-drop failure as AB#5430, found by auditing the meter names
+            // in the tree against this list rather than by anything going wrong — which is the
+            // point: an unregistered meter has no symptom to notice.
+            .AddMeter("Meshmakers.Octo.StreamData")
+            .AddMeter("Meshmakers.Octo.StreamData.Crate")
             .AddPrometheusExporter();
 
             // AB#5430: metrics had a Prometheus scrape endpoint and nothing else, while tracing
@@ -87,12 +97,45 @@ internal class ObservabilityBuilder(
             }
         });
 
-        // Add Tracing for ASP.NET Core and our custom ActivitySource and export to Jaeger
+        // Add Tracing for ASP.NET Core and our custom ActivitySources
         otel.WithTracing(tracing =>
         {
             tracing.AddAspNetCoreInstrumentation();
             tracing.AddHttpClientInstrumentation();
-            if (tracingOtlpEndpoint != null)
+
+            // Our own ActivitySources. Same string-not-reference rule as the meters above, and
+            // the same failure mode: an ActivitySource nobody subscribed to has no listener, so
+            // Activity.StartActivity() returns null and the span is never created at all. These
+            // two have been defined since the StreamData work with no AddSource anywhere in the
+            // tree — the comment on StreamDataDiagnostics.ActivitySourceName even says exporters
+            // "need a single subscription", and nothing ever made it.
+            tracing.AddSource("Meshmakers.Octo.StreamData");
+            tracing.AddSource("Meshmakers.Octo.StreamData.Crate");
+
+            // DELIBERATELY NOT given the OTEL_EXPORTER_OTLP_ENDPOINT fallback that the metrics
+            // path above has. The guard below is dead — nothing in any cluster sets
+            // OTLP_ENDPOINT_URL — but here that is the correct state, not an oversight:
+            //
+            // every monitored pod already runs opentelemetry-dotnet-instrumentation 1.11.0,
+            // injected by the Dash0 operator, and that is where today's AspNetCore and
+            // HttpClient spans come from (verified in the test-2 dataset: every SERVER span
+            // carries telemetry.distro.name=opentelemetry-dotnet-instrumentation). The injector
+            // builds its own TracerProvider with its own exporter. Giving this one an exporter
+            // too would not add the StreamData spans — it would duplicate every HTTP span in
+            // the estate, doubling span volume against the cost guardrails and splitting each
+            // request into two trace trees.
+            //
+            // The metrics path has no such conflict: the injector does not know our meters, so
+            // its exporter is the only one for HTTP metrics and ours the only one for custom
+            // metrics (that asymmetry is exactly why AB#5430 fixed metrics this way).
+            //
+            // The AddSource calls above still earn their place. An ActivitySource with no
+            // listener never creates an Activity at all, so they are what makes the spans exist
+            // for the injector's provider to pick up — the injector is told about them via
+            // OTEL_DOTNET_AUTO_TRACES_ADDITIONAL_SOURCES in the charts. They also make the
+            // in-process path work unchanged for anyone who does set OTLP_ENDPOINT_URL, i.e.
+            // local dev against a Jaeger/collector with no injector in the picture.
+            if (!string.IsNullOrWhiteSpace(tracingOtlpEndpoint))
             {
                 tracing.AddOtlpExporter(otlpOptions => { otlpOptions.Endpoint = new Uri(tracingOtlpEndpoint); });
             }
