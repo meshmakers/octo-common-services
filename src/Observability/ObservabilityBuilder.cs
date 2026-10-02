@@ -23,9 +23,48 @@ internal class ObservabilityBuilder(
         var tracingOtlpEndpoint = Configuration["OTLP_ENDPOINT_URL"];
         var otel = Services.AddOpenTelemetry();
 
-        // Configure OpenTelemetry Resources with the application name
+        // AB#5478 §2.1: one process must report ONE service.name, and the value that wins has to
+        // be the deployment's, not ours.
+        //
+        // Three producers attach a service.name to the signals of a single pod, and until this
+        // guard they disagreed (measured in the test-2 dataset on 2026-10-02, all three on the
+        // one Deployment octo-mesh-identity-services):
+        //
+        //   metrics  Meshmakers.Octo.Backend.IdentityServices   <- this AddService() call
+        //   spans    octo-mesh-identity-services                <- OTEL_SERVICE_NAME, read by the
+        //                                                          injected auto-instrumentation
+        //   logs     octo-mesh                                  <- pod label app.kubernetes.io/name,
+        //                                                          read by the collector off the node
+        //
+        // An explicit AddService() beats the OTEL_SERVICE_NAME environment variable, so this line
+        // was what split metrics off from traces: the Dash0 service catalog grew a second, parallel
+        // entity per service carrying only our custom metrics and no RED data, and no dashboard
+        // could put a service's latency next to its own error logs.
+        //
+        // So we feed the deployment's name INTO AddService rather than dropping the call. Dropping it
+        // would let the SDK's default resource read OTEL_SERVICE_NAME on its own and would look
+        // tidier — but AddService is also the only thing in this estate that produces
+        // service.instance.id (autoGenerateServiceInstanceId defaults to true; the Dash0 operator
+        // sets it on no signal). Today that is the one identity attribute that IS correct, and
+        // removing the call would silently drop it.
+        //
+        // ApplicationName (the entry assembly name) stays the fallback for anything running without
+        // the variable — local dev, tests, every host the charts do not reach — so off-cluster
+        // behaviour is unchanged.
+        //
+        // Read through IConfiguration, not Environment.GetEnvironmentVariable: that is the same
+        // source the SDK itself uses for this key, so an appsettings override behaves the same way
+        // as the pod env. Length check rather than ?? — IConfiguration treats an empty value as set,
+        // and AddService throws on an empty serviceName (Guard.ThrowIfNullOrEmpty).
+        //
+        // This fixes metrics only. Logs carry a third name (the pod label) that no code in this
+        // process can reach — the collector reads it off the node and never sees our env. That half
+        // lives in the Dash0Monitoring transform, see AB#5478 §2.1.
+        var deploymentServiceName = Configuration["OTEL_SERVICE_NAME"];
         otel.ConfigureResource(resource => resource
-            .AddService(serviceName: Environment.ApplicationName));
+            .AddService(serviceName: deploymentServiceName is { Length: > 0 }
+                ? deploymentServiceName
+                : Environment.ApplicationName));
 
         // Add Metrics for ASP.NET Core and our custom metrics and export to Prometheus
         otel.WithMetrics(metrics =>
