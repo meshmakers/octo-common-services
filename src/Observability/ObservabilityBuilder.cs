@@ -1,4 +1,5 @@
 ﻿using System;
+using Meshmakers.Octo.Runtime.Engine.Secrets;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
@@ -103,6 +104,13 @@ internal class ObservabilityBuilder(
             // point: an unregistered meter has no symptom to notice.
             .AddMeter("Meshmakers.Octo.StreamData")
             .AddMeter("Meshmakers.Octo.StreamData.Crate")
+            // SECRET attribute access (AB#5528/AB#5531) — octo.secrets.decrypt and
+            // octo.secrets.plaintext_reads from SecretDiagnostics in octo-construction-kit-engine.
+            // A constant reference rather than a string, unlike the meters above: the engine is
+            // already a dependency of this package (via Runtime.Engine.MongoDb), so the reference
+            // crosses no layer, and a rename on the engine side then fails the build here instead
+            // of silently dropping every measurement (the AB#5430 failure mode).
+            .AddMeter(SecretDiagnostics.MeterName)
             .AddPrometheusExporter();
 
             // AB#5430: metrics had a Prometheus scrape endpoint and nothing else, while tracing
