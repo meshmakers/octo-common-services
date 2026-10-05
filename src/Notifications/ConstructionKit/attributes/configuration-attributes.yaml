@@ -3,17 +3,11 @@ attributes:
   - id: CssStyle
     description: The css style for a rendered html text
     valueType: String
-  # AB#5359 - the tenant's own mail switch and redirect target. System.Notification.Bootstrap
-  # seeds the switch disabled and an operator enables it once SMTP is wired; while it was
-  # seed-owned, the next version of that blueprint would have switched e-mail off again on
-  # every tenant. The default below still initialises a fresh tenant.
   - id: EnableEmailNotifications
     description: Enable email notifications
     valueType: Boolean
-    ownership: TenantOwned
     defaultValues:
       - false
   - id: RedirectAfterEmailInteractionUrl
     description: Redirect after email interaction URL
     valueType: String
-    ownership: TenantOwned
