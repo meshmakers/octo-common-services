@@ -19,6 +19,8 @@
         <PackageReference Include="OpenTelemetry.Instrumentation.AspNetCore" Version="1.18.0" />
         <PackageReference Include="OpenTelemetry.Instrumentation.Http" Version="1.18.0" />
         <PackageReference Include="Microsoft.Extensions.Diagnostics.HealthChecks.ResourceUtilization" Version="10.9.0" />
+        <!-- AB#5478 section 2.3: the otel-trace-id / otel-span-id layout renderers. -->
+        <PackageReference Include="NLog" Version="6.2.0" />
     </ItemGroup>
 
     <ItemGroup>

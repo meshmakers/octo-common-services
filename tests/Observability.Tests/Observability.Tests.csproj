@@ -27,4 +27,15 @@
         <ProjectReference Include="..\..\src\Observability\Observability.csproj" />
     </ItemGroup>
 
+    <!--
+        AB#5478 section 2.3: the reference nlog.config is tested as a FILE, not as a copy
+        embedded in the test. A copy would drift and the tests would keep passing while the
+        shipped configuration broke.
+    -->
+    <ItemGroup>
+        <None Include="..\..\samples\SampleWebService\nlog.config" Link="nlog.reference.config">
+            <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+        </None>
+    </ItemGroup>
+
 </Project>
