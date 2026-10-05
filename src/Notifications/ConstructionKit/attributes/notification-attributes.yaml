@@ -6,18 +6,28 @@ attributes:
   - id: BodyText
     description: The body text of the notification
     valueType: String
+  # AB#5359 - a blueprint seeds a template once with a generic text; from then on the wording
+  # belongs to the tenant, which adapts subject, body and rendering in the product. While these
+  # were seed-owned, every blueprint re-apply replaced the tenant's texts with the generic ones.
+  # The other side of that: a corrected seed text reaches existing tenants only through a CK
+  # migration, the system mails of System.Notification.Bootstrap included.
   - id: BodyTemplate
     description: The body of the event as a template
     valueType: String
+    ownership: TenantOwned
   - id: SubjectTemplate
     description: The subject of the event as a template
     valueType: String
+    ownership: TenantOwned
+  # Stays seed-owned: the channel is the template's wiring, not its wording.
   - id: NotificationType
     description: Defines the type of the notification (Email, SMS, Push)
     valueType: Enum
     valueCkEnumId: ${this}/NotificationTypes
+  # AB#5359 - tenant-owned together with the body it describes (see BodyTemplate).
   - id: RenderingType
     description: Defines the rendering type of the notification (Text, Html)
     valueType: Enum
-    valueCkEnumId: ${this}/RenderingTypes    
+    valueCkEnumId: ${this}/RenderingTypes
+    ownership: TenantOwned
 
