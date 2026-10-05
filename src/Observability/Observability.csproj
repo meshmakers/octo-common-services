@@ -19,8 +19,16 @@
         <PackageReference Include="OpenTelemetry.Instrumentation.AspNetCore" Version="1.18.0" />
         <PackageReference Include="OpenTelemetry.Instrumentation.Http" Version="1.18.0" />
         <PackageReference Include="Microsoft.Extensions.Diagnostics.HealthChecks.ResourceUtilization" Version="10.9.0" />
-        <!-- AB#5478 section 2.3: the otel-trace-id / otel-span-id layout renderers. -->
-        <PackageReference Include="NLog" Version="6.2.0" />
+        <!--
+            AB#5478 section 2.3: the otel-trace-id / otel-span-id layout renderers. They live in
+            Meshmakers.Common.Observability rather than here because three deployed processes
+            carry none of the Meshmakers.Octo.Services.* packages — the communication operator
+            and the Loxone and SAP adapters — and this package pulls the OpenTelemetry exporters,
+            the AspNetCore and Http instrumentation, HealthChecks and the MongoDb runtime engine.
+            Referencing it here keeps the renderers in every service's output directory, which is
+            what nlog.config's <extensions> element needs.
+        -->
+        <PackageReference Include="Meshmakers.Common.Observability" Version="$(MeshmakerVersion)" />
     </ItemGroup>
 
     <ItemGroup>
