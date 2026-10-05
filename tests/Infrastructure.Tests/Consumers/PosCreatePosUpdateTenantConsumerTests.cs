@@ -19,6 +19,8 @@ namespace Infrastructure.Tests.Consumers;
 ///     is dropped. PosCreateTenant must keep its behavior: it is published inside the still-uncommitted
 ///     create transaction, and the durable setup retry is what covers the record-not-yet-visible race
 ///     (AB#4690).
+///     AB#5497: a <see cref="TenantUpdateScope.CacheOnly" /> update unloads the CK cache but must not
+///     run SetupAsync — the nightly aggregation otherwise force re-applied the service-managed blueprints.
 /// </summary>
 public class PosCreatePosUpdateTenantConsumerTests
 {
@@ -69,6 +71,62 @@ public class PosCreatePosUpdateTenantConsumerTests
         await CreateSut().ConsumeAsync(ContextFor(new PosUpdateTenant("live-tenant", Guid.NewGuid(), DateTime.UtcNow)));
 
         A.CallTo(() => _systemContext.TryFindTenantContextAsync(A<string>._)).MustNotHaveHappened();
+    }
+
+    // AB#5497: a CacheOnly update (AB#4895 — the nightly autocomplete aggregation) only changed cached
+    // CK-model state. Running SetupAsync for it force re-applied the service-managed blueprints every
+    // night (platform-services recreated System/TenantModeConfiguration from the seed and reset the
+    // operator's observability opt-in). The consumer must still drop the CK cache but skip setup.
+
+    [Fact]
+    public async Task PosUpdate_CacheOnly_UnloadsTheCache_ButSkipsSetup()
+    {
+        A.CallTo(() => _systemContext.IsTenantRegisteredAsync(A<string>._)).Returns(true);
+        A.CallTo(() => _ckCacheService.IsTenantLoaded("live-tenant")).Returns(true);
+
+        await CreateSut().ConsumeAsync(ContextFor(
+            new PosUpdateTenant("live-tenant", Guid.NewGuid(), DateTime.UtcNow, TenantUpdateScope.CacheOnly)));
+
+        A.CallTo(() => _ckCacheService.Unload("live-tenant")).MustHaveHappenedOnceExactly();
+        A.CallTo(() => _creatorService.SetupAsync(A<string>._)).MustNotHaveHappened();
+    }
+
+    [Fact]
+    public async Task PosUpdate_Full_StillRunsSetup()
+    {
+        // Regression pin: Full is the enum default, i.e. what every older publisher deserializes to.
+        A.CallTo(() => _systemContext.IsTenantRegisteredAsync(A<string>._)).Returns(true);
+        A.CallTo(() => _ckCacheService.IsTenantLoaded("live-tenant")).Returns(true);
+
+        await CreateSut().ConsumeAsync(ContextFor(
+            new PosUpdateTenant("live-tenant", Guid.NewGuid(), DateTime.UtcNow, TenantUpdateScope.Full)));
+
+        A.CallTo(() => _ckCacheService.Unload("live-tenant")).MustHaveHappenedOnceExactly();
+        A.CallTo(() => _creatorService.SetupAsync("live-tenant")).MustHaveHappenedOnceExactly();
+    }
+
+    [Fact]
+    public async Task PosUpdate_CacheOnly_IsStillDropped_WhenTheTenantIsNoLongerRegistered()
+    {
+        // The AB#4829 echo guard runs before the scope check and is unaffected by it.
+        A.CallTo(() => _systemContext.IsTenantRegisteredAsync(A<string>._)).Returns(false);
+
+        await CreateSut().ConsumeAsync(ContextFor(
+            new PosUpdateTenant("gone-tenant", Guid.NewGuid(), DateTime.UtcNow, TenantUpdateScope.CacheOnly)));
+
+        A.CallTo(() => _creatorService.SetupAsync(A<string>._)).MustNotHaveHappened();
+    }
+
+    [Fact]
+    public async Task PosUpdate_CacheOnly_DoesNotInvalidateRepositoryClients()
+    {
+        // The AB#4690 eviction rule for PosUpdateTenant is unchanged: never invalidate on update.
+        A.CallTo(() => _systemContext.IsTenantRegisteredAsync(A<string>._)).Returns(true);
+
+        await CreateSut().ConsumeAsync(ContextFor(
+            new PosUpdateTenant("live-tenant", Guid.NewGuid(), DateTime.UtcNow, TenantUpdateScope.CacheOnly)));
+
+        A.CallTo(() => _systemContext.InvalidateTenantRepositoryClientsAsync(A<string>._)).MustNotHaveHappened();
     }
 
     [Fact]
