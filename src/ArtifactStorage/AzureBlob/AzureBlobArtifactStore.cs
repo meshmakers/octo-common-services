@@ -41,7 +41,7 @@ public sealed class AzureBlobArtifactStore : ArtifactStoreBase
     /// </summary>
     public AzureBlobArtifactStore(BlobContainerClient container, bool createContainerIfNotExists = false,
         TimeProvider? timeProvider = null, ILogger<AzureBlobArtifactStore>? logger = null)
-        : base(timeProvider)
+        : base(timeProvider, logger)
     {
         ArgumentNullException.ThrowIfNull(container);
         _container = container;

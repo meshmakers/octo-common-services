@@ -44,7 +44,7 @@ public sealed class FileSystemArtifactStore : ArtifactStoreBase
     /// <param name="logger">Logger.</param>
     public FileSystemArtifactStore(string rootPath, TimeProvider? timeProvider = null,
         ILogger<FileSystemArtifactStore>? logger = null)
-        : base(timeProvider)
+        : base(timeProvider, logger)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(rootPath);
         _rootPath = Path.TrimEndingDirectorySeparator(Path.GetFullPath(rootPath));

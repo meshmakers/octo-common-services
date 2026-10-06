@@ -150,4 +150,47 @@ public sealed class S3ArtifactStoreMockTests
             new S3ArtifactStorageOptions { Bucket = "b", MultipartPartSizeBytes = 1 }));
         Assert.ThrowsAny<ArgumentException>(() => new S3ArtifactStore(_client, new S3ArtifactStorageOptions()));
     }
+
+    [Fact]
+    public async Task Put_ClearsThePooledPartBuffer_BeforeReturningIt()
+    {
+        // The part buffer is rented from the shared pool; it held artifact content and must be zeroed on return.
+        var bufferField = typeof(MemoryStream).GetField("_buffer",
+            System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic);
+        Assert.NotNull(bufferField);
+        byte[]? rented = null;
+        A.CallTo(() => _client.PutObjectAsync(A<PutObjectRequest>._, A<CancellationToken>._))
+            .Invokes((PutObjectRequest r, CancellationToken _) => rented = (byte[]?)bufferField.GetValue(r.InputStream))
+            .Returns(new PutObjectResponse());
+        var content = new byte[1000];
+        Array.Fill(content, (byte)0xAB);
+
+        await CreateStore().PutAsync("a/b.bin", new MemoryStream(content), new ArtifactMetadata(), Ct);
+
+        Assert.NotNull(rented);
+        Assert.True(rented.All(b => b == 0));
+    }
+
+    [Fact]
+    public async Task DeleteOlderThan_NeverExpiresObjectsWithoutLastModified()
+    {
+        A.CallTo(() => _client.ListObjectsV2Async(A<ListObjectsV2Request>._, A<CancellationToken>._))
+            .Returns(new ListObjectsV2Response
+            {
+                S3Objects =
+                [
+                    new S3Object { Key = "p/old.bin", Size = 1, LastModified = DateTime.UtcNow.AddDays(-10) },
+                    new S3Object { Key = "p/no-time.bin", Size = 1, LastModified = null }
+                ],
+                IsTruncated = false
+            });
+        A.CallTo(() => _client.GetObjectMetadataAsync(A<GetObjectMetadataRequest>._, A<CancellationToken>._))
+            .Returns(new GetObjectMetadataResponse());
+
+        var deleted = await CreateStore().DeleteOlderThanAsync("p/", TimeSpan.FromDays(1), Ct);
+
+        Assert.Equal(["p/old.bin"], deleted);
+        A.CallTo(() => _client.DeleteObjectAsync(A<DeleteObjectRequest>.That.Matches(r => r.Key == "p/no-time.bin"),
+            A<CancellationToken>._)).MustNotHaveHappened();
+    }
 }

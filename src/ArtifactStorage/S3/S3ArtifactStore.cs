@@ -61,7 +61,7 @@ public sealed class S3ArtifactStore : ArtifactStoreBase, IDisposable
 
     private S3ArtifactStore(IAmazonS3 client, S3ArtifactStorageOptions options, TimeProvider? timeProvider,
         ILogger<S3ArtifactStore>? logger, bool ownsClient)
-        : base(timeProvider)
+        : base(timeProvider, logger)
     {
         ArgumentNullException.ThrowIfNull(client);
         ArgumentNullException.ThrowIfNull(options);
@@ -178,7 +178,8 @@ public sealed class S3ArtifactStore : ArtifactStoreBase, IDisposable
         }
         finally
         {
-            ArrayPool<byte>.Shared.Return(buffer);
+            // The buffer held artifact content (encrypted or not): never hand it back to the shared pool readable.
+            ArrayPool<byte>.Shared.Return(buffer, true);
         }
     }
 

@@ -1,3 +1,6 @@
+using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Logging.Abstractions;
+
 namespace Meshmakers.Octo.Services.ArtifactStorage;
 
 /// <summary>
@@ -11,9 +14,23 @@ public abstract class ArtifactStoreBase : IArtifactStore
     /// </summary>
     /// <param name="timeProvider">Clock used for retention; <see cref="System.TimeProvider.System" /> when <c>null</c>.</param>
     protected ArtifactStoreBase(TimeProvider? timeProvider)
+        : this(timeProvider, null)
+    {
+    }
+
+    /// <summary>
+    ///     Creates the base with a logger for the retention.
+    /// </summary>
+    /// <param name="timeProvider">Clock used for retention; <see cref="System.TimeProvider.System" /> when <c>null</c>.</param>
+    /// <param name="logger">Logger for the retention; none when <c>null</c>.</param>
+    protected ArtifactStoreBase(TimeProvider? timeProvider, ILogger? logger)
     {
         TimeProvider = timeProvider ?? TimeProvider.System;
+        RetentionLogger = logger ?? NullLogger.Instance;
     }
+
+    /// <summary>Logger used by <see cref="DeleteOlderThanAsync" />.</summary>
+    private ILogger RetentionLogger { get; }
 
     /// <summary>The clock used for retention.</summary>
     protected TimeProvider TimeProvider { get; }
@@ -39,6 +56,10 @@ public abstract class ArtifactStoreBase : IArtifactStore
     public abstract Task<bool> DeleteAsync(string key, CancellationToken cancellationToken = default);
 
     /// <inheritdoc />
+    /// <remarks>
+    ///     Artifacts without a modification time (<see cref="ArtifactInfo.CreatedAt" /> is
+    ///     <see cref="DateTimeOffset.MinValue" />) are never deleted here.
+    /// </remarks>
     public virtual async Task<IReadOnlyList<string>> DeleteOlderThanAsync(string prefix, TimeSpan maxAge,
         CancellationToken cancellationToken = default)
     {
@@ -49,6 +70,16 @@ public abstract class ArtifactStoreBase : IArtifactStore
         var expired = new List<string>();
         await foreach (var info in ListAsync(prefix, cancellationToken).ConfigureAwait(false))
         {
+            if (info.CreatedAt == DateTimeOffset.MinValue)
+            {
+                // No timestamp from the provider (e.g. an S3-compatible store without LastModified in the
+                // listing): the age is unknown, so the object never counts as expired here. The bucket's
+                // lifecycle rules remain the backstop.
+                RetentionLogger.LogDebug(
+                    "Artifact {ArtifactKey} has no modification time; skipped by the retention", info.Key);
+                continue;
+            }
+
             if (info.CreatedAt < cutoff)
             {
                 expired.Add(info.Key);
