@@ -1,0 +1,42 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+    <PropertyGroup>
+        <AssemblyName>Meshmakers.Octo.Services.ArtifactStorage</AssemblyName>
+        <RootNamespace>Meshmakers.Octo.Services.ArtifactStorage</RootNamespace>
+        <PackageId>Meshmakers.Octo.Services.ArtifactStorage</PackageId>
+        <Configurations>Debug;Release;DebugL</Configurations>
+        <Platforms>AnyCPU</Platforms>
+        <IsPackable>true</IsPackable>
+        <GeneratePackageOnBuild>true</GeneratePackageOnBuild>
+        <GenerateDocumentationFile>true</GenerateDocumentationFile>
+        <Description>Artifact storage abstraction (IArtifactStore) for OctoMesh services with file system, S3 and Azure Blob providers</Description>
+        <OutputPath>..\..\bin\$(Configuration)\</OutputPath>
+    </PropertyGroup>
+
+    <ItemGroup>
+        <InternalsVisibleTo Include="ArtifactStorage.Tests" />
+    </ItemGroup>
+
+    <ItemGroup>
+        <PackageReference Include="AWSSDK.S3" Version="4.0.104.1" />
+        <PackageReference Include="Azure.Identity" Version="1.21.0" />
+        <PackageReference Include="Azure.Storage.Blobs" Version="12.30.0" />
+        <PackageReference Include="Microsoft.Extensions.Configuration.Binder" Version="10.0.11" />
+        <PackageReference Include="Microsoft.Extensions.Diagnostics.HealthChecks" Version="10.0.11" />
+        <PackageReference Include="Microsoft.Extensions.Logging.Abstractions" Version="10.0.11" />
+        <PackageReference Include="Microsoft.Extensions.Options.ConfigurationExtensions" Version="10.0.11" />
+    </ItemGroup>
+
+    <ItemGroup>
+        <None Include="..\..\assets\meshmakers64.png">
+            <Pack>True</Pack>
+            <PackagePath/>
+            <Link>meshmakers64.png</Link>
+        </None>
+        <None Include="..\..\LICENSE">
+            <Pack>True</Pack>
+            <PackagePath/>
+            <Link>LICENSE</Link>
+        </None>
+    </ItemGroup>
+</Project>
