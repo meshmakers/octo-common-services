@@ -70,8 +70,8 @@ public class ConfigurationException : OctoServiceException
         return new ConfigurationException("LogManager configuration not found. Please ensure that the NLog configuration is properly set up.");
     }
 
-    public static Exception TargetNotConfigured(string coloredconsole)
+    public static Exception TargetNotConfigured(string targetName)
     {
-        return new ConfigurationException($"Target '{coloredconsole}' is not configured in the NLog configuration. Please ensure that the target is defined.");
+        return new ConfigurationException($"Target '{targetName}' is not configured in the NLog configuration. Please ensure that the target is defined.");
     }
 }

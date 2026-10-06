@@ -92,6 +92,22 @@ internal class PosCreatePosUpdateTenantConsumer(
                 return;
             }
 
+            // AB#5497: a CacheOnly update (AB#4895) — e.g. the nightly autocomplete aggregation in
+            // bot-services writing AutoCompleteValues onto CK attributes — changed cached tenant/CK-model
+            // state only. The cache unload above is the whole reaction it asks for. Running SetupAsync
+            // for it re-applied the service-managed blueprints with force (platform-services:
+            // RefreshTenantStateAsync), which recreated System/TenantModeConfiguration from the seed
+            // every night and silently reset the operator's observability opt-in. Mirrors the
+            // communication controller's TenantManagementConsumer, which skips the adapter restart
+            // relay for CacheOnly. Full (and any other scope, incl. older publishers that
+            // deserialize to Full) keeps running setup.
+            if (context.Message.Scope == TenantUpdateScope.CacheOnly)
+            {
+                logger.LogInformation(
+                    "Pos update tenant is cache-only, skipping setup: '{TenantId}'", context.Message.TenantId);
+                return;
+            }
+
             // Deliberately NO InvalidateTenantRepositoryClientsAsync here (unlike PosCreateTenant):
             // a tenant update drops no database user, so there is nothing to re-authenticate — and
             // PosUpdateTenant fires on every CK model import, so evicting here would churn a fresh

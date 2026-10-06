@@ -23,9 +23,48 @@ internal class ObservabilityBuilder(
         var tracingOtlpEndpoint = Configuration["OTLP_ENDPOINT_URL"];
         var otel = Services.AddOpenTelemetry();
 
-        // Configure OpenTelemetry Resources with the application name
+        // AB#5478 §2.1: one process must report ONE service.name, and the value that wins has to
+        // be the deployment's, not ours.
+        //
+        // Three producers attach a service.name to the signals of a single pod, and until this
+        // guard they disagreed (measured in the test-2 dataset on 2026-10-02, all three on the
+        // one Deployment octo-mesh-identity-services):
+        //
+        //   metrics  Meshmakers.Octo.Backend.IdentityServices   <- this AddService() call
+        //   spans    octo-mesh-identity-services                <- OTEL_SERVICE_NAME, read by the
+        //                                                          injected auto-instrumentation
+        //   logs     octo-mesh                                  <- pod label app.kubernetes.io/name,
+        //                                                          read by the collector off the node
+        //
+        // An explicit AddService() beats the OTEL_SERVICE_NAME environment variable, so this line
+        // was what split metrics off from traces: the Dash0 service catalog grew a second, parallel
+        // entity per service carrying only our custom metrics and no RED data, and no dashboard
+        // could put a service's latency next to its own error logs.
+        //
+        // So we feed the deployment's name INTO AddService rather than dropping the call. Dropping it
+        // would let the SDK's default resource read OTEL_SERVICE_NAME on its own and would look
+        // tidier — but AddService is also the only thing in this estate that produces
+        // service.instance.id (autoGenerateServiceInstanceId defaults to true; the Dash0 operator
+        // sets it on no signal). Today that is the one identity attribute that IS correct, and
+        // removing the call would silently drop it.
+        //
+        // ApplicationName (the entry assembly name) stays the fallback for anything running without
+        // the variable — local dev, tests, every host the charts do not reach — so off-cluster
+        // behaviour is unchanged.
+        //
+        // Read through IConfiguration, not Environment.GetEnvironmentVariable: that is the same
+        // source the SDK itself uses for this key, so an appsettings override behaves the same way
+        // as the pod env. Length check rather than ?? — IConfiguration treats an empty value as set,
+        // and AddService throws on an empty serviceName (Guard.ThrowIfNullOrEmpty).
+        //
+        // This fixes metrics only. Logs carry a third name (the pod label) that no code in this
+        // process can reach — the collector reads it off the node and never sees our env. That half
+        // lives in the Dash0Monitoring transform, see AB#5478 §2.1.
+        var deploymentServiceName = Configuration["OTEL_SERVICE_NAME"];
         otel.ConfigureResource(resource => resource
-            .AddService(serviceName: Environment.ApplicationName));
+            .AddService(serviceName: deploymentServiceName is { Length: > 0 }
+                ? deploymentServiceName
+                : Environment.ApplicationName));
 
         // Add Metrics for ASP.NET Core and our custom metrics and export to Prometheus
         otel.WithMetrics(metrics =>
@@ -54,6 +93,16 @@ internal class ObservabilityBuilder(
             // AB#5430 failure mode, and a metric contract three deployed check rules depend on
             // cannot wait a release train to find out.
             .AddMeter("Meshmakers.Octo.AssetRepository")
+            // StreamData (concept §13) — engine-side archive lifecycle signals from
+            // StreamDataDiagnostics in octo-construction-kit-engine, and the CrateDB data-plane
+            // signals from CrateDbDiagnostics in octo-construction-kit-engine-mongodb. Both have
+            // existed and been emitting since the StreamData work, and neither was ever
+            // registered here: nine instruments across the two meters, every measurement
+            // dropped. Same silent-drop failure as AB#5430, found by auditing the meter names
+            // in the tree against this list rather than by anything going wrong — which is the
+            // point: an unregistered meter has no symptom to notice.
+            .AddMeter("Meshmakers.Octo.StreamData")
+            .AddMeter("Meshmakers.Octo.StreamData.Crate")
             .AddPrometheusExporter();
 
             // AB#5430: metrics had a Prometheus scrape endpoint and nothing else, while tracing
@@ -87,12 +136,45 @@ internal class ObservabilityBuilder(
             }
         });
 
-        // Add Tracing for ASP.NET Core and our custom ActivitySource and export to Jaeger
+        // Add Tracing for ASP.NET Core and our custom ActivitySources
         otel.WithTracing(tracing =>
         {
             tracing.AddAspNetCoreInstrumentation();
             tracing.AddHttpClientInstrumentation();
-            if (tracingOtlpEndpoint != null)
+
+            // Our own ActivitySources. Same string-not-reference rule as the meters above, and
+            // the same failure mode: an ActivitySource nobody subscribed to has no listener, so
+            // Activity.StartActivity() returns null and the span is never created at all. These
+            // two have been defined since the StreamData work with no AddSource anywhere in the
+            // tree — the comment on StreamDataDiagnostics.ActivitySourceName even says exporters
+            // "need a single subscription", and nothing ever made it.
+            tracing.AddSource("Meshmakers.Octo.StreamData");
+            tracing.AddSource("Meshmakers.Octo.StreamData.Crate");
+
+            // DELIBERATELY NOT given the OTEL_EXPORTER_OTLP_ENDPOINT fallback that the metrics
+            // path above has. The guard below is dead — nothing in any cluster sets
+            // OTLP_ENDPOINT_URL — but here that is the correct state, not an oversight:
+            //
+            // every monitored pod already runs opentelemetry-dotnet-instrumentation 1.11.0,
+            // injected by the Dash0 operator, and that is where today's AspNetCore and
+            // HttpClient spans come from (verified in the test-2 dataset: every SERVER span
+            // carries telemetry.distro.name=opentelemetry-dotnet-instrumentation). The injector
+            // builds its own TracerProvider with its own exporter. Giving this one an exporter
+            // too would not add the StreamData spans — it would duplicate every HTTP span in
+            // the estate, doubling span volume against the cost guardrails and splitting each
+            // request into two trace trees.
+            //
+            // The metrics path has no such conflict: the injector does not know our meters, so
+            // its exporter is the only one for HTTP metrics and ours the only one for custom
+            // metrics (that asymmetry is exactly why AB#5430 fixed metrics this way).
+            //
+            // The AddSource calls above still earn their place. An ActivitySource with no
+            // listener never creates an Activity at all, so they are what makes the spans exist
+            // for the injector's provider to pick up — the injector is told about them via
+            // OTEL_DOTNET_AUTO_TRACES_ADDITIONAL_SOURCES in the charts. They also make the
+            // in-process path work unchanged for anyone who does set OTLP_ENDPOINT_URL, i.e.
+            // local dev against a Jaeger/collector with no injector in the picture.
+            if (!string.IsNullOrWhiteSpace(tracingOtlpEndpoint))
             {
                 tracing.AddOtlpExporter(otlpOptions => { otlpOptions.Endpoint = new Uri(tracingOtlpEndpoint); });
             }
