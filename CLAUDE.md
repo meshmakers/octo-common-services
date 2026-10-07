@@ -462,6 +462,17 @@ is an event storm that trails the delete by seconds to minutes). Four mechanisms
   resolve work, and it would throw during system-tenant bootstrap where the old flow skipped
   quietly). `PosCreateTenant` is deliberately NOT gated: its record may legitimately not be committed
   yet (see AB#4690 above); the durable retry covers that race.
+- **`PosUpdateTenant` scope guard (AB#5497).** After the echo guard, the consumer checks
+  `PosUpdateTenant.Scope`: a `TenantUpdateScope.CacheOnly` update (AB#4895 — the nightly
+  `AttributeValueAggregatorJob` in bot-services writing `AutoCompleteValues` onto CK attributes, published
+  for every tenant at 00:00Z) only unloads the CK cache and **skips `SetupAsync`**. Before, the setup ran
+  for every scope, and in platform-services `RefreshTenantStateAsync` force re-applies the
+  `System.TenantMode` blueprint — which recreated `System/TenantModeConfiguration` from the seed every
+  night and silently reset the operator's `PublishWorkloadObservability` / `PublishCkModelObservability`
+  opt-in (all `octo.workload.*` / `octo.pipeline.*` metrics went dark on prod-1). `Full` — the enum
+  default, i.e. what every older publisher deserializes to — is unchanged. Same semantics as the
+  communication controller's `TenantManagementConsumer`, which skips the adapter restart relay for
+  `CacheOnly`.
 - **Terminal not-found classification.** The drain loop treats `TenantException.IsTenantNotFound` as
   terminal and drops the entry instead of hammering a tenant that cannot come back. Safe on the retry
   path: a claim happens ≥ 60 s after the failure was recorded, long after any legitimate create
