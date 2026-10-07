@@ -4,10 +4,6 @@
 # docs/pipeline-architecture-concept.md). Last of the 5 base libs. With
 # this merged + green, the libraries tier is fully on YAML and the Phase 2
 # release-libs-train.yml orchestrator becomes feasible.
-#
-# Uses tpl-v0.2.1 — the patch that exports OctoPublishCatalog from
-# update-build-number.yml. Common-Services consumes that variable through
-# the effectivePublishCatalog conditional below.
 
 name: $(MajorVersion).$(MinorVersion).$(date:yyMM).$(DayOfMonth)$(rev:rrr)-$(Build.SourceBranchName)
 
@@ -43,7 +39,7 @@ resources:
       type: github
       name: meshmakers/octo-pipeline-templates
       endpoint: meshmakers-access-token
-      ref: refs/tags/tpl-v0.5.1
+      ref: refs/tags/tpl-v1.0.1
 
 trigger:
   batch: true
@@ -73,11 +69,9 @@ variables:
     value: ${{ eq(variables['Build.SourceBranch'], 'refs/heads/main') }}
   - name: isTest
     value: ${{ startsWith(variables['Build.SourceBranch'], 'refs/heads/test') }}
-  # CK publish routing (effectivePublishCatalog: GitHub catalogs only on main/r* tags,
-  # incident: Industry.Basic-2.1.1) and the per-run local catalog root
+  # CK publish routing (OctoPublishCkCatalogs) and the per-run local catalog root
   # (OctoLocalCatalogRootPath -> Agent.TempDirectory, AB#4167) are exported as runtime
-  # variables by the shared update-build-number.yml template (tpl-v0.3.1). The
-  # run-isolated catalog is writable, so feature branches publish CK models again.
+  # variables by the shared update-build-number.yml template.
 
 stages:
   - stage: Build
@@ -101,13 +95,6 @@ stages:
               sshPassphrase: '$(SSHPassphrase)'
               sshKeySecureFile: '$(SSHPrivateKeyFile)'
           - template: templates/steps/set-version.yml@pipelineTemplates
-          # CK SemVer honesty gate (AB#4420): System.Notification is published
-          # DURING the dotnet build (/p:OctoPublishCatalog), so the gate must
-          # be able to fail first.
-          - template: templates/steps/validate-ck-versions.yml@pipelineTemplates
-            parameters:
-              constructionKitPaths:
-                - 'src/Notifications/ConstructionKit'
           - task: DotNetCoreCLI@2
             retryCountOnTaskFailure: 2
             displayName: 'Restore NuGet packages'
@@ -122,9 +109,8 @@ stages:
             inputs:
               command: 'build'
               projects: $(SolutionFile)
-              arguments: '--configuration $(BuildConfiguration) /p:OctoNugetPrivateServer=$(nugetPrivateServer) /p:OctoPublishCatalog="$(effectivePublishCatalog)" /p:OctoPrivateGitHubApiKey=$(GitHubPAT) /p:OctoPublicGitHubApiKey=$(GitHubPAT)'
-          # --no-build: the Build step above already compiled (and published the CK model with
-          # the GitHub token). Rebuilding here would re-run the publish without a token.
+              arguments: '--configuration $(BuildConfiguration) /p:OctoNugetPrivateServer=$(nugetPrivateServer) /p:OctoPublishCkModel=false /p:OctoPrivateGitHubApiKey=$(GitHubPAT) /p:OctoPublicGitHubApiKey=$(GitHubPAT)'
+          # --no-build: the Build step above already compiled everything.
           - task: DotNetCoreCLI@2
             retryCountOnTaskFailure: 2
             displayName: 'Test'
@@ -135,6 +121,10 @@ stages:
                 **/*Tests.csproj
                 !**/*SystemTests.csproj
               testRunTitle: 'CI'
+          - template: templates/steps/validate-and-publish-ck-versions.yml@pipelineTemplates
+            parameters:
+              constructionKitPaths:
+                - 'src/Notifications/ConstructionKit'
           - template: templates/steps/handle-artifacts.yml@pipelineTemplates
             parameters:
               constructionKitLibraryPaths:
