@@ -10,6 +10,13 @@ dotnet build Octo.Common.Services.sln -c DebugL
 dotnet test  Octo.Common.Services.sln -c DebugL --filter "FullyQualifiedName!~SystemTests"
 ```
 
+Versions come only from the pipeline (AB#6291): `Directory.Build.props` has no release fallback, so a
+Debug/Release build without `-p:OctoVersion=X.Y.Z` (or `-p:OctoNugetPrivateServer=<feed>` for the main
+line `0.1.*`) fails fast with MSBuild error `OCTO0001`. Use `-c DebugL` locally. Every project in
+`Octo.Common.Services.sln` must map the solution configuration `DebugL` to the project configuration
+`DebugL`: `TestAssemblyCorrectMigrations` was mapped to `Debug` and so restored `3.4.*` packages from
+nuget.org inside a DebugL build, which only surfaced once the fallback was gone.
+
 Propagate the produced `Meshmakers.Octo.Services.*.999.0.0.nupkg` files from `bin/DebugL/` into
 `../nuget` so downstream services (Asset-Repo, Reporting, Identity, ...) pick up local changes.
 
