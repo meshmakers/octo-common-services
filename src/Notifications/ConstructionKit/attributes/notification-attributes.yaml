@@ -3,9 +3,11 @@ attributes:
   - id: SubjectText
     description: The subject text of the notification
     valueType: String 
+    ownership: SeedOwned
   - id: BodyText
     description: The body text of the notification
     valueType: String
+    ownership: SeedOwned
   # AB#5359 - a blueprint seeds a template once with a generic text; from then on the wording
   # belongs to the tenant, which adapts subject, body and rendering in the product. While these
   # were seed-owned, every blueprint re-apply replaced the tenant's texts with the generic ones.
@@ -24,6 +26,7 @@ attributes:
     description: Defines the type of the notification (Email, SMS, Push)
     valueType: Enum
     valueCkEnumId: ${this}/NotificationTypes
+    ownership: SeedOwned
   # AB#5359 - tenant-owned together with the body it describes (see BodyTemplate).
   - id: RenderingType
     description: Defines the rendering type of the notification (Text, Html)

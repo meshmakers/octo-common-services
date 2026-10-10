@@ -3,6 +3,7 @@ attributes:
   - id: CssStyle
     description: The css style for a rendered html text
     valueType: String
+    ownership: SeedOwned
   # AB#5359 - the tenant's own mail switch and redirect target. System.Notification.Bootstrap
   # seeds the switch disabled and an operator enables it once SMTP is wired; while it was
   # seed-owned, the next version of that blueprint would have switched e-mail off again on

@@ -557,6 +557,16 @@ so a Delete leaves no orphaned tables and the guard only has to ensure nothing i
 settle sweep here re-drops only the database (its handle carries no archives — the tables were dropped
 by the original delete).
 
+## System.Notification CK model: ownership markers are enforced (AB#6326)
+
+`src/Notifications/Notifications.csproj` sets `OctoEnforceRuntimeStateMarkers=true`: the `CkLintRuntimeStateMarkers` task (CK
+MsBuildTasks package) fails the build with `OCTO-CK001` when an attribute in `ConstructionKit/attributes/*.yaml` declares no `ownership`
+(or the deprecated `isRuntimeState`). AB#6326 restated the existing behaviour: 8 attributes got `ownership: SeedOwned`; the five
+`TenantOwned` attributes of AB#5359 (mail switch, redirect URL, template subject/body/rendering) are unchanged. Same resolved ownership,
+so `octo-ckc ValidateVersion` reports "no bump required" and System.Notification stays 2.4.0.
+**Review question for every new attribute:** could an operator or user type this value in the product? Yes → `TenantOwned` (or `Secret`
+for a credential); a service writes it → `RuntimeState`; the product ships and corrects it → `SeedOwned`.
+
 ## Tests
 
 `tests/Infrastructure.Tests` — xUnit + FakeItEasy. `Infrastructure.csproj` exposes internals to this
