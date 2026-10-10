@@ -13,6 +13,14 @@
         <Description>System Construction Kit for Notification and Events</Description>
         <PackageId>Meshmakers.Octo.Services.Notifications</PackageId>
         <OutputPath>..\..\bin\$(Configuration)\</OutputPath>
+        <!-- AB#6326: every attribute in ConstructionKit/attributes/*.yaml declares its ownership
+             (SeedOwned / TenantOwned / RuntimeState / Secret, or the older isRuntimeState), reviewed
+             against the seed ownership audit AB#6317. The CkLintRuntimeStateMarkers task is armed: a new
+             attribute without a marker FAILS the build (OCTO-CK001) instead of silently defaulting to
+             seed-owned, where the next blueprint update would overwrite a value the tenant entered.
+             Review question for every new attribute: could an operator or user type this value in the
+             product? -->
+        <OctoEnforceRuntimeStateMarkers>true</OctoEnforceRuntimeStateMarkers>
     </PropertyGroup>
 
     <ItemGroup>

@@ -3,16 +3,20 @@ attributes:
   - id: Message
     description: The message of the event
     valueType: String
+    ownership: SeedOwned
   - id: EventLevel
     description: Defines the level of the event (Information, Warning, Error)
     valueType: Enum
     valueCkEnumId: ${this}/EventLevels
+    ownership: SeedOwned
   - id: EventState
     description: Defines the state of the event (Active, Inactive)
     valueType: Enum
     valueCkEnumId: ${this}/EventStates
+    ownership: SeedOwned
   - id: EventSource
     description: Defines event sources
     valueType: Enum
     valueCkEnumId: ${this}/EventSources    
+    ownership: SeedOwned
 
