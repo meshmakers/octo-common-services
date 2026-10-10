@@ -29,4 +29,12 @@ public record ImportRtCommandRequest : CommandBaseRequest
     ///     Returns the cache file key
     /// </summary>
     public string CacheFileKey { get; }
+
+    /// <summary>
+    ///     Subject id (user <c>sub</c> claim or client id) of the caller that started the import through the API
+    ///     (AB#6392). Lets the consumer apply the blueprint-lock protection of opted-in CK types on behalf of that
+    ///     caller. Optional and additive: a message from an older producer carries none, and the consumer protects
+    ///     nevertheless (a missing caller is never treated as system). An older consumer ignores the field.
+    /// </summary>
+    public string? InitiatedBySubjectId { get; init; }
 }
