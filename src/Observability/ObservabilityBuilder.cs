@@ -159,6 +159,15 @@ internal class ObservabilityBuilder(
             tracing.AddSource("Meshmakers.Octo.StreamData");
             tracing.AddSource("Meshmakers.Octo.StreamData.Crate");
 
+            // MongoDB.Driver 3.x emits one CLIENT span per command on its own ActivitySource
+            // (TracingOptions are on by default) — but only when someone listens. The injected
+            // auto-instrumentation only covers the 2.x driver, so without this subscription every
+            // MongoDB call is invisible and a slow request shows a server span with no children
+            // (AB#6307: identity's connect/token waiting seconds on listDatabases, untraceable).
+            // Like the sources above it also has to be listed in
+            // OTEL_DOTNET_AUTO_TRACES_ADDITIONAL_SOURCES in the charts to leave the pod.
+            tracing.AddSource("MongoDB.Driver");
+
             // DELIBERATELY NOT given the OTEL_EXPORTER_OTLP_ENDPOINT fallback that the metrics
             // path above has. The guard below is dead — nothing in any cluster sets
             // OTLP_ENDPOINT_URL — but here that is the correct state, not an oversight:
