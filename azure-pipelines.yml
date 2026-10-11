@@ -39,7 +39,7 @@ resources:
       type: github
       name: meshmakers/octo-pipeline-templates
       endpoint: meshmakers-access-token
-      ref: refs/tags/tpl-v1.3.1
+      ref: refs/tags/tpl-v1.4.0
 
 trigger:
   batch: true
@@ -97,6 +97,15 @@ stages:
           - checkout: self
             clean: true
             submodules: true
+          # Redundant-run guard (AB#6439, AB#6344): publishes this run's own input fingerprint as the build tag
+          # inputs:<hash> = sha256(own commit | inputs tag of the triggering parent run), so that the children (and
+          # the leaf service CIs below them) see identical fingerprints for identical inputs across cascade waves.
+          # Mode by the pipeline variable CiGuardMode (unset = report: tags only, nothing is ended; cancel = a
+          # duplicate or superseded main run cancels itself; off = disabled). Fail-open, main only.
+          - template: templates/steps/guard-redundant-run.yml@pipelineTemplates
+            parameters:
+              parentPipelineId: $(resources.pipeline.octo-construction-kit-engine-mongodb.pipelineID)
+              parentRunId: $(resources.pipeline.octo-construction-kit-engine-mongodb.runID)
           - task: InstallSSHKey@0
             inputs:
               knownHostsEntry: '$(SSHKnownHosts)'
