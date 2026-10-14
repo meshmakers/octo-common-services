@@ -15,6 +15,12 @@ types:
       - id: ${this}/QueryRtId
         name: QueryRtId
         isOptional: true
+      - id: ${this}/DeliveredToSubjectId
+        name: SubjectId
+        isOptional: true
+      - id: ${this}/DeliveredWithSkipExistingRows
+        name: SkipExistingRows
+        isOptional: true
       - id: ${this}/LastRunAt
         name: LastRunAt
         isOptional: true

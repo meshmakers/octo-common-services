@@ -576,10 +576,10 @@ Three types and four associations (`types/notificationSubscription.yaml`, `notif
 |---|---|---|
 | `NotificationSubscription` | what to send: `SubscriptionQuery` (a SimpleRtQuery), `SubscriptionTemplate`, `Enabled` (= Deployed), `DeployedAt` | Studio; `Enabled` / `DeployedAt` only by the communication controller's deploy / undeploy |
 | `NotificationPreference` | one recipient: `SubjectId` (token `sub`), `CronExpression`, `TimeZone`, `SkipExistingRows` (Onwards / Catch up), `PreferenceSubscription` | Studio |
-| `NotificationDeliveryState` | the engine's bookkeeping for one preference (`DeliveryStatePreference`): `SeenRtIds`, `SkippedRtIds`, `QueryRtId`, `LastRunAt`, `LastSentAt`, `LastError`, `RunningSince` | mesh adapter (`PrepareNotification@1` / `CommitNotificationState@1`); the Studio only resets it |
+| `NotificationDeliveryState` | the engine's bookkeeping for one preference (`DeliveryStatePreference`): `SeenRtIds`, `SkippedRtIds`, `QueryRtId`, `DeliveredToSubjectId` / `DeliveredWithSkipExistingRows` (property names `SubjectId` / `SkipExistingRows`: which recipient and start option the rows belong to), `LastRunAt`, `LastSentAt`, `LastError`, `RunningSince` | mesh adapter (`PrepareNotification@1` / `CommitNotificationState@1`) only |
 
 - **Deliberate exceptions to the review question above.** `DeployedAt` and the delivery state's `SeenRtIds`,
-  `SkippedRtIds`, `QueryRtId`, `LastRunAt` and `LastSentAt` are written by services but are `TenantOwned`, not `RuntimeState`:
+  `SkippedRtIds`, `QueryRtId`, the two `Delivered*` attributes, `LastRunAt` and `LastSentAt` are written by services but are `TenantOwned`, not `RuntimeState`:
   `RuntimeState` is left out of an `ExportRt`, and a tenant moved without them would mail every recipient rows they already got
   (and treat every Onwards start as new). Only the lease (`RunningSince`) and `LastError` are instance-local `RuntimeState`.
 - `QueueNames.NotificationScheduleChannelName` is the prefix of the engine's tick queue

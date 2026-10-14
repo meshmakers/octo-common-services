@@ -30,6 +30,14 @@ attributes:
     description: The query the delivery state was built with; when the subscription points at another query, the next run is a new start
     valueType: String
     ownership: TenantOwned
+  - id: DeliveredToSubjectId
+    description: The subject id the delivery state was built for; when the preference names another user, the next run starts from scratch
+    valueType: String
+    ownership: TenantOwned
+  - id: DeliveredWithSkipExistingRows
+    description: The start option the delivery state was built with; when the preference switches between Onwards and Catch up, the next run is a new start that keeps the rows already sent
+    valueType: Boolean
+    ownership: TenantOwned
   - id: SkippedRtIds
     description: The rtIds an Onwards start recorded without sending them; a switch to Catch up mails them, while SeenRtIds keeps what was sent from being sent again
     valueType: StringArray
