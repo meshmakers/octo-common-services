@@ -1,0 +1,26 @@
+"$schema": "https://schemas.meshmakers.cloud/construction-kit-elements.schema.json"
+associationRoles:
+  - id: SubscriptionQuery
+    description: Links a notification subscription to the runtime query whose new rows it notifies about.
+    inboundName: NotificationSubscriptions
+    inboundMultiplicity: N
+    outboundName: Query
+    outboundMultiplicity: One
+  - id: SubscriptionTemplate
+    description: Links a notification subscription to the template its notifications are rendered with.
+    inboundName: Subscriptions
+    inboundMultiplicity: N
+    outboundName: Template
+    outboundMultiplicity: One
+  - id: PreferenceSubscription
+    description: Links a notification preference to the subscription whose mails the user receives.
+    inboundName: Preferences
+    inboundMultiplicity: N
+    outboundName: Subscription
+    outboundMultiplicity: One
+  - id: DeliveryStatePreference
+    description: Links the engine's delivery state to the preference it belongs to.
+    inboundName: DeliveryState
+    inboundMultiplicity: ZeroOrOne
+    outboundName: Preference
+    outboundMultiplicity: One

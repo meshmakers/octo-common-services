@@ -1,0 +1,52 @@
+"$schema": "https://schemas.meshmakers.cloud/construction-kit-elements.schema.json"
+attributes:
+  - id: CronExpression
+    description: Cron expression with five fields, or six with seconds, that sets when the preference's user gets the new rows of the subscription
+    valueType: String
+    ownership: TenantOwned
+  - id: SkipExistingRows
+    description: Rows that already match the query when the preference starts (created or its subscription deployed, whichever is later) are not sent to its user
+    valueType: Boolean
+    defaultValues:
+      - true
+    ownership: TenantOwned
+  - id: SubjectId
+    description: Subject id (token sub) of the Identity user the preference belongs to
+    valueType: String
+    ownership: TenantOwned
+  - id: DeployedAt
+    description: When the subscription was last deployed; a preference starts at the later of its creation and this moment
+    valueType: DateTime
+    ownership: TenantOwned
+  - id: TimeZone
+    description: IANA time zone (for example Europe/Vienna) the preference's cron expression is scheduled in, and that dates in its mails are shown in; empty means UTC
+    valueType: String
+    ownership: TenantOwned
+  - id: SeenRtIds
+    description: The rtIds of the query result the user has already got; rows in neither this set nor SkippedRtIds are new; exported with the tenant, so a moved tenant does not mail its users rows they have already seen
+    valueType: StringArray
+    ownership: TenantOwned
+  - id: QueryRtId
+    description: The query the delivery state was built with; when the subscription points at another query, the next run is a new start
+    valueType: String
+    ownership: TenantOwned
+  - id: SkippedRtIds
+    description: The rtIds an Onwards start recorded without sending them; a switch to Catch up mails them, while SeenRtIds keeps what was sent from being sent again
+    valueType: StringArray
+    ownership: TenantOwned
+  - id: LastRunAt
+    description: When the engine last ran the preference's query
+    valueType: DateTime
+    ownership: TenantOwned
+  - id: LastSentAt
+    description: When the engine last sent the preference's user a mail
+    valueType: DateTime
+    ownership: TenantOwned
+  - id: LastError
+    description: Why the last run of the preference failed; empty after a successful run
+    valueType: String
+    ownership: RuntimeState
+  - id: RunningSince
+    description: Lease of a run in progress; another tick of the same preference is skipped while it is recent
+    valueType: DateTime
+    ownership: RuntimeState

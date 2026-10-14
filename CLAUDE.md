@@ -563,9 +563,29 @@ by the original delete).
 MsBuildTasks package) fails the build with `OCTO-CK001` when an attribute in `ConstructionKit/attributes/*.yaml` declares no `ownership`
 (or the deprecated `isRuntimeState`). AB#6326 restated the existing behaviour: 8 attributes got `ownership: SeedOwned`; the five
 `TenantOwned` attributes of AB#5359 (mail switch, redirect URL, template subject/body/rendering) are unchanged. Same resolved ownership,
-so `octo-ckc ValidateVersion` reports "no bump required" and System.Notification stays 2.4.0.
+so `octo-ckc ValidateVersion` reported "no bump required" and System.Notification stayed 2.4.0 (AB#2585 then raised it to 2.5.0).
 **Review question for every new attribute:** could an operator or user type this value in the product? Yes → `TenantOwned` (or `Secret`
 for a credential); a service writes it → `RuntimeState`; the product ships and corrects it → `SeedOwned`.
+
+## System.Notification 2.5.0: notification subscriptions (AB#2585)
+
+Three types and four associations (`types/notificationSubscription.yaml`, `notificationPreference.yaml`,
+`notificationDeliveryState.yaml`, `associations/subscription-associations.yaml`, attributes in `attributes/subscription-attributes.yaml`):
+
+| Type | Holds | Written by |
+|---|---|---|
+| `NotificationSubscription` | what to send: `SubscriptionQuery` (a SimpleRtQuery), `SubscriptionTemplate`, `Enabled` (= Deployed), `DeployedAt` | Studio; `Enabled` / `DeployedAt` only by the communication controller's deploy / undeploy |
+| `NotificationPreference` | one recipient: `SubjectId` (token `sub`), `CronExpression`, `TimeZone`, `SkipExistingRows` (Onwards / Catch up), `PreferenceSubscription` | Studio |
+| `NotificationDeliveryState` | the engine's bookkeeping for one preference (`DeliveryStatePreference`): `SeenRtIds`, `SkippedRtIds`, `QueryRtId`, `LastRunAt`, `LastSentAt`, `LastError`, `RunningSince` | mesh adapter (`PrepareNotification@1` / `CommitNotificationState@1`); the Studio only resets it |
+
+- **Deliberate exceptions to the review question above.** `DeployedAt` and the delivery state's `SeenRtIds`,
+  `SkippedRtIds`, `QueryRtId`, `LastRunAt` and `LastSentAt` are written by services but are `TenantOwned`, not `RuntimeState`:
+  `RuntimeState` is left out of an `ExportRt`, and a tenant moved without them would mail every recipient rows they already got
+  (and treat every Onwards start as new). Only the lease (`RunningSince`) and `LastError` are instance-local `RuntimeState`.
+- `QueueNames.NotificationScheduleChannelName` is the prefix of the engine's tick queue
+  (`{prefix}-{tenantId}-{pipelineRtId}`, lower-cased); the controller sends to it and the adapter's `FromNotificationSchedule@1`
+  listens on it, so it is a cross-repo contract (pinned in the adapter by `FromNotificationScheduleNodeTests`). The message itself,
+  `NotificationScheduleTick`, is pinned by `NotificationScheduleTickWireContractTests`.
 
 ## Tests
 

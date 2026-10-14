@@ -1,0 +1,32 @@
+"$schema": "https://schemas.meshmakers.cloud/construction-kit-elements.schema.json"
+types:
+  - typeId: NotificationDeliveryState
+    description: What the notification engine remembers about one preference between runs. Written by the engine only.
+    derivedFromCkTypeId: ${System}/Entity
+    isFinal: true
+    isAbstract: false
+    attributes:
+      - id: ${this}/SeenRtIds
+        name: SeenRtIds
+        isOptional: true
+      - id: ${this}/SkippedRtIds
+        name: SkippedRtIds
+        isOptional: true
+      - id: ${this}/QueryRtId
+        name: QueryRtId
+        isOptional: true
+      - id: ${this}/LastRunAt
+        name: LastRunAt
+        isOptional: true
+      - id: ${this}/LastSentAt
+        name: LastSentAt
+        isOptional: true
+      - id: ${this}/LastError
+        name: LastError
+        isOptional: true
+      - id: ${this}/RunningSince
+        name: RunningSince
+        isOptional: true
+    associations:
+      - id: ${this}/DeliveryStatePreference
+        targetCkTypeId: ${this}/NotificationPreference

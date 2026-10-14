@@ -51,6 +51,12 @@ public static class QueueNames
     public const string PipelineTriggerQueue = $"queue:{PipelineTriggerChannelName}";
     
     /// <summary>
+    /// Prefix of the notification engine's queue: one recurring message per notification preference goes to
+    /// <c>{prefix}-{tenantId}-{pipelineRtId}</c>, lower-cased, where the engine pipeline's trigger listens.
+    /// </summary>
+    public const string NotificationScheduleChannelName = "octo::com-controller::notification-schedule";
+
+    /// <summary>
     /// Execute send notification command
     /// </summary>
     public const string SendNotificationCommand = "octo::com-controller::send-notification-pipeline";
