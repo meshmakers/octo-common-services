@@ -33,6 +33,18 @@ reachable unauthenticated through every public ingress, with tenant ids, pipelin
 the output. Do not map `/metrics` (or `MapPrometheusScrapingEndpoint`) on the main listener again;
 `PrometheusEndpointTests` fails if you do.
 
+## `/health` needs a Bearer token (AB#6739)
+
+`/health` writes the full health report (check names, status, descriptions, CPU/memory figures), so
+`MapObservability()` lets only callers through that authenticate with the `Bearer` (JWT) scheme; anonymous
+callers get `401` with `WWW-Authenticate: Bearer` and no body. Any valid token is enough, no role. The
+check runs inside the endpoint (`WebApplicationExtensions.IsAuthenticatedAsync`), not through
+`RequireAuthorization()`: it must not depend on `UseAuthorization()` (the mesh adapter never calls it) and
+it fails closed (401) on hosts that register no `Bearer` scheme (EDA and FinAPI adapters). The browser
+consumers (Studio / MeshBoard `HealthService`, AB#6739) send the user's token. `/healthz/live` and
+`/healthz/ready` stay anonymous plain-status endpoints for the kubelet probes. `HealthEndpointTests` fails
+if `/health` becomes anonymous again.
+
 ## Multi-Tenancy Middleware
 
 `UseOctoTenants()` (`src/Infrastructure/Configuration/ApplicationBuilderExtensions.cs`) registers
