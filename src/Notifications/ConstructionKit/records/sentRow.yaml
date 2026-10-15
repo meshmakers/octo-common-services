@@ -1,0 +1,11 @@
+"$schema": "https://schemas.meshmakers.cloud/construction-kit-elements.schema.json"
+records:
+  - recordId: SentRow
+    description: One row of a notification query result that was mailed to the preference's user, and when.
+    attributes:
+      - id: ${this}/SentRowRtId
+        name: RowRtId
+      - id: ${this}/SentRowAt
+        name: SentAt
+      - id: ${this}/SentRowChangedAt
+        name: ChangedAt
