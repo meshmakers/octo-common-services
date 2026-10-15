@@ -43,8 +43,8 @@ public static class WebApplicationExtensions
     /// <see cref="HealthReportScheme"/> token (any authenticated caller, no role); anonymous callers get 401. The
     /// check runs inside the endpoint, so it does not depend on where the host calls <c>UseAuthorization()</c> (the
     /// mesh adapter never does) and fails closed (401) on hosts that register no <c>Bearer</c> scheme at all, such
-    /// as the EDA and FinAPI adapters. <c>/healthz/live</c> and <c>/healthz/ready</c> (kubelet probes, plain
-    /// status, no body) stay anonymous.
+    /// as the EDA and FinAPI adapters. <c>/healthz/live</c> and <c>/healthz/ready</c> (kubelet probes with a
+    /// plain-text status body) stay anonymous.
     /// </para>
     /// </remarks>
     /// <param name="app"></param>

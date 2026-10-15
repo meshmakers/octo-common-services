@@ -42,7 +42,7 @@ check runs inside the endpoint (`WebApplicationExtensions.IsAuthenticatedAsync`)
 `RequireAuthorization()`: it must not depend on `UseAuthorization()` (the mesh adapter never calls it) and
 it fails closed (401) on hosts that register no `Bearer` scheme (EDA and FinAPI adapters). The browser
 consumers (Studio / MeshBoard `HealthService`, AB#6739) send the user's token. `/healthz/live` and
-`/healthz/ready` stay anonymous plain-status endpoints for the kubelet probes. `HealthEndpointTests` fails
+`/healthz/ready` stay anonymous endpoints that return a plain-text status body for the kubelet probes. `HealthEndpointTests` fails
 if `/health` becomes anonymous again.
 
 ## Multi-Tenancy Middleware
