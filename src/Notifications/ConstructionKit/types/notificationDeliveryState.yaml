@@ -6,11 +6,11 @@ types:
     isFinal: true
     isAbstract: false
     attributes:
-      - id: ${this}/SeenRtIds
-        name: SeenRtIds
+      - id: ${this}/ProcessedUntil
+        name: ProcessedUntil
         isOptional: true
-      - id: ${this}/SkippedRtIds
-        name: SkippedRtIds
+      - id: ${this}/SentRows
+        name: SentRows
         isOptional: true
       - id: ${this}/QueryRtId
         name: QueryRtId

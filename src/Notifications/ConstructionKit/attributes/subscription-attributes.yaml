@@ -22,9 +22,26 @@ attributes:
     description: IANA time zone (for example Europe/Vienna) the preference's cron expression is scheduled in, and that dates in its mails are shown in; empty means UTC
     valueType: String
     ownership: TenantOwned
-  - id: SeenRtIds
-    description: The rtIds of the query result the user has already got; rows in neither this set nor SkippedRtIds are new; exported with the tenant, so a moved tenant does not mail its users rows they have already seen
-    valueType: StringArray
+  - id: ProcessedUntil
+    description: The change time (rtChangedDateTime) up to which the query result was processed; the next run reads only rows changed after it, minus a five-minute overlap for late commits and clock skew; empty means from the beginning
+    valueType: DateTime
+    ownership: TenantOwned
+  - id: SentRows
+    description: The rows mailed to the user, so that they are not mailed again; an entry is kept while the next run could read its row again (changed inside the overlap) and otherwise for 30 days, at most the 10,000 most recent, so the size is bounded by the recent sends and not by the size of the query result
+    valueType: RecordArray
+    valueCkRecordId: ${this}/SentRow
+    ownership: TenantOwned
+  - id: SentRowRtId
+    description: The rtId of a row of the query result that was mailed
+    valueType: String
+    ownership: TenantOwned
+  - id: SentRowAt
+    description: When the row was mailed; the entry is dropped 30 days later
+    valueType: DateTime
+    ownership: TenantOwned
+  - id: SentRowChangedAt
+    description: The change time of the row when it was mailed; while it lies inside the overlap the next run reads, the entry is never dropped
+    valueType: DateTime
     ownership: TenantOwned
   - id: QueryRtId
     description: The query the delivery state was built with; when the subscription points at another query, the next run is a new start
@@ -35,12 +52,8 @@ attributes:
     valueType: String
     ownership: TenantOwned
   - id: DeliveredWithSkipExistingRows
-    description: The start option the delivery state was built with; when the preference switches between Onwards and Catch up, the next run is a new start that keeps the rows already sent
+    description: The start option the delivery state was built with; when the preference switches between Onwards and Catch up, the next run is a new start that keeps the rows sent in the last 30 days
     valueType: Boolean
-    ownership: TenantOwned
-  - id: SkippedRtIds
-    description: The rtIds an Onwards start recorded without sending them; a switch to Catch up mails them, while SeenRtIds keeps what was sent from being sent again
-    valueType: StringArray
     ownership: TenantOwned
   - id: LastRunAt
     description: When the engine last ran the preference's query
