@@ -20,6 +20,19 @@ nuget.org inside a DebugL build, which only surfaced once the fallback was gone.
 Propagate the produced `Meshmakers.Octo.Services.*.999.0.0.nupkg` files from `bin/DebugL/` into
 `../nuget` so downstream services (Asset-Repo, Reporting, Identity, ...) pick up local changes.
 
+## `/metrics` is internal-only (AB#5868)
+
+`MapObservability()` serves the Prometheus scrape endpoint `/metrics` only to connections that arrive on
+the port named by `Observability:PrometheusPort` (env `Observability__PrometheusPort`). Unset or `0` (the
+default) means the endpoint does not exist (404) — metrics reach Dash0 through the OTLP exporter, nothing
+scrapes `/metrics` today. The guard is the socket's local port, never the `Host` header (caller-controlled).
+
+The port must be a Kestrel listener that the Service and the Ingress never route to (chart: container port
+only, e.g. `ASPNETCORE_URLS=http://+:80;http://+:9464`). The endpoint used to sit on the main port and was
+reachable unauthenticated through every public ingress, with tenant ids, pipeline names and pool ids in
+the output. Do not map `/metrics` (or `MapPrometheusScrapingEndpoint`) on the main listener again;
+`PrometheusEndpointTests` fails if you do.
+
 ## Multi-Tenancy Middleware
 
 `UseOctoTenants()` (`src/Infrastructure/Configuration/ApplicationBuilderExtensions.cs`) registers
