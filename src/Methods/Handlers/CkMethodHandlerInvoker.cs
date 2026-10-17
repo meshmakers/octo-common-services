@@ -166,6 +166,15 @@ internal sealed class CkMethodHandlerInvoker(
         return error with { Parameters = parameters };
     }
 
+    /// <summary>
+    ///     The <c>METHOD_TIMEOUT</c> answer of this invoker for a request, used by transports that enforce the deadline
+    ///     themselves (a handler that ignores its cancellation token). Same envelope as the invoker's own timeout.
+    /// </summary>
+    internal CkMethodResponse TimeoutFor(CkMethodRequest request) =>
+        registrations.Handlers.TryGetValue(request.MethodId, out var registration)
+            ? TimeoutResponse(request, registration)
+            : Failed(request, CkMethodErrorCodes.MethodTimeout);
+
     private CkMethodResponse TimeoutResponse(CkMethodRequest request, CkMethodRegistration registration)
     {
         int? timeout = registration.Definition is null

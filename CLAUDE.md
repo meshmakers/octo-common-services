@@ -636,8 +636,8 @@ evolution: `docs/method-wire-contract.md`.
 
 Package `Meshmakers.Octo.Services.Methods` (`src/Methods/`, tests in `tests/Methods.Tests` and `tests/Methods.IntegrationTests`,
 the latter against a private RabbitMQ container). It is the **service side** of a CK method: a typed handler on top of the
-wire contract above, for the remote (bus) transport. The dispatcher and registry (F3.2/F3.3), the in-process transport
-(AB#6876) and the pipeline handler (AB#6879) are other stories. Developer guide with a working sample:
+wire contract above, for the remote (bus) transport, plus the in-process transport (AB#6876, section below). The dispatcher
+and registry (F3.2/F3.3) and the pipeline handler (AB#6879) are other stories. Developer guide with a working sample:
 `docs/method-handler-sdk.md`.
 
 - **Typed handlers**: `ICkMethodHandler<TParameters, TResult>` (method with a result) or `ICkMethodHandler<TParameters>`
@@ -675,6 +675,29 @@ wire contract above, for the remote (bus) transport. The dispatcher and registry
   9a7b49d and dcbb858 there, not on `main`). The host therefore announces right after connecting the endpoints (a request that
   races the queue creation ends in `METHOD_TIMEOUT`), detects duplicates by invocation id only, and relies on never throwing from
   the consumer. `CkMethodHandlerStartupService` has a TODO at the readiness wait.
+
+### In-process transport and invocation pipeline (AB#6876)
+
+For methods the calling service owns itself (`Tenant.*`, `Archive.*` of the asset-repo gateway). Files: `src/Methods/InProcess/`,
+tests `tests/Methods.Tests/InProcess/`. Guide: `docs/method-handler-sdk.md` section "In-process handlers".
+
+- **Registration**: `AddCkInProcessMethodHandlers(m => m.Handle<THandler>(methodId))`, the same typed handler classes as for
+  `AddCkMethodHandlers`. In-process registrations live in their own `CkInProcessMethodRegistrations`: no bus queue, no
+  announcement, no heartbeat, no event hub needed. A method registered in both places stops the startup
+  (`CkInProcessMethodValidationService`, order 15, also validates against the CK cache).
+- **Transport** `ICkInProcessMethodTransport` (public): `CanHandle(methodId)` (a dispatcher asks this before its registry lookup),
+  `MethodIds`, `InvokeAsync(CkMethodRequest, ct)`. It wraps the same internal `CkMethodHandlerInvoker` as the bus consumer
+  (own instance with the in-process registrations), so the envelope is identical (tests compare serialized envelopes for success,
+  declared error, exception, deadline, unknown method, contract version, validation). The handler runs in a new scope of the
+  root provider (not the caller's HTTP scope) and outside the caller's transaction. A handler that ignores its token is not
+  waited for past `DeadlineUtc`: `METHOD_TIMEOUT` (`CkMethodHandlerInvoker.TimeoutFor`).
+- **Pipeline** `ICkMethodInvocationPipeline` / `ICkMethodInvocationFilter` (public, `AddCkMethodInvocationFilter<T>()`): ordered
+  steps around any transport (`CkMethodTransportNames.InProcess` / `Bus`); lower `Order` runs first, bands in
+  `CkMethodInvocationFilterOrder` (Authorization 100, Audit 200, Idempotency 300). A filter may refuse (return a failed response), pass a
+  modified request to `next`, or wrap the call. An exception in a filter becomes `METHOD_HANDLER_FAILED`; caller cancellation
+  passes through. The F3.3 dispatcher runs its bus send as the terminal delegate of the same pipeline instance.
+- `CkMethodRequest` carries `Caller` and `CallerAccessToken` unchanged to the handler; neither reaches a log (`ToString()` redacts,
+  the redactor masks the token in exceptions).
 
 ## Tests
 
