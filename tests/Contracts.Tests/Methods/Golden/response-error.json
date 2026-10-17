@@ -1,0 +1,22 @@
+{
+  "contractVersion": 1,
+  "invocationId": "11111111-1111-1111-1111-111111111111",
+  "success": false,
+  "error": {
+    "code": "PASSWORD_TOO_SHORT",
+    "parameters": {
+      "minLength": "8"
+    },
+    "details": [
+      {
+        "code": "REQUIRES_DIGIT",
+        "parameters": {
+          "count": "1"
+        }
+      }
+    ]
+  },
+  "resultJson": null,
+  "operation": null,
+  "handlerInstanceId": "abc123"
+}

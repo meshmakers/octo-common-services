@@ -1,0 +1,9 @@
+{
+  "contractVersion": 1,
+  "invocationId": "11111111-1111-1111-1111-111111111111",
+  "success": true,
+  "error": null,
+  "resultJson": "{\u0022value\u0022:true}",
+  "operation": null,
+  "handlerInstanceId": "abc123"
+}
