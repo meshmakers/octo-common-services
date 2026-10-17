@@ -144,3 +144,89 @@ public class InvocationPipelineTests
         }
     }
 }
+
+public class InvocationFilterOrderTests
+{
+    [Fact]
+    public void Bands_ArePinned()
+    {
+        Assert.Equal(100, CkMethodInvocationFilterOrder.Audit);
+        Assert.Equal(200, CkMethodInvocationFilterOrder.Authorization);
+        Assert.Equal(300, CkMethodInvocationFilterOrder.Idempotency);
+    }
+
+    private sealed class Step(int order, List<string> trace, string name, Func<CkMethodRequest, CkMethodResponse>? answer = null)
+        : ICkMethodInvocationFilter
+    {
+        public int Order => order;
+
+        public async Task<CkMethodResponse> InvokeAsync(CkMethodInvocationContext context, CkMethodInvocationDelegate next)
+        {
+            trace.Add($"{name}:{context.Transport}>");
+            var response = answer != null ? answer(context.Request) : await next(context.Request);
+            trace.Add($"{name}<{(response.Success ? "ok" : response.Error!.Code)}");
+            return response;
+        }
+    }
+
+    private static CkMethodResponse Forbidden(CkMethodRequest r) =>
+        CkMethodResponse.Failed(r.InvocationId, string.Empty, CkMethodError.Create(CkMethodErrorCodes.MethodForbidden,
+            (CkMethodErrorParameters.MethodId, r.MethodId), (CkMethodErrorParameters.Reason, "no-role")));
+
+    private static (List<string> Trace, ICkMethodInvocationFilter[] Filters) Chain(bool refuse)
+    {
+        var trace = new List<string>();
+        // registered in a scrambled order on purpose
+        return (trace,
+        [
+            new Step(CkMethodInvocationFilterOrder.Idempotency, trace, "idempotency"),
+            new Step(CkMethodInvocationFilterOrder.Audit, trace, "audit"),
+            new Step(CkMethodInvocationFilterOrder.Authorization, trace, "authorization", refuse ? Forbidden : null)
+        ]);
+    }
+
+    [Fact]
+    public async Task RefusingAuthorization_StillReachesAudit_WithTheFailedOutcome()
+    {
+        var (trace, filters) = Chain(refuse: true);
+        var handler = new ChangePasswordHandler();
+        var host = InProcessFixture.With(handler, TestData.Definition(), TestData.MethodId, filters);
+
+        var response = await host.Transport.InvokeAsync(TestData.Request(host.InSeconds(15)),
+            TestContext.Current.CancellationToken);
+
+        Assert.Equal(CkMethodErrorCodes.MethodForbidden, response.Error!.Code);
+        Assert.Equal(["audit:in-process>", "authorization:in-process>", "authorization<METHOD_FORBIDDEN",
+            "audit<METHOD_FORBIDDEN"], trace);
+        Assert.Equal(0, handler.Calls);
+    }
+
+    [Fact]
+    public async Task RefusingAuthorization_NeverReachesIdempotency()
+    {
+        var (trace, filters) = Chain(refuse: true);
+        var host = InProcessFixture.With(new ChangePasswordHandler(), TestData.Definition(), TestData.MethodId, filters);
+
+        await host.Transport.InvokeAsync(TestData.Request(host.InSeconds(15)), TestContext.Current.CancellationToken);
+
+        Assert.DoesNotContain(trace, t => t.StartsWith("idempotency", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public async Task OrderIsTheSame_ForBusAndInProcess()
+    {
+        var (trace, filters) = Chain(refuse: false);
+        var busHost = HostFixture.With(new ChangePasswordHandler(), TestData.Definition());
+        var host = InProcessFixture.With(new ChangePasswordHandler(), TestData.Definition(), TestData.MethodId, filters);
+
+        await host.Pipeline.ExecuteAsync(CkMethodTransportNames.Bus, TestData.Request(host.InSeconds(15)),
+            r => busHost.BusConsumer.HandleAsync(r), TestContext.Current.CancellationToken);
+        var bus = trace.ToList();
+        trace.Clear();
+        await host.Transport.InvokeAsync(TestData.Request(host.InSeconds(15)), TestContext.Current.CancellationToken);
+
+        Assert.Equal(["audit", "authorization", "idempotency", "idempotency", "authorization", "audit"],
+            bus.Select(t => t.Split(':', '<', '>')[0]));
+        Assert.Equal(bus.Select(t => t.Replace(":bus", ":x")), trace.Select(t => t.Replace(":in-process", ":x")));
+    }
+}

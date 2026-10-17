@@ -146,12 +146,14 @@ public sealed class Caller(ICkInProcessMethodTransport methods)
 
 ### Invocation pipeline: extension points for authorization, audit and idempotency
 
-Every transport call runs through `ICkMethodInvocationPipeline`; add steps with `AddCkMethodInvocationFilter<TFilter>()`.
+Every transport call runs through `ICkMethodInvocationPipeline`; lower `Order` is outer. Audit (100) wraps authorization (200), which wraps idempotency (300), which wraps the transport: audit records every call including refusals and replays, and a stored outcome is replayed only for an authorized caller.
+
+ add steps with `AddCkMethodInvocationFilter<TFilter>()`.
 
 ```csharp
 public sealed class MyAuditFilter : ICkMethodInvocationFilter
 {
-    public int Order => CkMethodInvocationFilterOrder.Audit;   // Authorization 100 < Audit 200 < Idempotency 300
+    public int Order => CkMethodInvocationFilterOrder.Audit;   // Audit 100 (outermost) < Authorization 200 < Idempotency 300 (innermost)
 
     public async Task<CkMethodResponse> InvokeAsync(CkMethodInvocationContext context, CkMethodInvocationDelegate next)
     {

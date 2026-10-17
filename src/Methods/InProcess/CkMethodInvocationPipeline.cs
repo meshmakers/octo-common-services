@@ -15,18 +15,25 @@ public static class CkMethodTransportNames
 }
 
 /// <summary>
-///     Suggested <see cref="ICkMethodInvocationFilter.Order" /> bands. Lower runs first (outermost). Filters of other
-///     features pick a value inside their band so that authorization always runs before audit and idempotency.
+///     Order bands of the pipeline filters. Lower runs first (outermost). The order is part of the contract: audit is
+///     outermost so that it sees every call and its outcome, authorization comes next, idempotency is innermost, directly
+///     before the transport. Filters of other features pick a value inside their band.
 /// </summary>
 public static class CkMethodInvocationFilterOrder
 {
-    /// <summary>Authorization (F3.4): may refuse the call before anything else happens.</summary>
-    public const int Authorization = 100;
+    /// <summary>
+    ///     Audit (F3.5): outermost. Records every call and its final outcome, including refusals by the authorization
+    ///     filter and replays answered by the idempotency filter (exactly one audit event per invocation).
+    /// </summary>
+    public const int Audit = 100;
 
-    /// <summary>Audit (F3.5): records the call and its outcome, including refusals of the authorization filter.</summary>
-    public const int Audit = 200;
+    /// <summary>Authorization (F3.4): may refuse the call; nothing inside it (idempotency, transport) runs then.</summary>
+    public const int Authorization = 200;
 
-    /// <summary>Idempotency (F3.5): may answer a repeated call from a stored outcome without running the handler.</summary>
+    /// <summary>
+    ///     Idempotency (F3.5): innermost before the transport. A stored outcome is replayed only after the caller was
+    ///     authorized.
+    /// </summary>
     public const int Idempotency = 300;
 }
 

@@ -693,7 +693,7 @@ tests `tests/Methods.Tests/InProcess/`. Guide: `docs/method-handler-sdk.md` sect
   waited for past `DeadlineUtc`: `METHOD_TIMEOUT` (`CkMethodHandlerInvoker.TimeoutFor`).
 - **Pipeline** `ICkMethodInvocationPipeline` / `ICkMethodInvocationFilter` (public, `AddCkMethodInvocationFilter<T>()`): ordered
   steps around any transport (`CkMethodTransportNames.InProcess` / `Bus`); lower `Order` runs first, bands in
-  `CkMethodInvocationFilterOrder` (Authorization 100, Audit 200, Idempotency 300). A filter may refuse (return a failed response), pass a
+  `CkMethodInvocationFilterOrder` (Audit 100 outermost, Authorization 200, Idempotency 300 innermost; decided by Odin: exactly one audit event per invocation incl. refusals and replays). A filter may refuse (return a failed response), pass a
   modified request to `next`, or wrap the call. An exception in a filter becomes `METHOD_HANDLER_FAILED`; caller cancellation
   passes through. The F3.3 dispatcher runs its bus send as the terminal delegate of the same pipeline instance.
 - `CkMethodRequest` carries `Caller` and `CallerAccessToken` unchanged to the handler; neither reaches a log (`ToString()` redacts,
