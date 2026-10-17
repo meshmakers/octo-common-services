@@ -7,7 +7,7 @@ namespace Meshmakers.Octo.Services.Methods.Handlers;
 
 /// <summary>
 ///     The bus transport of the handler host: consumes <see cref="CkMethodRequest" /> from the method queue, guards
-///     against a repeated invocation id and answers with the response of <see cref="ICkMethodHandlerInvoker" />.
+///     against a possible duplicate delivery (broker redelivery or retry, then a repeated invocation id) and answers with the response of <see cref="ICkMethodHandlerInvoker" />.
 ///     It never throws: a thrown consumer would make the bus retry (AB#4348) and run the method repeatedly.
 /// </summary>
 internal sealed class CkMethodBusConsumer(
@@ -23,11 +23,11 @@ internal sealed class CkMethodBusConsumer(
 
     internal int SeenInvocationCount => _seenInvocations.Count;
 
-    public ExecuteCommandHandler<CkMethodRequest> CreateHandler()
+    public ExecuteDeliveredCommandHandler<CkMethodRequest> CreateHandler()
     {
-        return async (request, respond) =>
+        return async (request, delivery, respond) =>
         {
-            var response = await HandleAsync(request).ConfigureAwait(false);
+            var response = await HandleAsync(request, delivery).ConfigureAwait(false);
             try
             {
                 await respond(response).ConfigureAwait(false);
@@ -43,11 +43,29 @@ internal sealed class CkMethodBusConsumer(
         };
     }
 
-    internal async Task<CkMethodResponse> HandleAsync(CkMethodRequest request)
+    /// <param name="request">The request.</param>
+    /// <param name="delivery">
+    ///     Transport delivery info. A possible duplicate (broker redelivery after a lost acknowledgement, bus retry) is
+    ///     not executed: the previous delivery may have run the method, and no method is known to be idempotent, so the
+    ///     caller gets <c>METHOD_OUTCOME_UNKNOWN</c>. <c>null</c> for transports without delivery info.
+    /// </param>
+    internal async Task<CkMethodResponse> HandleAsync(CkMethodRequest request, CommandDeliveryInfo? delivery = null)
     {
-        // The broker's redelivery flag is not visible to consumers of the current event hub (no delivery info), so
-        // duplicate delivery is detected by the invocation id alone, per handler instance.
-        if (!TryMarkSeen(request))
+        // Second line of defence: the invocation id also catches a duplicate that the broker did not flag (for
+        // example a caller that re-sent the same request). It is marked first so that a refused redelivery is
+        // remembered as well.
+        var firstSight = TryMarkSeen(request);
+        if (delivery is { IsPossibleDuplicate: true })
+        {
+            logger.LogWarning(
+                "CK method {MethodId} invocation {InvocationId} tenant {TenantId} NOT executed: possible duplicate delivery " +
+                "(redelivered {Redelivered}, retry attempt {RetryAttempt}, redelivery count {RedeliveryCount}, message {MessageId})",
+                request.MethodId, request.InvocationId, request.TenantId, delivery.Redelivered, delivery.RetryAttempt,
+                delivery.RedeliveryCount, delivery.MessageId);
+            return OutcomeUnknown(request);
+        }
+
+        if (!firstSight)
         {
             logger.LogWarning(
                 "CK method {MethodId} invocation {InvocationId} tenant {TenantId} NOT executed: invocation id already seen",

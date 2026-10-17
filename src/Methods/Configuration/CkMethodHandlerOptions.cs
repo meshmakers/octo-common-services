@@ -13,6 +13,13 @@ public sealed class CkMethodHandlerOptions
     public TimeSpan Ttl { get; set; } = TimeSpan.FromSeconds(45);
 
     /// <summary>
+    ///     How long the host waits for every method endpoint to accept messages (queue and bindings exist on the
+    ///     broker) before it announces the handler. When the time runs out the service fails to start instead of
+    ///     announcing a handler that cannot receive requests. Default 30 s.
+    /// </summary>
+    public TimeSpan EndpointReadyTimeout { get; set; } = TimeSpan.FromSeconds(30);
+
+    /// <summary>
     ///     Validate every registration against the CK cache at startup (unknown method id, parameter and result shape) and
     ///     fail fast. Switch off only in tests and in services that run without a CK cache.
     /// </summary>

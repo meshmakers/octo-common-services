@@ -656,11 +656,16 @@ wire contract above, for the remote (bus) transport. The dispatcher and registry
   parameter deserialization with `CkMethodJson.Options` (invalid or missing member -> `METHOD_VALIDATION_FAILED` with the
   member name only, never the value), result serialization. It never throws for a request; only the caller's own
   `CancellationToken` surfaces as `OperationCanceledException`. Other transports call this instead of re-implementing it.
-- **Bus transport** (`CkMethodBusConsumer`, internal): one shared command queue per method (`CkMethodQueueNames.For`), a repeated
-  invocation id is answered `METHOD_OUTCOME_UNKNOWN` and not executed, a failing response send is swallowed (a rethrow would let
-  the bus retry run the method again, AB#4348).
+- **Bus transport** (`CkMethodBusConsumer`, internal): one shared command endpoint per method (`CkMethodQueueNames.For`, registered
+  with `RegisterCommandConsumer(name, handler, CommandConsumerOptions { SuppressFaults = true })`; senders use
+  `GetCommandResponseAsync(name, request, CommandSendOptions { Mandatory = true, ... })`, a missing consumer fails with
+  `CommandNotRoutableException`). A possible duplicate delivery (`CommandDeliveryInfo.IsPossibleDuplicate`: broker redelivery or
+  retry) is not executed and answered `METHOD_OUTCOME_UNKNOWN` (all methods count as non-idempotent); a repeated invocation id is
+  the second line, with the same answer. A failing response send is swallowed (a rethrow would let the bus retry run the method
+  again, AB#4348).
 - **Life cycle** (all internal, `AddCkMethodHandlers(serviceName, m => m.Handle<THandler>(methodId))`): start order 15 validation,
-  20 event hub, 25 endpoints + announcement, heartbeat hosted service (15 s, TTL 45 s from `CkMethodHandlerOptions`), withdraw before
+  20 event hub, 25 endpoints, wait for `WaitUntilReadyAsync` of every endpoint (`Methods:EndpointReadyTimeout`, 30 s; timeout = start
+  failure) and only then the announcement, heartbeat hosted service (15 s, TTL 45 s from `CkMethodHandlerOptions`), withdraw before
   the endpoints are removed on graceful stop, `AddCkMethodHandlerDiscovery()` in the `AddDistributionEventHub` configuration
   answers dispatcher discovery with an immediate announcement.
 - **Startup validation** (`Methods:ValidateRegistrations`, default on): every registration is checked against the CK cache of the
@@ -670,11 +675,9 @@ wire contract above, for the remote (bus) transport. The dispatcher and registry
 - **Sensitive data**: the host never logs `ParametersJson` or the token (`CkMethodRequest.ToString()` redacts, the host logs ids
   only). `CkMethodRedactor` additionally masks the values of CK `sensitive: true` parameters and the caller token in the
   message, stack trace and `ToString()` of an exception a handler throws before the host logs it. Tests: `CkMethodHandlerInvokerTests`.
-- **Known limitations until the event hub change lands**: `octo-distributedEventHub` `main` has no readiness of an endpoint handle,
-  no redelivery info (`CommandDeliveryInfo`), no fault suppression and no mandatory send (spike branch `ckv2/phase0`, commits
-  9a7b49d and dcbb858 there, not on `main`). The host therefore announces right after connecting the endpoints (a request that
-  races the queue creation ends in `METHOD_TIMEOUT`), detects duplicates by invocation id only, and relies on never throwing from
-  the consumer. `CkMethodHandlerStartupService` has a TODO at the readiness wait.
+- **Event hub requirement (AB#6891)**: the endpoint readiness, delivery info, fault suppression and mandatory send come from
+  `Meshmakers.Octo.Common.DistributionEventHub` (opt-in primitives, see its `CLAUDE.md` "Shared Command Endpoints"). This repo
+  needs the event hub release that contains them. The migration of the older exclusive command queues is a separate story.
 
 ## Tests
 
