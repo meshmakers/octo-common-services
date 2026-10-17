@@ -632,6 +632,50 @@ evolution: `docs/method-wire-contract.md`.
   tested. After an additive change refresh the goldens with `OCTO_UPDATE_GOLDEN=1 dotnet test tests/Contracts.Tests` and
   review the diff. Adding a platform code needs a constant, a `Catalog` entry and a row in `docs/method-wire-contract.md`.
 
+## CK method handler SDK (CK v2 Phase 3, AB#6875)
+
+Package `Meshmakers.Octo.Services.Methods` (`src/Methods/`, tests in `tests/Methods.Tests` and `tests/Methods.IntegrationTests`,
+the latter against a private RabbitMQ container). It is the **service side** of a CK method: a typed handler on top of the
+wire contract above, for the remote (bus) transport. The dispatcher and registry (F3.2/F3.3), the in-process transport
+(AB#6876) and the pipeline handler (AB#6879) are other stories. Developer guide with a working sample:
+`docs/method-handler-sdk.md`.
+
+- **Typed handlers**: `ICkMethodHandler<TParameters, TResult>` (method with a result) or `ICkMethodHandler<TParameters>`
+  (no result), `HandleAsync(CkMethodContext<TParameters>, CancellationToken)`. `TParameters`/`TResult` are the generated
+  `{Type}{Method}Parameters` / `{Type}{Method}Result` records. A handler is resolved from a **new DI scope per invocation**,
+  so it can take scoped services. `CkMethodContext` has caller, tenant, target, correlation, deadline/`RemainingTime`,
+  access token; **no database session and no transaction** (methods run outside the request transaction).
+- **Outcome and errors**: return the result (implicit conversion), `CkMethodOutcome.Ok()`/`Fail(code, params)` or the platform
+  helpers (`ValidationFailed`, `TargetNotFound`, `Forbidden`), or throw `CkMethodException`. `CkMethodFailure` validates the
+  code (declared shape or platform code). With CK validation on, a code the method does not declare becomes
+  `METHOD_HANDLER_FAILED` (handler bug). Any other exception becomes `METHOD_HANDLER_FAILED` with a `correlationId`
+  parameter (request correlation id, else the invocation id); the exception is logged with that id, never sent.
+- **Host core** `ICkMethodHandlerInvoker` (public, transport independent): contract version check
+  (`METHOD_CONTRACT_VERSION_UNSUPPORTED`), unknown method (`METHOD_HANDLER_NOT_AVAILABLE`, reason `method-not-registered`),
+  deadline already passed (`METHOD_TIMEOUT`, not executed), deadline cancellation of the handler token (`METHOD_TIMEOUT`),
+  parameter deserialization with `CkMethodJson.Options` (invalid or missing member -> `METHOD_VALIDATION_FAILED` with the
+  member name only, never the value), result serialization. It never throws for a request; only the caller's own
+  `CancellationToken` surfaces as `OperationCanceledException`. Other transports call this instead of re-implementing it.
+- **Bus transport** (`CkMethodBusConsumer`, internal): one shared command queue per method (`CkMethodQueueNames.For`), a repeated
+  invocation id is answered `METHOD_OUTCOME_UNKNOWN` and not executed, a failing response send is swallowed (a rethrow would let
+  the bus retry run the method again, AB#4348).
+- **Life cycle** (all internal, `AddCkMethodHandlers(serviceName, m => m.Handle<THandler>(methodId))`): start order 15 validation,
+  20 event hub, 25 endpoints + announcement, heartbeat hosted service (15 s, TTL 45 s from `CkMethodHandlerOptions`), withdraw before
+  the endpoints are removed on graceful stop, `AddCkMethodHandlerDiscovery()` in the `AddDistributionEventHub` configuration
+  answers dispatcher discovery with an immediate announcement.
+- **Startup validation** (`Methods:ValidateRegistrations`, default on): every registration is checked against the CK cache of the
+  system tenant (or `Methods:ValidationTenantIds`): unknown method id, a CK parameter without a property on `TParameters`,
+  scalar type mismatch, a required property without a CK parameter, result/no-result mismatch. A failure stops the service
+  and names the method. The check also records sensitive parameter names and declared error codes for run time.
+- **Sensitive data**: the host never logs `ParametersJson` or the token (`CkMethodRequest.ToString()` redacts, the host logs ids
+  only). `CkMethodRedactor` additionally masks the values of CK `sensitive: true` parameters and the caller token in the
+  message, stack trace and `ToString()` of an exception a handler throws before the host logs it. Tests: `CkMethodHandlerInvokerTests`.
+- **Known limitations until the event hub change lands**: `octo-distributedEventHub` `main` has no readiness of an endpoint handle,
+  no redelivery info (`CommandDeliveryInfo`), no fault suppression and no mandatory send (spike branch `ckv2/phase0`, commits
+  9a7b49d and dcbb858 there, not on `main`). The host therefore announces right after connecting the endpoints (a request that
+  races the queue creation ends in `METHOD_TIMEOUT`), detects duplicates by invocation id only, and relies on never throwing from
+  the consumer. `CkMethodHandlerStartupService` has a TODO at the readiness wait.
+
 ## Tests
 
 `tests/Infrastructure.Tests` — xUnit + FakeItEasy. `Infrastructure.csproj` exposes internals to this
