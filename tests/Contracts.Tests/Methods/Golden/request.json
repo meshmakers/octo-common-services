@@ -1,0 +1,22 @@
+{
+  "contractVersion": 1,
+  "invocationId": "11111111-1111-1111-1111-111111111111",
+  "correlationId": "22222222-2222-2222-2222-222222222222",
+  "methodId": "System.Identity/User.ChangePassword-1",
+  "ckTypeId": "System.Identity/User",
+  "targetRtId": "65f0c0ffee00000000000001",
+  "parametersJson": "{\u0022oldValue\u0022:\u0022a\u0022}",
+  "caller": {
+    "subjectId": "sub-1",
+    "clientId": "studio",
+    "tenantId": "meshtest",
+    "name": "Alice",
+    "roles": [
+      "UserManagement"
+    ]
+  },
+  "callerAccessToken": "jwt",
+  "deadlineUtc": "2026-10-17T12:00:15Z",
+  "idempotencyKey": "key-1",
+  "tenantId": "meshtest"
+}

@@ -612,6 +612,26 @@ Three types and four associations (`types/notificationSubscription.yaml`, `notif
   listens on it, so it is a cross-repo contract (pinned in the adapter by `FromNotificationScheduleNodeTests`). The message itself,
   `NotificationScheduleTick`, is pinned by `NotificationScheduleTickWireContractTests`.
 
+## CK method wire contract (CK v2 Phase 3, AB#6874)
+
+Namespace `Meshmakers.Octo.Services.Contracts.DistributionEventHub.Methods` (`src/Contracts/DistributionEventHub/Methods/`),
+shared by the dispatcher (asset-repo), the handler SDK (`Meshmakers.Octo.Services.Methods`, AB#6875) and handlers
+(identity, communication controller, ...). Full reference with field tables, platform error codes and the rules of
+evolution: `docs/method-wire-contract.md`.
+
+- `CkMethodRequest` (sealed, redacting `ToString()`; `ParametersJson` and `CallerAccessToken` are **sensitive**),
+  `CkMethodResponse` (response envelope with `Success`, `Error`, `ResultJson`, `Operation`), `CkMethodError` (stable `Code` +
+  string `Parameters`, no message text on the wire), `CkMethodOperationHandle` (async handle, F3.6),
+  `CkMethodHandlerAnnounced` / `Withdrawn` / `DiscoveryRequested`, `CkMethodQueueNames`, `CkMethodErrorCodes`
+  (constants + `Catalog`, single source; `METHOD_` is reserved for the platform), `CkMethodErrorParameters`.
+- **Versioning**: `CkMethodContract.CurrentVersion` (int, major) on request, response and announcement; additive changes never
+  bump it, unknown members are ignored, a missing version reads as 1; a newer message is answered with
+  `METHOD_CONTRACT_VERSION_UNSUPPORTED`.
+- **Tests** (`tests/Contracts.Tests/Methods`): golden JSON files (`Golden/*.json`) pin the serialized form under the hub
+  serializer options; unknown members, missing version, redaction, error-code catalog and the contract document are
+  tested. After an additive change refresh the goldens with `OCTO_UPDATE_GOLDEN=1 dotnet test tests/Contracts.Tests` and
+  review the diff. Adding a platform code needs a constant, a `Catalog` entry and a row in `docs/method-wire-contract.md`.
+
 ## Tests
 
 `tests/Infrastructure.Tests` — xUnit + FakeItEasy. `Infrastructure.csproj` exposes internals to this
