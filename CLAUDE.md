@@ -725,11 +725,15 @@ tests `tests/Methods.Tests/InProcess/`. Guide: `docs/method-handler-sdk.md` sect
   the values of the CK `sensitive: true` parameters are replaced by `"***"` (whole value, also nested objects/arrays; names match
   case-insensitively), `CallerAccessToken` is `null`, everything else is as built. An unparsable or non-object payload becomes `{}`;
   a method the definition source does not know (or no source at all) is **fail-closed**: every parameter value is masked. The
-  raw request goes only to the transport: when a filter calls `next(r)`, the pipeline puts the raw `ParametersJson`/token back
-  unless the filter replaced them itself. Consequence for F3.5: a filter cannot hash or compare the real parameter values (an
+  raw request goes only to the transport: when a filter calls `next(r)`, the pipeline puts the raw `ParametersJson`/token back.
+  An edited `ParametersJson` is **merged per member** (AB#7016, `CkMethodRequestRedaction.TryRestore`): a sensitive member still
+  `"***"` is restored from the raw request, a sensitive member the filter gave another value (or removed) is honoured, and a `"***"`
+  for a sensitive member the raw request lacks is refused with `METHOD_VALIDATION_FAILED` (tests `FilterParameterEditTests`). Merge
+  was chosen over refusing every edit that touches a sensitive member: it is the least surprising (the filter's intent is kept, the
+  secret never travels through the filter) and still fails closed. Consequence for F3.5: a filter cannot hash or compare the real parameter values (an
   idempotency fingerprint over the view would equal for different passwords). The sensitivity comes from
   `ICkMethodSensitivityResolver` (registered by `AddCkMethodInvocationPipeline`; reads `ICkMethodAuthorizationDefinitionSource`, else the CK
-  cache). `CkMethodRedactor.For(sensitiveNames|null, request)` masks the same values in exceptions the pipeline and the dispatcher log
+  cache). `CkMethodRedactor.For(sensitiveNames|null, request)` masks the same values (plain, JSON-escaped in all common encoder variants, JSON-in-JSON, percent-encoded; AB#7015, `SecretForms`) in exceptions the pipeline and the dispatcher log
   (a bus exception that quotes the payload). Not covered: sensitive **results** (the meta-model has no flag for them), pipeline
   handlers (OD-9, AB#6918), and what a handler itself writes. There is no `ActivitySource`/metric in `src/Methods` yet; the canary test
   listens to all activity sources so a later one cannot leak unnoticed.

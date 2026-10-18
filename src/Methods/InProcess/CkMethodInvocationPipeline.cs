@@ -47,7 +47,8 @@ public delegate Task<CkMethodResponse> CkMethodInvocationDelegate(CkMethodReques
 ///     A <b>redacted view</b> of the request (AB#6914): the values of the parameters marked <c>sensitive</c> in the CK
 ///     method are replaced by <c>"***"</c> (all values when the method is not known), <c>CallerAccessToken</c> is
 ///     <c>null</c>. Everything else is as the caller built it. The raw request goes only to the transport; a filter that
-///     passes this request (or a copy of it) to <c>next</c> continues with the raw values.
+///     passes this request (or a copy of it) to <c>next</c> continues with the raw values; a filter that edits
+///     <c>ParametersJson</c> keeps the raw value of every sensitive member it leaves at the placeholder (AB#7016).
 /// </param>
 /// <param name="CancellationToken">Fires when the caller gives up (not at the deadline; the deadline is part of the request).</param>
 public sealed record CkMethodInvocationContext(
@@ -112,7 +113,23 @@ internal sealed class CkMethodInvocationPipeline(
         var context = new CkMethodInvocationContext(transportName, view, cancellationToken);
         // The filters only ever see the redacted view; the terminal step puts the raw values back for the transport.
         CkMethodInvocationDelegate chain = r =>
-            transport(CkMethodRequestRedaction.Restore(request, view, r));
+        {
+            if (CkMethodRequestRedaction.TryRestore(request, view, r, sensitive, out var restored, out var member))
+            {
+                return transport(restored);
+            }
+
+            // a filter handed on the placeholder for a sensitive member the request does not carry: never call the
+            // handler with "***" as a value (AB#7016)
+            logger.LogInformation(
+                "CK method {MethodId} invocation {InvocationId} refused: an invocation filter returned the redacted placeholder for sensitive parameter '{Field}' that the request does not carry",
+                request.MethodId, request.InvocationId, member);
+            return Task.FromResult(CkMethodResponse.Failed(request.InvocationId, string.Empty,
+                CkMethodError.Create(CkMethodErrorCodes.MethodValidationFailed,
+                    (CkMethodErrorParameters.MethodId, request.MethodId),
+                    (CkMethodErrorParameters.Field, member ?? string.Empty),
+                    (CkMethodErrorParameters.Reason, "redacted placeholder without a value in the request"))));
+        };
         for (var i = _filters.Length - 1; i >= 0; i--)
         {
             var filter = _filters[i];

@@ -28,6 +28,14 @@ namespace Meshmakers.Octo.Services.Methods.IntegrationTests;
 public sealed class CkMethodRedactionBusTests(RabbitMqFixture rabbitMq) : IAsyncLifetime
 {
     private const string Canary = "CANARY-SECRET-123";
+
+    /// <summary>
+    ///     A canary that JSON escapes (AB#7015): quote, backslash, plus, ampersand, angle brackets, apostrophe, slash, a
+    ///     non-ASCII letter, a surrogate pair and control characters. The first canary has none of these and could not catch
+    ///     an escaped copy of the value in an exception message.
+    /// </summary>
+    private const string EscapingCanary = "CANARY-\"q\\b+&<>'/-\u00c4\u00f6-\U0001F600-\t\u0007-END";
+
     private const string TokenCanary = "CANARY-TOKEN-456";
     private const string MethodId = "Sample.Accounts/Account.ChangePassword-1";
     private const string Tenant = "meshtest";
@@ -98,6 +106,12 @@ public sealed class CkMethodRedactionBusTests(RabbitMqFixture rabbitMq) : IAsync
                 case "fail":
                     throw new InvalidOperationException(
                         $"password store rejected {context.Parameters.NewPassword} for token {context.CallerAccessToken}");
+                case "failjson":
+                    // a serializer exception that quotes the payload in its JSON-escaped form
+                    throw new InvalidOperationException(
+                        "payload rejected " + JsonSerializer.Serialize(new { newPassword = context.Parameters.NewPassword }) +
+                        " relaxed " + JsonSerializer.Serialize(new { newPassword = context.Parameters.NewPassword },
+                            RelaxedEscaping));
                 case "hang":
                     await Task.Delay(Timeout.Infinite, cancellationToken);
                     break;
@@ -106,6 +120,11 @@ public sealed class CkMethodRedactionBusTests(RabbitMqFixture rabbitMq) : IAsync
             return CkMethodOutcome.Ok();
         }
     }
+
+    private static readonly JsonSerializerOptions RelaxedEscaping = new()
+    {
+        Encoder = System.Text.Encodings.Web.JavaScriptEncoder.UnsafeRelaxedJsonEscaping
+    };
 
     private static readonly CkMethodDto Definition = new()
     {
@@ -244,11 +263,30 @@ public sealed class CkMethodRedactionBusTests(RabbitMqFixture rabbitMq) : IAsync
         }
     }
 
-    public static TheoryData<bool> Transports => [false, true];
+    public static TheoryData<bool, string> Cases => new()
+    {
+        { false, Canary },
+        { true, Canary },
+        { false, EscapingCanary },
+        { true, EscapingCanary }
+    };
+
+    private static string Params(string secret, string? mode = null) =>
+        JsonSerializer.Serialize(mode == null
+            ? new Dictionary<string, string> { ["newPassword"] = secret }
+            : new Dictionary<string, string> { ["newPassword"] = secret, ["mode"] = mode });
+
+    /// <summary>The plain value and the escaped forms of System.Text.Json (default and relaxed encoder).</summary>
+    private static string[] Forms(string secret) =>
+    [
+        secret,
+        JsonSerializer.Serialize(secret)[1..^1],
+        JsonSerializer.Serialize(secret, RelaxedEscaping)[1..^1]
+    ];
 
     [Theory]
-    [MemberData(nameof(Transports))]
-    public async Task Canary_NeverAppearsInLogsAuditActivitiesOrResponses_OnAnyPath(bool inProcess)
+    [MemberData(nameof(Cases))]
+    public async Task Canary_NeverAppearsInLogsAuditActivitiesOrResponses_OnAnyPath(bool inProcess, string canary)
     {
         var dispatcher = await StartAsync(inProcess);
         ChangePasswordHandler.SeenPassword = null;
@@ -256,29 +294,34 @@ public sealed class CkMethodRedactionBusTests(RabbitMqFixture rabbitMq) : IAsync
         var responses = new List<CkMethodResponse>();
 
         // (a) success
-        var ok = await CallAsync(dispatcher, $"{{\"newPassword\":\"{Canary}\"}}");
+        var ok = await CallAsync(dispatcher, Params(canary));
         Assert.True(ok.Success, ok.Error?.Code);
         // the one place that must get the raw values
-        Assert.Equal(Canary, ChangePasswordHandler.SeenPassword);
+        Assert.Equal(canary, ChangePasswordHandler.SeenPassword);
         Assert.Equal(TokenCanary, ChangePasswordHandler.SeenToken);
         responses.Add(ok);
 
         // (c) failing handler quoting both values in its exception message
-        var failed = await CallAsync(dispatcher, $"{{\"newPassword\":\"{Canary}\",\"mode\":\"fail\"}}");
+        var failed = await CallAsync(dispatcher, Params(canary, "fail"));
         Assert.Equal(CkMethodErrorCodes.MethodHandlerFailed, failed.Error!.Code);
         responses.Add(failed);
 
+        // (c2) failing handler quoting the value in its JSON-escaped form (AB#7015)
+        var failedJson = await CallAsync(dispatcher, Params(canary, "failjson"));
+        Assert.Equal(CkMethodErrorCodes.MethodHandlerFailed, failedJson.Error!.Code);
+        responses.Add(failedJson);
+
         // (d) timeout
-        var timedOut = await CallAsync(dispatcher, $"{{\"newPassword\":\"{Canary}\",\"mode\":\"hang\"}}",
+        var timedOut = await CallAsync(dispatcher, Params(canary, "hang"),
             TimeSpan.FromSeconds(1));
         Assert.Equal(CkMethodErrorCodes.MethodTimeout, timedOut.Error!.Code);
         responses.Add(timedOut);
 
         // (e) validation errors: wrong shape and truncated JSON, both holding the canary
-        var wrongShape = await CallAsync(dispatcher, $"{{\"newPassword\":{{\"inner\":\"{Canary}\"}}}}");
+        var wrongShape = await CallAsync(dispatcher, JsonSerializer.Serialize(new { newPassword = new { inner = canary } }));
         Assert.Equal(CkMethodErrorCodes.MethodValidationFailed, wrongShape.Error!.Code);
         responses.Add(wrongShape);
-        var truncated = await CallAsync(dispatcher, $"{{\"newPassword\":\"{Canary}");
+        var truncated = await CallAsync(dispatcher, "{\"newPassword\":\"" + JsonSerializer.Serialize(canary)[1..^1]);
         Assert.Equal(CkMethodErrorCodes.MethodValidationFailed, truncated.Error!.Code);
         responses.Add(truncated);
 
@@ -293,7 +336,9 @@ public sealed class CkMethodRedactionBusTests(RabbitMqFixture rabbitMq) : IAsync
         var captured = _sink.Snapshot();
         Assert.Contains(captured, c => c.Kind == "audit-request"); // the scan really looked at the audit view
         Assert.Contains(captured, c => c.Kind == "log");
-        var leaks = captured.Where(c => c.Text.Contains(Canary, StringComparison.Ordinal) ||
+        var forms = Forms(canary);
+        var leaks = captured.Where(c => forms.Any(f => c.Text.Contains(f, StringComparison.Ordinal)) ||
+                                        c.Text.Contains(Canary, StringComparison.Ordinal) ||
                                         c.Text.Contains(TokenCanary, StringComparison.Ordinal)).ToList();
         Assert.True(leaks.Count == 0,
             "canary found in: " + string.Join(" | ", leaks.Select(l => $"{l.Kind}: {Truncate(l.Text)}")));

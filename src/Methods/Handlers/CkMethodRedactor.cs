@@ -20,7 +20,10 @@ internal sealed class CkMethodRedactor
 
     /// <summary>Masks the caller token only (used where no registration, and so no sensitive parameter list, is known).</summary>
     public static CkMethodRedactor ForToken(CkMethodRequest request) =>
-        new(string.IsNullOrEmpty(request.CallerAccessToken) ? [] : [request.CallerAccessToken]);
+        new(string.IsNullOrEmpty(request.CallerAccessToken)
+            ? []
+            : SecretForms(request.CallerAccessToken).Distinct(StringComparer.Ordinal)
+                .OrderByDescending(s => s.Length).ToArray());
 
     public static CkMethodRedactor For(CkMethodRegistration registration, CkMethodRequest request) =>
         For(registration.SensitiveParameters, request);
@@ -63,9 +66,123 @@ internal sealed class CkMethodRedactor
             }
         }
 
-        // longest first, so a secret that contains another one is masked completely
-        return new CkMethodRedactor(secrets.Where(s => s.Length > 0).Distinct(StringComparer.Ordinal)
-            .OrderByDescending(s => s.Length).ToArray());
+        // Every secret is masked in its plain form and in the escaped forms a serializer or a URL writes
+        // (AB#7015); longest first, so a secret that contains another one is masked completely.
+        return new CkMethodRedactor(secrets.Where(s => s.Length > 0).SelectMany(SecretForms)
+            .Distinct(StringComparer.Ordinal).OrderByDescending(s => s.Length).ToArray());
+    }
+
+    /// <summary>
+    ///     The texts under which a decoded secret can show up in a message: the plain value, its JSON-escaped forms
+    ///     (System.Text.Json default and relaxed encoder, Newtonsoft.Json, and every combination of the optional
+    ///     escapes: non-ASCII and HTML-sensitive characters as <c>\uXXXX</c> in either hex case, escaped slash, long
+    ///     control-character form), the same once more for JSON embedded in a JSON string, and the percent-encoded
+    ///     (URL) form.
+    /// </summary>
+    internal static IEnumerable<string> SecretForms(string secret)
+    {
+        yield return secret;
+
+        var json = new HashSet<string>(StringComparer.Ordinal);
+        for (var flags = 0; flags < 64; flags++)
+        {
+            var escaped = JsonEscape(secret, flags);
+            if (json.Add(escaped) && escaped != secret)
+            {
+                yield return escaped;
+                // JSON inside a JSON string value (a payload quoted by an exception that is serialized again)
+                var twice = JsonEscape(escaped, 0);
+                if (twice != escaped)
+                {
+                    yield return twice;
+                }
+            }
+        }
+
+        foreach (var options in new[] { JsonDefaultEscaping, JsonRelaxedEscaping })
+        {
+            var text = JsonSerializer.Serialize(secret, options);
+            yield return text[1..^1];
+        }
+
+        var url = Uri.EscapeDataString(secret);
+        if (url != secret)
+        {
+            yield return url;
+            yield return url.Replace("%20", "+", StringComparison.Ordinal);
+            yield return url.ToLowerInvariant();
+        }
+    }
+
+    private static readonly JsonSerializerOptions JsonDefaultEscaping = new()
+    {
+        Encoder = System.Text.Encodings.Web.JavaScriptEncoder.Default
+    };
+
+    private static readonly JsonSerializerOptions JsonRelaxedEscaping = new()
+    {
+        Encoder = System.Text.Encodings.Web.JavaScriptEncoder.UnsafeRelaxedJsonEscaping
+    };
+
+    private const int EscapeNonAscii = 1;
+    private const int EscapeHtml = 2;
+    private const int EscapeSlash = 4;
+    private const int LowerHex = 8;
+    private const int LongControl = 16;
+    private const int QuoteAsUnicode = 32;
+
+    private static string JsonEscape(string value, int flags)
+    {
+        var hex = (flags & LowerHex) != 0 ? "x4" : "X4";
+        var builder = new System.Text.StringBuilder(value.Length + 8);
+        foreach (var c in value)
+        {
+            switch (c)
+            {
+                case '"' when (flags & QuoteAsUnicode) != 0:
+                    builder.Append("\\u").Append(((int)c).ToString(hex));
+                    break;
+                case '"':
+                    builder.Append("\\\"");
+                    break;
+                case '\\':
+                    builder.Append("\\\\");
+                    break;
+                case '/' when (flags & EscapeSlash) != 0:
+                    builder.Append("\\/");
+                    break;
+                case '\b' when (flags & LongControl) == 0:
+                    builder.Append("\\b");
+                    break;
+                case '\f' when (flags & LongControl) == 0:
+                    builder.Append("\\f");
+                    break;
+                case '\n' when (flags & LongControl) == 0:
+                    builder.Append("\\n");
+                    break;
+                case '\r' when (flags & LongControl) == 0:
+                    builder.Append("\\r");
+                    break;
+                case '\t' when (flags & LongControl) == 0:
+                    builder.Append("\\t");
+                    break;
+                case < ' ':
+                case '\u007f':
+                    builder.Append("\\u").Append(((int)c).ToString(hex));
+                    break;
+                case '<' or '>' or '&' or '\'' or '+' or '`' when (flags & EscapeHtml) != 0:
+                    builder.Append("\\u").Append(((int)c).ToString(hex));
+                    break;
+                case > '\u007f' when (flags & EscapeNonAscii) != 0:
+                    builder.Append("\\u").Append(((int)c).ToString(hex));
+                    break;
+                default:
+                    builder.Append(c);
+                    break;
+            }
+        }
+
+        return builder.ToString();
     }
 
     private static void CollectSecrets(JsonElement value, List<string> secrets)
