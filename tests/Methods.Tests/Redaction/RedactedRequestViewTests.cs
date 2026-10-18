@@ -102,6 +102,17 @@ public class RedactedRequestViewTests
     }
 
     [Fact]
+    public void NamesMatchCaseInsensitively_EvenForASetWithTheDefaultComparer()
+    {
+        var raw = TestData.Request(DateTime.UtcNow.AddSeconds(5),
+            parametersJson: "{\"NewPassword\":\"CANARY-SECRET-123\",\"hint\":\"x\"}");
+
+        var view = CkMethodRequestRedaction.CreateView(raw, new HashSet<string> { "newPassword" });
+
+        Assert.Equal($"{{\"NewPassword\":\"{Mask}\",\"hint\":\"x\"}}", view.ParametersJson);
+    }
+
+    [Fact]
     public void UnknownMethod_RedactsEveryParameterValue_FailClosed()
     {
         var raw = TestData.Request(DateTime.UtcNow.AddSeconds(5),

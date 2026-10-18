@@ -97,7 +97,7 @@ internal static class CkMethodRequestRedaction
                 writer.WriteStartObject();
                 foreach (var property in document.RootElement.EnumerateObject())
                 {
-                    if (sensitive == null || sensitive.Contains(property.Name))
+                    if (sensitive == null || sensitive.Contains(property.Name, StringComparer.OrdinalIgnoreCase))
                     {
                         writer.WriteString(property.Name, CkMethodRedactor.Mask);
                     }
