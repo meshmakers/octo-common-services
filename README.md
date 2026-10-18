@@ -40,6 +40,23 @@ Credentials (`SecretAccessKey`, `AccountKey`, `ConnectionString`) never go into 
 environment variables from a Kubernetes Secret, or use workload identity. Register the health check with
 `services.AddHealthChecks().AddArtifactStorageHealthCheck()`.
 
+### Key layout and categories
+
+`ArtifactKeyBuilder` builds two layouts below the instance prefix:
+
+- `<instancePrefix>/<category>/<tenantId>/<file>` (`Build`, parsed strictly by `TryParse`: exactly three segments) for the
+  categories `presweep`, `tenant-dumps` and `restore-staging`.
+- `<instancePrefix>/<category>/<tenantId>/<runId>/<segment>[/<segment>…]` (`BuildNested`, `RunPrefix`, `TryParseNested`) for runs
+  that keep many files. Category `copy-staging` (`ArtifactCategories.CopyStaging`) holds the files of a native archive dump or
+  restore (CrateDB `COPY TO` / `COPY FROM`), e.g. `main/copy-staging/sbeg/r1/<archiveRtId>/data/slice-0001/part-0.json.gz`.
+  Segments follow the key rules (ASCII letters, digits, `-`, `_`, `.`, no leading `.`, so no empty, `.` or `..` segment and no
+  backslash); the tenant id is lower-cased and limited to 64 characters. A nested key is not accepted by `TryParse`, a
+  three-segment key is not accepted by `TryParseNested`.
+
+A run deletes its `copy-staging/<tenant>/<run>/` folder at the end. The category needs its own lifecycle rule on the store
+(expiry after one day) and an app-side `DeleteOlderThanAsync` on `<instancePrefix>/copy-staging/` as the backstop for a crashed
+run. All providers list and delete nested objects by plain key prefix.
+
 The contract tests in `tests/ArtifactStorage.Tests` run against the file system and, when Docker is available, against MinIO
 (`OCTO_TEST_MINIO_IMAGE`, default `cgr.dev/chainguard/minio:latest`) and Azurite containers. Without Docker, or with
 `OCTO_SKIP_CONTAINER_TESTS=true`, the container tests are reported as skipped.

@@ -4,7 +4,9 @@ using Microsoft.Extensions.Options;
 namespace Meshmakers.Octo.Services.ArtifactStorage;
 
 /// <summary>
-///     Builds and parses keys of the layout <c>&lt;instancePrefix&gt;/&lt;category&gt;/&lt;tenantId&gt;/&lt;file&gt;</c>.
+///     Builds and parses keys of the layout <c>&lt;instancePrefix&gt;/&lt;category&gt;/&lt;tenantId&gt;/&lt;file&gt;</c> and,
+///     for runs that keep many files (<see cref="ArtifactCategories.CopyStaging" />), the nested layout
+///     <c>&lt;instancePrefix&gt;/&lt;category&gt;/&lt;tenantId&gt;/&lt;runId&gt;/&lt;segment&gt;[/&lt;segment&gt;…]</c>.
 /// </summary>
 /// <remarks>
 ///     The instance prefix keeps several OctoMesh instances that share one bucket or container apart
@@ -73,6 +75,73 @@ public sealed class ArtifactKeyBuilder
     {
         ValidateCategory(category);
         return $"{InstancePrefix}/{category}/{NormalizeTenantId(tenantId)}/";
+    }
+
+    /// <summary>
+    ///     Returns the nested key
+    ///     <c>&lt;instancePrefix&gt;/&lt;category&gt;/&lt;tenantId&gt;/&lt;runId&gt;/&lt;relativePath&gt;</c>, e.g.
+    ///     <c>main/copy-staging/sbeg/r1/&lt;archiveRtId&gt;/data/slice-0001/part-0.json.gz</c>.
+    /// </summary>
+    /// <param name="category">The category, e.g. <see cref="ArtifactCategories.CopyStaging" />.</param>
+    /// <param name="tenantId">The tenant id (lower-cased).</param>
+    /// <param name="runId">The run folder; one key segment.</param>
+    /// <param name="relativePath">One or more <c>/</c>-separated key segments below the run folder.</param>
+    /// <exception cref="ArgumentException">
+    ///     A part is invalid: an empty, <c>.</c>, <c>..</c> or too long segment, a backslash or another character
+    ///     the key rules (<see cref="ArtifactKey" />) do not allow, or an invalid tenant id.
+    /// </exception>
+    public string BuildNested(string category, string tenantId, string runId, string relativePath)
+    {
+        var prefix = RunPrefix(category, tenantId, runId);
+        if (string.IsNullOrEmpty(relativePath) ||
+            relativePath.Split(ArtifactKey.Separator).Any(s => !ArtifactKey.IsValidSegment(s)))
+        {
+            throw new ArgumentException($"Invalid nested artifact path '{relativePath}'.", nameof(relativePath));
+        }
+
+        var key = prefix + relativePath;
+        ArtifactKey.Validate(key, nameof(relativePath));
+        return key;
+    }
+
+    /// <summary>
+    ///     Returns the list prefix <c>&lt;instancePrefix&gt;/&lt;category&gt;/&lt;tenantId&gt;/&lt;runId&gt;/</c> of one run folder.
+    /// </summary>
+    /// <exception cref="ArgumentException">A part is invalid.</exception>
+    public string RunPrefix(string category, string tenantId, string runId)
+    {
+        ValidateCategory(category);
+        var tenant = NormalizeTenantId(tenantId);
+        if (!ArtifactKey.IsValidSegment(runId))
+        {
+            throw new ArgumentException($"Invalid artifact run id '{runId}'.", nameof(runId));
+        }
+
+        return $"{InstancePrefix}/{category}/{tenant}/{runId}/";
+    }
+
+    /// <summary>
+    ///     Parses a key built by <see cref="BuildNested" /> (same instance prefix). The strict three-segment
+    ///     <see cref="TryParse" /> does not accept such a key and this method does not accept a three-segment one.
+    /// </summary>
+    /// <returns><c>true</c> when the key has the nested layout with at least one segment below the run folder.</returns>
+    public bool TryParseNested(string? key, out ArtifactNestedKeyParts? parts)
+    {
+        parts = null;
+        if (!ArtifactKey.IsValid(key) || !key!.StartsWith(InstancePrefix + "/", StringComparison.Ordinal))
+        {
+            return false;
+        }
+
+        var rest = key[(InstancePrefix.Length + 1)..].Split(ArtifactKey.Separator);
+        if (rest.Length < 4 || !IsValidTenantId(rest[1]) ||
+            !string.Equals(rest[1], rest[1].ToLowerInvariant(), StringComparison.Ordinal))
+        {
+            return false;
+        }
+
+        parts = new ArtifactNestedKeyParts(rest[0], rest[1], rest[2], rest[3..]);
+        return true;
     }
 
     /// <summary>

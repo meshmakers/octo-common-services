@@ -209,6 +209,109 @@ public abstract class ArtifactStoreContractTests
         Assert.Equal(new ArtifactKeyParts("presweep", "mytenant", "mytenant-20261006T120000Z.presweep.octoenc"), parts);
     }
 
+    [Fact]
+    public async Task NestedKeys_RoundTripAndAreListedBelowTheRunPrefixOnly()
+    {
+        var store = await CreateStoreAsync();
+        var builder = new ArtifactKeyBuilder($"{_root}/nested");
+        var data = RandomBytes(2048);
+        string[] run1 =
+        [
+            builder.BuildNested(ArtifactCategories.CopyStaging, "Sbeg", "r1", "rt-a/data/slice-0001/part-0.json.gz"),
+            builder.BuildNested(ArtifactCategories.CopyStaging, "Sbeg", "r1", "rt-a/data/slice-0002/part-0.json.gz"),
+            builder.BuildNested(ArtifactCategories.CopyStaging, "Sbeg", "r1", "rt-a/genmap/all/part-0.json.gz"),
+            builder.BuildNested(ArtifactCategories.CopyStaging, "Sbeg", "r1", "manifest-part.json")
+        ];
+        var otherRun = builder.BuildNested(ArtifactCategories.CopyStaging, "Sbeg", "r10", "rt-a/data/slice-0001/part-0.json.gz");
+        var otherTenant = builder.BuildNested(ArtifactCategories.CopyStaging, "Other", "r1", "rt-a/data/part-0.json.gz");
+        var dump = builder.Build(ArtifactCategories.TenantDumps, "Sbeg", "sbeg.octobak.zip");
+        foreach (var key in run1.Append(otherRun).Append(otherTenant).Append(dump))
+        {
+            await store.PutAsync(key, new MemoryStream(data), new ArtifactMetadata("application/gzip"), Ct);
+        }
+
+        Assert.Equal(run1.Order(StringComparer.Ordinal),
+            await ListKeysAsync(store, builder.RunPrefix(ArtifactCategories.CopyStaging, "sbeg", "r1")));
+        Assert.Equal(run1.Append(otherRun).Order(StringComparer.Ordinal),
+            await ListKeysAsync(store, builder.TenantPrefix(ArtifactCategories.CopyStaging, "sbeg")));
+        Assert.Equal(
+            run1.Append(otherRun).Append(otherTenant).Order(StringComparer.Ordinal),
+            await ListKeysAsync(store, builder.CategoryPrefix(ArtifactCategories.CopyStaging)));
+
+        var info = await store.GetInfoAsync(run1[0], Ct);
+        Assert.NotNull(info);
+        Assert.Equal(data.Length, info.Size);
+        Assert.Equal("application/gzip", info.Metadata?.ContentType);
+        await using var stream = await store.OpenReadAsync(run1[2], Ct);
+        Assert.Equal(data, await ReadAllAsync(stream!));
+        Assert.All(run1, key => Assert.True(builder.TryParseNested(key, out _)));
+    }
+
+    [Fact]
+    public async Task NestedKeys_DeletingTheRunRemovesEveryObjectBelowItAndNothingElse()
+    {
+        var store = await CreateStoreAsync();
+        var builder = new ArtifactKeyBuilder($"{_root}/delete");
+        var runPrefix = builder.RunPrefix(ArtifactCategories.CopyStaging, "sbeg", "r1");
+        foreach (var path in new[] { "a/data/s1/p0.json.gz", "a/data/s2/p0.json.gz", "b/genmap/all/p0.json.gz" })
+        {
+            await store.PutAsync(builder.BuildNested(ArtifactCategories.CopyStaging, "sbeg", "r1", path),
+                new MemoryStream([1]), ArtifactMetadata.None, Ct);
+        }
+
+        var survivors = new[]
+        {
+            builder.BuildNested(ArtifactCategories.CopyStaging, "sbeg", "r2", "a/data/s1/p0.json.gz"),
+            builder.BuildNested(ArtifactCategories.CopyStaging, "sbeg", "r10", "a/data/s1/p0.json.gz"),
+            builder.Build(ArtifactCategories.TenantDumps, "sbeg", "sbeg.octobak.zip")
+        };
+        foreach (var key in survivors)
+        {
+            await store.PutAsync(key, new MemoryStream([1]), ArtifactMetadata.None, Ct);
+        }
+
+        var deleted = 0;
+        foreach (var key in await ListKeysAsync(store, runPrefix))
+        {
+            Assert.True(await store.DeleteAsync(key, Ct));
+            deleted++;
+        }
+
+        Assert.Equal(3, deleted);
+        Assert.Empty(await ListKeysAsync(store, runPrefix));
+        Assert.Equal(survivors.Order(StringComparer.Ordinal), await ListKeysAsync(store, $"{_root}/delete/"));
+    }
+
+    [Fact]
+    public async Task NestedKeys_AreExpiredByTheRetentionOfTheirCategoryOnly()
+    {
+        var clock = new FakeTimeProvider(DateTimeOffset.UtcNow);
+        var store = await CreateStoreAsync(clock);
+        var builder = new ArtifactKeyBuilder($"{_root}/retention");
+        var staged = new[]
+        {
+            builder.BuildNested(ArtifactCategories.CopyStaging, "t1", "r1", "rt/data/s1/p0.json.gz"),
+            builder.BuildNested(ArtifactCategories.CopyStaging, "t1", "r2", "rt/genmap/all/p0.json.gz"),
+            builder.BuildNested(ArtifactCategories.CopyStaging, "t2", "r1", "rt/data/s1/p0.json.gz")
+        };
+        var other = builder.Build(ArtifactCategories.TenantDumps, "t1", "t1.octobak.zip");
+        foreach (var key in staged.Append(other))
+        {
+            await store.PutAsync(key, new MemoryStream([1]), ArtifactMetadata.None, Ct);
+        }
+
+        Assert.Empty(await store.DeleteOlderThanAsync(builder.CategoryPrefix(ArtifactCategories.CopyStaging),
+            TimeSpan.FromHours(1), Ct));
+
+        clock.Advance(TimeSpan.FromHours(3));
+        var deleted = await store.DeleteOlderThanAsync(builder.CategoryPrefix(ArtifactCategories.CopyStaging),
+            TimeSpan.FromHours(1), Ct);
+
+        Assert.Equal(staged.Order(StringComparer.Ordinal), deleted.Order(StringComparer.Ordinal));
+        Assert.Empty(await ListKeysAsync(store, builder.CategoryPrefix(ArtifactCategories.CopyStaging)));
+        Assert.Equal([other], await ListKeysAsync(store, builder.CategoryPrefix(ArtifactCategories.TenantDumps)));
+    }
+
     [Theory]
     [InlineData("")]
     [InlineData("/leading")]
