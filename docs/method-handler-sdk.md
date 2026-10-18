@@ -113,7 +113,64 @@ Assert.Equal("PASSWORD_TOO_SHORT", outcome.Failure!.Code);
 
 `ICkMethodHandlerInvoker.InvokeAsync(CkMethodRequest)` is the transport-independent core: version check, deadline,
 scope, parameter and result JSON (`CkMethodJson.Options`), error mapping, redaction. The bus consumer is a thin shell around it;
-an in-process transport calls the same interface. It never throws for a failing request.
+the in-process transport (section 8) calls the same core. It never throws for a failing request.
+
+## 8. In-process handlers (methods the calling service owns)
+
+A service that implements a method itself and also calls it (the asset-repo gateway for `Tenant.*`, `Archive.*`) registers the
+**same handler class** in-process: no queue, no announcement, no bus hop, no event hub needed.
+
+```csharp
+builder.Services.AddCkInProcessMethodHandlers(
+    m => m.Handle<ChangePasswordHandler>(SampleAccountsCkIds.AccountChangePasswordMethodId));
+
+// at the call site (a GraphQL resolver, a controller, a bot job)
+public sealed class Caller(ICkInProcessMethodTransport methods)
+{
+    public async Task<CkMethodResponse> ChangeAsync(CkMethodRequest request, CancellationToken ct) =>
+        methods.CanHandle(request.MethodId)
+            ? await methods.InvokeAsync(request, ct)
+            : throw new InvalidOperationException("remote method: use the dispatcher");   // F3.3 decides
+}
+```
+
+* **Same answer as on the bus.** The transport uses the same invoker core: contract version check, deadline,
+  parameter/result JSON (`{"value": ...}`, `CkMethodJson.Options`), declared errors, `METHOD_HANDLER_FAILED` with a
+  `correlationId`, redaction. `InProcessTransportTests` compares the serialized envelopes of both paths. Only
+  `handlerInstanceId` differs (it names the answering host).
+* **Deadline.** `DeadlineUtc` works as on the bus: the handler token fires there, and a handler that ignores it is not waited for;
+  the caller gets `METHOD_TIMEOUT`. The caller's own token surfaces as `OperationCanceledException`.
+* **Scope and transaction.** Each call gets a new DI scope of the root provider, not the scope of the caller's HTTP request,
+  and runs outside the caller's database transaction (decision 2026-10-07). The handler does not see the request's scoped services.
+* **Identity.** Put `Caller` and `CallerAccessToken` into the request exactly as for a remote call; the handler receives them
+  unchanged and a handler must still re-validate the token. Neither value is ever logged.
+* **One place per method.** A method registered in-process and as a remote handler stops the startup. Not announced, so a
+  remote dispatcher never routes to it.
+
+### Invocation pipeline: extension points for authorization, audit and idempotency
+
+Every transport call runs through `ICkMethodInvocationPipeline`; lower `Order` is outer. Audit (100) wraps authorization (200), which wraps idempotency (300), which wraps the transport: audit records every call including refusals and replays, and a stored outcome is replayed only for an authorized caller.
+
+ add steps with `AddCkMethodInvocationFilter<TFilter>()`.
+
+```csharp
+public sealed class MyAuditFilter : ICkMethodInvocationFilter
+{
+    public int Order => CkMethodInvocationFilterOrder.Audit;   // Audit 100 (outermost) < Authorization 200 < Idempotency 300 (innermost)
+
+    public async Task<CkMethodResponse> InvokeAsync(CkMethodInvocationContext context, CkMethodInvocationDelegate next)
+    {
+        var response = await next(context.Request);            // or return a failed response without calling next
+        // record context.Transport ("in-process" | "bus"), context.Request.InvocationId, response.Success / Error.Code
+        return response;
+    }
+}
+```
+
+A filter refuses with a normal failed `CkMethodResponse` (for example `METHOD_FORBIDDEN`), may continue with a modified request
+(`next(request with { IdempotencyKey = ... })`) and must not log `ParametersJson` or the token. An exception escaping a filter is
+answered `METHOD_HANDLER_FAILED`. The dispatcher of F3.3 runs its bus send as the terminal delegate of the same pipeline
+(`pipeline.ExecuteAsync(CkMethodTransportNames.Bus, request, send, ct)`), so authorization and audit see local and remote calls alike.
 
 ## 8. Duplicate deliveries and failing sends
 

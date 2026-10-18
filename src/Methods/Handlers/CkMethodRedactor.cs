@@ -18,6 +18,10 @@ internal sealed class CkMethodRedactor
         _secrets = secrets;
     }
 
+    /// <summary>Masks the caller token only (used where no registration, and so no sensitive parameter list, is known).</summary>
+    public static CkMethodRedactor ForToken(CkMethodRequest request) =>
+        new(string.IsNullOrEmpty(request.CallerAccessToken) ? [] : [request.CallerAccessToken]);
+
     public static CkMethodRedactor For(CkMethodRegistration registration, CkMethodRequest request)
     {
         var secrets = new List<string>();

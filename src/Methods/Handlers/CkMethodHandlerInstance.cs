@@ -6,7 +6,7 @@ using Microsoft.Extensions.Options;
 namespace Meshmakers.Octo.Services.Methods.Handlers;
 
 /// <summary>The handler registrations of one service, collected while the service collection is configured.</summary>
-internal sealed class CkMethodHandlerRegistrations
+internal class CkMethodHandlerRegistrations
 {
     private readonly Dictionary<string, CkMethodRegistration> _registrations = new(StringComparer.Ordinal);
 
