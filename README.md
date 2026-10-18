@@ -29,19 +29,72 @@ Section `ArtifactStorage` (environment `OCTO_ARTIFACTSTORAGE__*`):
 | `HealthCheckWriteProbe` | Health check writes/reads/deletes a probe object instead of only listing (default `false`) |
 | `FileSystem:RootPath` | Root directory (default `<temp>/octo-artifacts`); dirs `0700`, files `0600` on Unix |
 | `S3:ServiceUrl`, `S3:Region`, `S3:Bucket`, `S3:ForcePathStyle` | Endpoint, signing region, bucket, path-style addressing |
+| `S3:CrateDbServiceUrl` | The store endpoint as the CrateDB nodes reach it (`scheme://host:port`), when it differs from `S3:ServiceUrl`; used for the archive copy location only. Environment variable `OCTO_ARTIFACTSTORAGE__S3__CRATEDBSERVICEURL` |
 | `S3:AccessKeyId`, `S3:SecretAccessKey` | Static keys; empty = AWS default credential chain |
 | `S3:ServerSideEncryption` | `None` (default) or `AES256` |
 | `S3:MultipartPartSizeBytes` | Multipart part size, default 16 MiB, minimum 5 MiB |
 | `AzureBlob:ConnectionString` or `AzureBlob:AccountUrl` + `AccountKey` or `AccountUrl` + `UseManagedIdentity` (+ optional `ManagedIdentityClientId`) | Authentication, in that order of precedence |
 | `AzureBlob:Container` | Container name |
+| `AzureBlob:StagingSasLifetime` | Lifetime of the container SAS issued per archive copy run, default `02:00:00`, must be greater than zero (`OCTO_ARTIFACTSTORAGE__AZUREBLOB__STAGINGSASLIFETIME=00:30:00`) |
 | `S3:CreateBucketIfNotExists`, `AzureBlob:CreateContainerIfNotExists` | Development only (default `false`) |
 
 Credentials (`SecretAccessKey`, `AccountKey`, `ConnectionString`) never go into `appsettings*.json` or Helm values; pass them as
 environment variables from a Kubernetes Secret, or use workload identity. Register the health check with
 `services.AddHealthChecks().AddArtifactStorageHealthCheck()`.
 
+### Key layout and categories
+
+`ArtifactKeyBuilder` builds two layouts below the instance prefix:
+
+- `<instancePrefix>/<category>/<tenantId>/<file>` (`Build`, parsed strictly by `TryParse`: exactly three segments) for the
+  categories `presweep`, `tenant-dumps` and `restore-staging`.
+- `<instancePrefix>/<category>/<tenantId>/<runId>/<segment>[/<segment>…]` (`BuildNested`, `RunPrefix`, `TryParseNested`) for runs
+  that keep many files. Category `copy-staging` (`ArtifactCategories.CopyStaging`) holds the files of a native archive dump or
+  restore (CrateDB `COPY TO` / `COPY FROM`), e.g. `main/copy-staging/sbeg/r1/<archiveRtId>/data/slice-0001/part-0.json.gz`.
+  Segments follow the key rules (ASCII letters, digits, `-`, `_`, `.`, no leading `.`, so no empty, `.` or `..` segment and no
+  backslash); the tenant id is lower-cased and limited to 64 characters. A nested key is not accepted by `TryParse`, a
+  three-segment key is not accepted by `TryParseNested`.
+
+A run deletes its `copy-staging/<tenant>/<run>/` folder at the end. The category needs its own lifecycle rule on the store
+(expiry after one day) and an app-side `DeleteOlderThanAsync` on `<instancePrefix>/copy-staging/` as the backstop for a crashed
+run. All providers list and delete nested objects by plain key prefix.
+
+### Archive copy staging location
+
+`IArchiveCopyStagingLocationFactory` (registered by `AddArtifactStorage`) creates the `ArchiveCopyStagingLocation` of one native
+archive dump or restore run (`Meshmakers.Octo.Runtime.Contracts`, AB#5967): the location of the files as the CrateDB nodes see
+them plus the `WITH` options that carry the credential, for `COPY … TO DIRECTORY` and `COPY … FROM`. The files lie under
+`<instancePrefix>/copy-staging/<tenantId>/<runId>/…`; the service reads, writes and deletes them through `IArtifactStore` with the
+keys of `ArtifactKeyBuilder.BuildNested`, CrateDB addresses the same objects through the location.
+
+| Provider | Location | Credential |
+| --- | --- | --- |
+| `S3` | `s3://<key>:<secret>@<host>:<port>/<bucket>/<prefix>` | access key in the URI, percent-encoded; `protocol=http\|https` in `WITH` |
+| `AzureBlob` | `az://<account>.<suffix>/<container>/<prefix>` | `sas_token` in `WITH`, a container SAS issued per run; never in the URI |
+| `FileSystem` | not supported | the CrateDB nodes cannot reach it; dump and restore run as format 1 (rows through the service) |
+
+- **Two endpoints (S3).** Host, port and `protocol` come from `S3:CrateDbServiceUrl` when set (the endpoint CrateDB uses, e.g.
+  `http://minio.octo-infra:9000`), otherwise from `S3:ServiceUrl`. The service itself keeps using `S3:ServiceUrl`. Without any
+  endpoint (AWS) the host part is omitted and CrateDB uses its default endpoint; without static keys the user info is omitted.
+  A key or secret containing `:` is not supported (CrateDB splits the decoded user info at the first colon, also a
+  percent-encoded one); `/`, `+` and `@` are fine. Start-up validation: `CrateDbServiceUrl` must be an absolute http or https
+  URL with host and port only.
+- **SAS (Azure).** The token is signed with the account key (`AzureBlob:AccountKey`, or `AccountKey` in the connection string),
+  scope is the **container**: Azure cannot scope a SAS to a blob prefix without a hierarchical namespace, so the token covers the
+  whole artifact container (all categories and instances that share it) for its lifetime. That is why it is issued per run, lives
+  `AzureBlob:StagingSasLifetime` (default 2 h) and carries the smallest permission set: dump create/write/list, restore
+  read/list. HTTPS only (plain HTTP only for an emulator endpoint), start time 5 minutes in the past against clock skew.
+  A store without an account key (managed identity, connection string without `AccountKey`) is not supported yet: user delegation
+  SAS is phase 2; `IsSupported` is `false` and `UnsupportedReason` names the gap.
+- **No credential leaves the location.** `ToString()`, the properties, logs and exception messages of the factory show the
+  redacted form only (`ArchiveCopyStagingLocation.RedactedUri`, `RedactedOptions`); the statement builder calls
+  `RevealUri()` / `RevealOptions()` and keeps the result out of every log and exception, `Scrub()` removes the credential from a
+  text that may echo it. The CrateDB node must not record the statement either (`stats.jobs_log_filter`, environment set-up).
+
 The contract tests in `tests/ArtifactStorage.Tests` run against the file system and, when Docker is available, against MinIO
-(`OCTO_TEST_MINIO_IMAGE`, default `cgr.dev/chainguard/minio:latest`) and Azurite containers. Without Docker, or with
+(`OCTO_TEST_MINIO_IMAGE`, default `cgr.dev/chainguard/minio:latest`) and Azurite containers; the staging location is tested against
+Azurite (the SAS is accepted and refused as designed) and against CrateDB plus MinIO on one Docker network
+(`OCTO_TEST_CRATEDB_IMAGE`, default `crate:5.9.10`: `COPY TO` / `COPY FROM` with a generated location). Without Docker, or with
 `OCTO_SKIP_CONTAINER_TESTS=true`, the container tests are reported as skipped.
 
 ## Build

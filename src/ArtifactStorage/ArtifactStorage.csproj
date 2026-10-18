@@ -25,6 +25,8 @@
         <PackageReference Include="Microsoft.Extensions.Diagnostics.HealthChecks" Version="10.0.13" />
         <PackageReference Include="Microsoft.Extensions.Logging.Abstractions" Version="10.0.13" />
         <PackageReference Include="Microsoft.Extensions.Options.ConfigurationExtensions" Version="10.0.13" />
+        <!-- ArchiveCopyStagingLocation (AB#5967): the staging location the CrateDB COPY statements consume -->
+        <PackageReference Include="Meshmakers.Octo.Runtime.Contracts" Version="$(OctoCoreLibVersion)" />
     </ItemGroup>
 
     <ItemGroup>

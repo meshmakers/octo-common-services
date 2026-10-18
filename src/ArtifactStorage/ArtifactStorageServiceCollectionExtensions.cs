@@ -3,6 +3,7 @@ using Meshmakers.Octo.Services.ArtifactStorage.Configuration;
 using Meshmakers.Octo.Services.ArtifactStorage.FileSystem;
 using Meshmakers.Octo.Services.ArtifactStorage.HealthChecks;
 using Meshmakers.Octo.Services.ArtifactStorage.S3;
+using Meshmakers.Octo.Services.ArtifactStorage.Staging;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
@@ -24,7 +25,8 @@ public static class ArtifactStorageServiceCollectionExtensions
     ///     Binds <see cref="ArtifactStorageOptions" /> from the section <see cref="ArtifactStorageOptions.SectionName" />
     ///     of <paramref name="configuration" /> (environment <c>OCTO_ARTIFACTSTORAGE__…</c>), validates it at start-up
     ///     and registers <see cref="IArtifactStore" /> (singleton, provider chosen by
-    ///     <see cref="ArtifactStorageOptions.Provider" />) and <see cref="ArtifactKeyBuilder" />.
+    ///     <see cref="ArtifactStorageOptions.Provider" />), <see cref="ArtifactKeyBuilder" /> and
+    ///     <see cref="IArchiveCopyStagingLocationFactory" /> (the staging location of native archive copies).
     /// </summary>
     /// <param name="services">The service collection.</param>
     /// <param name="configuration">The configuration root (not the section).</param>
@@ -48,6 +50,7 @@ public static class ArtifactStorageServiceCollectionExtensions
         services.TryAddSingleton(TimeProvider.System);
         services.TryAddSingleton<ArtifactKeyBuilder>();
         services.TryAddSingleton(CreateStore);
+        services.TryAddSingleton<IArchiveCopyStagingLocationFactory, ArchiveCopyStagingLocationFactory>();
         return services;
     }
 

@@ -58,6 +58,11 @@ public sealed class ArtifactStorageOptionsValidator : IValidateOptions<ArtifactS
             failures.Add($"{p}ServiceUrl must be an absolute URL.");
         }
 
+        if (!string.IsNullOrWhiteSpace(s3.CrateDbServiceUrl))
+        {
+            ValidateCrateDbServiceUrl(s3.CrateDbServiceUrl, p, failures);
+        }
+
         if (string.IsNullOrEmpty(s3.AccessKeyId) != string.IsNullOrEmpty(s3.SecretAccessKey))
         {
             failures.Add($"{p}AccessKeyId and {p}SecretAccessKey must be set together.");
@@ -74,12 +79,35 @@ public sealed class ArtifactStorageOptionsValidator : IValidateOptions<ArtifactS
         }
     }
 
+    private static void ValidateCrateDbServiceUrl(string value, string prefix, List<string> failures)
+    {
+        // "host:port" parses as an absolute URI whose scheme is the host name, so the scheme is checked explicitly.
+        if (!Uri.TryCreate(value, UriKind.Absolute, out var uri) ||
+            (uri.Scheme != Uri.UriSchemeHttp && uri.Scheme != Uri.UriSchemeHttps))
+        {
+            failures.Add(
+                $"{prefix}CrateDbServiceUrl must be an absolute http or https URL with host and port (scheme://host:port).");
+            return;
+        }
+
+        if (uri.AbsolutePath != "/" || uri.Query.Length > 0 || uri.Fragment.Length > 0 || uri.UserInfo.Length > 0)
+        {
+            failures.Add(
+                $"{prefix}CrateDbServiceUrl must contain only scheme, host and port (no path, query, fragment or user info).");
+        }
+    }
+
     private static void ValidateAzure(AzureBlobArtifactStorageOptions azure, List<string> failures)
     {
         const string p = ArtifactStorageOptions.SectionName + ":AzureBlob:";
         if (string.IsNullOrWhiteSpace(azure.Container))
         {
             failures.Add($"{p}Container is required.");
+        }
+
+        if (azure.StagingSasLifetime <= TimeSpan.Zero)
+        {
+            failures.Add($"{p}StagingSasLifetime must be greater than zero.");
         }
 
         if (!string.IsNullOrWhiteSpace(azure.ConnectionString))
