@@ -172,6 +172,41 @@ A filter refuses with a normal failed `CkMethodResponse` (for example `METHOD_FO
 answered `METHOD_HANDLER_FAILED`. The dispatcher of F3.3 runs its bus send as the terminal delegate of the same pipeline
 (`pipeline.ExecuteAsync(CkMethodTransportNames.Bus, request, send, ct)`), so authorization and audit see local and remote calls alike.
 
+### Authorization: the declared `authorization` is enforced for every call (F3.4)
+
+The model author declares who may call a method (`authorization: roles / allowSelf / scopes`). A service that dispatches or hosts methods
+turns that declaration into a check for every call, bus or in-process, with one line:
+
+```csharp
+services.AddCkMethodAuthorization();   // CkMethodAuthorizationFilter at band 200 + the shared evaluator
+```
+
+The process that starts the call establishes **who the caller is**. This is never taken from the request that travels over the bus:
+
+```csharp
+// gateway: after the token of the HTTP request was validated
+using (CkMethodPrincipalScope.Begin(CkMethodPrincipal.FromClaimsPrincipal(httpContext.User)))
+{
+    response = await dispatcher.InvokeAsync(request, cancellationToken);
+}
+// a job or a pipeline opens the scope with its own identity: new CkMethodPrincipal(subjectOrNull, roles, scopes)
+```
+
+| Rule | Meaning |
+|------|---------|
+| `octo_api` | Always required, even for a method that lists no scope and for administrators. |
+| `scopes` | **All** listed scopes are required (compared exactly). |
+| `roles` | **Any** listed role suffices (case-insensitive). |
+| `allowSelf` | The caller's `sub` equals the target id, compared as parsed object ids (upper-case and lower-case hex are equal). Instance methods only (a static method with `allowSelf` is rejected by the compiler, message 104). |
+| default-deny | A method without `authorization`, or with empty `roles`, is for administrators only (`Methods:Authorization:AdministratorRoles`, default `AdminPanelManagement`) and, when `allowSelf` is declared, for the target itself. The owner of the target is refused if nothing is declared. A method that lists roles does not admit administrators implicitly. |
+| no caller, unknown method | Refused. |
+
+A refusal is a normal failed response, `METHOD_FORBIDDEN` with `methodId` and `reason = not-authorized`. The filter does not load the target and does
+not say which rule failed, so the answer is identical whether the target exists or not. The audit filter (band 100) wraps authorization and records the
+refusal; the idempotency filter (300) and the transport never run for a refused call. Handlers still re-validate the forwarded token themselves
+(methodConsistency.md rule R9 in octo-documentation): this filter is the second line behind the gateway gate and the only line for callers that do not use the gateway. The evaluator
+(`ICkMethodAuthorizationEvaluator`) is a public service, so that the gateway gate uses exactly the same rules without a bus.
+
 ## 8. Duplicate deliveries and failing sends
 
 The bus consumer receives the transport delivery info (`CommandDeliveryInfo`). A **possible duplicate** (the broker redelivers
