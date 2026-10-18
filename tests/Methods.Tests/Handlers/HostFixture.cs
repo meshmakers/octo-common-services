@@ -89,3 +89,16 @@ internal sealed class NoResultHandler(
     public Task<CkMethodOutcome> HandleAsync(CkMethodContext<UserChangePasswordParameters> context,
         CancellationToken cancellationToken) => run?.Invoke(context) ?? Task.FromResult(CkMethodOutcome.Ok());
 }
+
+/// <summary>Transport delivery info of the test deliveries.</summary>
+internal static class TestDelivery
+{
+    public static readonly Meshmakers.Octo.Common.DistributionEventHub.Services.CommandDeliveryInfo First =
+        new(false, 0, 0, Guid.NewGuid());
+
+    public static readonly Meshmakers.Octo.Common.DistributionEventHub.Services.CommandDeliveryInfo Redelivered =
+        new(true, 0, 0, Guid.NewGuid());
+
+    public static readonly Meshmakers.Octo.Common.DistributionEventHub.Services.CommandDeliveryInfo Retried =
+        new(false, 1, 0, Guid.NewGuid());
+}

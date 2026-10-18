@@ -83,11 +83,14 @@ builder.Services.AddCkMethodHandlers("accounts-services",
 At startup (order 15, before the bus) every registration is checked against the CK cache of the system tenant
 (`Methods:ValidationTenantIds` to name other tenants): unknown method id, a parameter without a property on the parameters
 record, a scalar type mismatch, result vs. no-result handler. A mismatch **stops the service** with a message that names the
-method. The host then connects one shared queue per method, announces the handler (`CkMethodHandlerAnnounced`), repeats the
-announcement every 15 s (TTL 45 s) and withdraws on graceful shutdown before it removes the queues.
+method. The host then connects one shared command endpoint per method (competing consumers, faults suppressed), **waits until every
+endpoint accepts messages** (`EndpointHandle.WaitUntilReadyAsync`, at most `Methods:EndpointReadyTimeout`, default 30 s; the
+service fails to start instead of announcing a handler that cannot receive), and only then announces the handler
+(`CkMethodHandlerAnnounced`). It repeats the announcement every 15 s (TTL 45 s) and withdraws on graceful shutdown before it
+removes the queues.
 
 Options (section `Methods`): `HeartbeatInterval`, `Ttl`, `ValidateRegistrations` (default `true`, switch off only in tests),
-`ValidationTenantIds`.
+`ValidationTenantIds`, `EndpointReadyTimeout`.
 
 ## 5. Logging and sensitive parameters
 
@@ -169,7 +172,17 @@ A filter refuses with a normal failed `CkMethodResponse` (for example `METHOD_FO
 answered `METHOD_HANDLER_FAILED`. The dispatcher of F3.3 runs its bus send as the terminal delegate of the same pipeline
 (`pipeline.ExecuteAsync(CkMethodTransportNames.Bus, request, send, ct)`), so authorization and audit see local and remote calls alike.
 
-## Known limitations
+## 8. Duplicate deliveries and failing sends
 
-The event hub on `main` exposes no endpoint readiness, no broker redelivery flag and no fault suppression yet, so the host
-announces right after connecting the queues and detects duplicates by invocation id only. See `CLAUDE.md`.
+The bus consumer receives the transport delivery info (`CommandDeliveryInfo`). A **possible duplicate** (the broker redelivers
+because the previous consumer lost its connection before the acknowledgement, or the bus retries) is **not executed**: the
+previous delivery may have run the method. The caller gets `METHOD_OUTCOME_UNKNOWN` (see the wire contract). The host does not
+know which methods are idempotent, so every method is treated as non-idempotent. The invocation id check stays as a second
+line (a repeated id is answered `METHOD_OUTCOME_UNKNOWN` as well, also after a refused redelivery).
+
+A sender must use the shared-endpoint send, `IDistributionEventHubService.GetCommandResponseAsync(queue, request,
+new CommandSendOptions { Mandatory = true, Timeout = ..., TimeToLive = ... }, ct)`. With `Mandatory`, a request to a queue
+without any consumer fails at once with `CommandNotRoutableException` (typically within milliseconds) instead of ending in
+`METHOD_TIMEOUT`; the dispatcher maps it to `METHOD_HANDLER_NOT_AVAILABLE`. The plain `GetCommandResponseAsync` overload does
+not reach the shared endpoint. Handler endpoints suppress faults: an exception escaping the consumer is logged without the
+message, is not retried and leaves no `_error` / `_skipped` copy of the request (it holds passwords and tokens).

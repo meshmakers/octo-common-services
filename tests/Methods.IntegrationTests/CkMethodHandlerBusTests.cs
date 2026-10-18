@@ -269,7 +269,8 @@ public sealed class CkMethodHandlerBusTests(RabbitMqFixture rabbitMq) : IAsyncLi
     private static Task<CkMethodResponse> CallAsync(Host caller, CkMethodRequest request) =>
         caller.Provider.GetRequiredService<IDistributionEventHubService>()
             .GetCommandResponseAsync<CkMethodRequest, CkMethodResponse>(CkMethodQueueNames.For(request.MethodId),
-                request, TestContext.Current.CancellationToken, CallTimeout);
+                request, new CommandSendOptions { Mandatory = true, Timeout = CallTimeout, TimeToLive = CallTimeout },
+                TestContext.Current.CancellationToken);
 
     private static async Task WaitUntilAsync(Func<bool> condition, TimeSpan timeout)
     {
@@ -371,6 +372,27 @@ public sealed class CkMethodHandlerBusTests(RabbitMqFixture rabbitMq) : IAsyncLi
         Assert.True(first.Success);
         Assert.Equal(CkMethodErrorCodes.MethodOutcomeUnknown, second.Error!.Code);
         Assert.Equal(1, InMemoryAccountStore.Calls);
+    }
+
+    [Fact]
+    public async Task RequestBeforeTheHandlerHost_FailsFastAsNotRoutable_AndOnceStartedItIsDelivered()
+    {
+        var (caller, events) = await StartCallerHostAsync();
+
+        // nobody consumes the method queue yet: no METHOD_TIMEOUT, a typed failure within the timeout
+        var sw = Stopwatch.StartNew();
+        await Assert.ThrowsAsync<Meshmakers.Octo.Common.DistributionEventHub.CommandNotRoutableException>(() => CallAsync(caller, NewRequest()));
+        Assert.True(sw.Elapsed < TimeSpan.FromSeconds(2), $"not routable took {sw.Elapsed}");
+        Assert.Empty(events.Announced);
+
+        // StartAsync returns only after every endpoint is ready and the handler is announced
+        var handler = await StartHandlerHostAsync("HandlerA");
+        var instanceId = handler.Provider.GetRequiredService<CkMethodHandlerInstance>().InstanceId;
+        await WaitUntilAsync(() => events.Announced.Any(a => a.InstanceId == instanceId), TimeSpan.FromSeconds(5));
+
+        // a request sent right after the announcement is accepted by the endpoint: never racing the queue creation
+        var response = await CallAsync(caller, NewRequest());
+        Assert.True(response.Success);
     }
 
     [Fact]

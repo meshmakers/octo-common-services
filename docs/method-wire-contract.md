@@ -117,6 +117,14 @@ Well-known parameter names (`CkMethodErrorParameters`, camelCase): `methodId`, `
 (lower-case, model version stripped, keyed by the declaring type, method version mandatory). Announce and heartbeat
 defaults: 15 s interval, 45 s TTL (carried in the announcement; final values are decided by F3.2).
 
+### Sending a request
+
+Handlers consume the method queue as a shared (competing-consumer) endpoint. A request is sent with the event hub overload
+`GetCommandResponseAsync(CkMethodQueueNames.For(id), request, new CommandSendOptions { Mandatory = true, Timeout, TimeToLive }, ct)`.
+`Mandatory` turns "no consumer" into a `CommandNotRoutableException` within milliseconds (`METHOD_HANDLER_NOT_AVAILABLE` in
+the dispatcher), and a handler is announced only after its endpoint accepts messages, so an announced handler is routable.
+The plain `GetCommandResponseAsync` overload addresses a different (temporary, exclusive) exchange and does not reach a handler.
+
 ## Security notes
 
 The bus is internal and not authenticated per message: `caller` is informational and a forged value must have no effect;
