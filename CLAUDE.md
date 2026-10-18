@@ -702,6 +702,29 @@ tests `tests/Methods.Tests/InProcess/`. Guide: `docs/method-handler-sdk.md` sect
 - `CkMethodRequest` carries `Caller` and `CallerAccessToken` unchanged to the handler; neither reaches a log (`ToString()` redacts,
   the redactor masks the token in exceptions).
 
+### Method dispatcher (AB#6905, F3.3)
+
+`ICkMethodDispatcher` (`src/Methods/Dispatching/`, registration `AddCkMethodDispatcher()` + `AddCkMethodHandlerRegistryFeed()` in the
+`AddDistributionEventHub` configuration) is the calling side of a CK method. Guide: `docs/method-handler-sdk.md` section 9.
+
+- **Order**: resolve the declaring element (`CkCacheMethodDeclaringElementResolver`: `CkTypeGraph.AllMethods` of the tenant, rewrites
+  `MethodId` to the qualified id of the declaring type; inherited and interface methods route to the declaring queue; unknown = as
+  given) -> in-process transport when `ICkInProcessMethodTransport.CanHandle` -> otherwise `ICkMethodInvocationPipeline.ExecuteAsync("bus",
+  request, send, ct)`. **The dispatcher adds no filter and no pipeline**; `send` is one mandatory, non-persistent
+  `GetCommandResponseAsync` (never resent). It never throws for a failing call; only caller cancellation surfaces.
+- **Error mapping**: `CommandNotRoutableException` -> `METHOD_HANDLER_NOT_AVAILABLE` (`methodId`, `reason` `no-live-handler`);
+  `DistributionTimeoutException` / deadline passed -> `METHOD_TIMEOUT`; `DistributedOperationFailedException`, bus-side cancellation,
+  resolver/DI faults -> `METHOD_HANDLER_FAILED` + `correlationId`. No exception text on the wire.
+- **Timeout**: wait = `DeadlineUtc - now + Methods:Dispatcher:ResponseGrace` (2 s), TTL the same; `MaxTimeout` (10 min) clamps first
+  (also the deadline the handler sees), so `DateTime.MaxValue` cannot throw. AB#6906 refines the timeout rules.
+- **Registry** (`ICkMethodHandlerRegistry`, in-memory, advisory): fed by announce/withdraw, expiry = receipt time + TTL (dispatcher
+  clock), withdrawal beats older announcements, `MarkNoQueueBound` spares instances announced during the send. Used for the tenant check
+  (`tenant-not-served`) and the contract version check (never send a newer version than announced); it never vetoes a send, the broker's
+  mandatory flag decides. `CkMethodDispatcherStartupService` (order 30) publishes a discovery request at start. F3.2 builds persistence
+  and diagnostics on it.
+- **Tests**: `tests/Methods.Tests/Dispatching`, `tests/Methods.IntegrationTests/CkMethodDispatcherBusTests.cs` (the integration project
+  now references FakeItEasy for a fake `ICkCacheService`).
+
 ## Tests
 
 `tests/Infrastructure.Tests` — xUnit + FakeItEasy. `Infrastructure.csproj` exposes internals to this
