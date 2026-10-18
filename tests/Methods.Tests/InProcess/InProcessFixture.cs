@@ -46,7 +46,7 @@ internal sealed class InProcessFixture
         }
 
         var loggers = LoggerFactory.Create(b => b.AddProvider(new FakeLoggerProvider(fixture.Logs)));
-        fixture.Pipeline = new CkMethodInvocationPipeline(filters, loggers.CreateLogger<CkMethodInvocationPipeline>());
+        fixture.Pipeline = new CkMethodInvocationPipeline(filters, new DefinitionSensitivity(definition), loggers.CreateLogger<CkMethodInvocationPipeline>());
         fixture.Transport = new CkInProcessMethodTransport(provider.GetRequiredService<IServiceScopeFactory>(),
             fixture.Registrations, fixture.Pipeline, Options.Create(new CkMethodHandlerOptions()), fixture.Time,
             loggers);
@@ -56,4 +56,14 @@ internal sealed class InProcessFixture
     public DateTime InSeconds(int seconds) => Time.GetUtcNow().UtcDateTime.AddSeconds(seconds);
 
     public string AllLogText() => string.Join("\n", Logs.GetSnapshot().Select(r => r.Message + "\n" + r.Exception));
+}
+
+/// <summary>Sensitive parameters read from a fixed definition (<c>null</c> definition: method unknown, fail-closed).</summary>
+internal sealed class DefinitionSensitivity(CkMethodDto? definition) : ICkMethodSensitivityResolver
+{
+    public IReadOnlySet<string>? GetSensitiveParameters(string tenantId, string ckTypeId, string qualifiedMethodId) =>
+        definition == null
+            ? null
+            : (definition.Parameters ?? []).Where(p => p.Sensitive).Select(p => p.Name)
+                .ToHashSet(StringComparer.OrdinalIgnoreCase);
 }

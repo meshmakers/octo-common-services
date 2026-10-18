@@ -1,6 +1,9 @@
+using Meshmakers.Octo.ConstructionKit.Contracts.Services;
 using Meshmakers.Octo.Services.Methods;
+using Meshmakers.Octo.Services.Methods.Authorization;
 using Meshmakers.Octo.Services.Methods.Handlers;
 using Microsoft.Extensions.DependencyInjection.Extensions;
+using Microsoft.Extensions.Logging;
 
 // ReSharper disable once CheckNamespace
 namespace Microsoft.Extensions.DependencyInjection;
@@ -48,10 +51,18 @@ public static class CkInProcessMethodServiceCollectionExtensions
 
     /// <summary>
     ///     Registers the invocation pipeline (<see cref="ICkMethodInvocationPipeline" />) that the in-process transport and
-    ///     the bus dispatcher both run. Idempotent; called by <see cref="AddCkInProcessMethodHandlers" />.
+    ///     the bus dispatcher both run, and the <see cref="ICkMethodSensitivityResolver" /> behind the redacted request view
+    ///     (it uses the registered <c>ICkMethodAuthorizationDefinitionSource</c>, else the CK cache; with neither, every
+    ///     parameter value is redacted). Idempotent; called by <see cref="AddCkInProcessMethodHandlers" />.
     /// </summary>
     public static IServiceCollection AddCkMethodInvocationPipeline(this IServiceCollection services)
     {
+        services.TryAddSingleton<ICkMethodSensitivityResolver>(sp => new CkMethodSensitivityResolver(
+            sp.GetService<ICkMethodAuthorizationDefinitionSource>() ??
+            (sp.GetService<ICkCacheService>() is { } ckCache
+                ? new CkCacheMethodAuthorizationDefinitionSource(ckCache,
+                    sp.GetRequiredService<ILogger<CkCacheMethodAuthorizationDefinitionSource>>())
+                : null)));
         services.TryAddSingleton<ICkMethodInvocationPipeline, CkMethodInvocationPipeline>();
         return services;
     }

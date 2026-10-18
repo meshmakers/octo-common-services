@@ -2,6 +2,7 @@ using Meshmakers.Octo.Common.DistributionEventHub;
 using Meshmakers.Octo.Common.DistributionEventHub.Services;
 using Meshmakers.Octo.ConstructionKit.Contracts.DataTransferObjects;
 using Meshmakers.Octo.Services.Contracts.DistributionEventHub.Methods;
+using Meshmakers.Octo.Services.Methods.Handlers;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 
@@ -18,6 +19,7 @@ internal sealed class CkMethodDispatcher(
     CkMethodHandlerRegistry registry,
     IDistributionEventHubService eventHub,
     IServiceProvider serviceProvider,
+    ICkMethodSensitivityResolver sensitivity,
     IOptions<CkMethodDispatcherOptions> options,
     TimeProvider timeProvider,
     ILogger<CkMethodDispatcher> logger) : ICkMethodDispatcher
@@ -60,7 +62,7 @@ internal sealed class CkMethodDispatcher(
             // The contract is "never throws for a failing call"; the pipeline and the transports already answer their own
             // failures, this is the last line for the rest (resolver, DI).
             var correlationId = request.CorrelationId ?? request.InvocationId;
-            logger.LogError(e, "CK method {MethodId} invocation {InvocationId} failed in the dispatcher (correlation {CorrelationId})",
+            logger.LogError(Redactor(request).Redact(e), "CK method {MethodId} invocation {InvocationId} failed in the dispatcher (correlation {CorrelationId})",
                 request.MethodId, request.InvocationId, correlationId);
             return HandlerFailed(request, correlationId);
         }
@@ -161,12 +163,17 @@ internal sealed class CkMethodDispatcher(
         {
             // the bus is stopping or the send failed: a platform outcome, not an exception for the caller
             var correlationId = request.CorrelationId ?? request.InvocationId;
-            logger.LogError(e,
+            logger.LogError(Redactor(request).Redact(e),
                 "CK method {MethodId} invocation {InvocationId} tenant {TenantId}: bus transport failed (correlation {CorrelationId})",
                 request.MethodId, request.InvocationId, request.TenantId, correlationId);
             return HandlerFailed(request, correlationId);
         }
     }
+
+    /// <summary>Masks the token and the sensitive parameters in exceptions of the bus or the resolver (AB#6914).</summary>
+    private CkMethodRedactor Redactor(CkMethodRequest request) =>
+        CkMethodRedactor.For(sensitivity.GetSensitiveParameters(request.TenantId, request.CkTypeId, request.MethodId),
+            request);
 
     private CkMethodResponse NotAvailable(CkMethodRequest request, string reason)
     {

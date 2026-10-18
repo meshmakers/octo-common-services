@@ -46,7 +46,7 @@ public class CkMethodDispatcherTests
     private CkMethodDispatcher Dispatcher()
     {
         var loggers = LoggerFactory.Create(b => b.AddProvider(new FakeLoggerProvider(_logs)));
-        _pipeline ??= new CkMethodInvocationPipeline(_filters, loggers.CreateLogger<CkMethodInvocationPipeline>());
+        _pipeline ??= new CkMethodInvocationPipeline(_filters, new CkMethodSensitivityResolver(null), loggers.CreateLogger<CkMethodInvocationPipeline>());
         var services = new ServiceCollection();
         if (_inProcess != null)
         {
@@ -54,7 +54,7 @@ public class CkMethodDispatcherTests
         }
 
         return new CkMethodDispatcher(_resolver, _pipeline, _registry, _eventHub, services.BuildServiceProvider(),
-            Options.Create(_options), _time, loggers.CreateLogger<CkMethodDispatcher>());
+            new CkMethodSensitivityResolver(null), Options.Create(_options), _time, loggers.CreateLogger<CkMethodDispatcher>());
     }
 
     private void BusReturns(CkMethodResponse response) =>
@@ -514,6 +514,22 @@ public class CkMethodDispatcherTests
         Assert.DoesNotContain(TestData.Secret, text);
         Assert.DoesNotContain(TestData.OldSecret, text);
         Assert.DoesNotContain(TestData.Token, text);
+    }
+
+    [Fact]
+    public async Task BusFailureThatQuotesThePayload_IsLoggedMasked()
+    {
+        BusThrows(new DistributedOperationFailedException(
+            $"send failed for {{\"newPassword\":\"{TestData.Secret}\"}} with token {TestData.Token}"));
+
+        var response = await Dispatcher().InvokeAsync(Request(), TestContext.Current.CancellationToken);
+
+        Assert.Equal(CkMethodErrorCodes.MethodHandlerFailed, response.Error!.Code);
+        var text = string.Join("\n", _logs.GetSnapshot().Select(r => r.Message + r.Exception));
+        Assert.DoesNotContain(TestData.Secret, text);
+        Assert.DoesNotContain(TestData.OldSecret, text);
+        Assert.DoesNotContain(TestData.Token, text);
+        Assert.Contains("***", text);
     }
 
     private sealed class LambdaFilter(int order,

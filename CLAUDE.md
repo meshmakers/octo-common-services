@@ -719,6 +719,20 @@ tests `tests/Methods.Tests/InProcess/`. Guide: `docs/method-handler-sdk.md` sect
   calls (AB#6917, D3:A), OD-9 (AB#6918).
 - `CkMethodRequest` carries `Caller` and `CallerAccessToken` unchanged to the handler; neither reaches a log (`ToString()` redacts,
   the redactor masks the token in exceptions).
+- **Redacted request view** (AB#6914, F3.4; `src/Methods/Redaction/`, tests `tests/Methods.Tests/Redaction`,
+  `tests/Methods.IntegrationTests/CkMethodRedactionBusTests.cs`): audit is outermost (band 100) and sees the request before
+  authorization, so redaction happens **in front of the pipeline, not as a filter**. `CkMethodInvocationContext.Request` is a *view*:
+  the values of the CK `sensitive: true` parameters are replaced by `"***"` (whole value, also nested objects/arrays; names match
+  case-insensitively), `CallerAccessToken` is `null`, everything else is as built. An unparsable or non-object payload becomes `{}`;
+  a method the definition source does not know (or no source at all) is **fail-closed**: every parameter value is masked. The
+  raw request goes only to the transport: when a filter calls `next(r)`, the pipeline puts the raw `ParametersJson`/token back
+  unless the filter replaced them itself. Consequence for F3.5: a filter cannot hash or compare the real parameter values (an
+  idempotency fingerprint over the view would equal for different passwords). The sensitivity comes from
+  `ICkMethodSensitivityResolver` (registered by `AddCkMethodInvocationPipeline`; reads `ICkMethodAuthorizationDefinitionSource`, else the CK
+  cache). `CkMethodRedactor.For(sensitiveNames|null, request)` masks the same values in exceptions the pipeline and the dispatcher log
+  (a bus exception that quotes the payload). Not covered: sensitive **results** (the meta-model has no flag for them), pipeline
+  handlers (OD-9, AB#6918), and what a handler itself writes. There is no `ActivitySource`/metric in `src/Methods` yet; the canary test
+  listens to all activity sources so a later one cannot leak unnoticed.
 
 ### Method dispatcher (AB#6905, F3.3)
 
