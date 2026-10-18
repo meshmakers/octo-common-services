@@ -119,7 +119,8 @@ public sealed class CkMethodAuthorizationEvaluator(IOptions<CkMethodAuthorizatio
 
         if (roles.Length == 0)
         {
-            return HasAnyRole(principal, options.Value.AdministratorRoles)
+            var configured = options.Value.AdministratorRoles;
+            return HasAnyRole(principal, configured.Count > 0 ? configured : CkMethodAuthorizationOptions.DefaultAdministratorRoles)
                 ? CkMethodAuthorizationDecision.Allow
                 : CkMethodAuthorizationDecision.Deny(CkMethodDenial.AdministratorsOnly);
         }

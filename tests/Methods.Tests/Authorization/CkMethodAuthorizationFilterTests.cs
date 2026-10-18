@@ -256,6 +256,23 @@ public class CkMethodAuthorizationFilterTests
         Assert.NotNull(provider.GetRequiredService<ICkMethodInvocationPipeline>());
     }
 
+    [Fact]
+    public void AdministratorRoles_FromConfiguration_ReplaceTheDefault()
+    {
+        var services = new ServiceCollection();
+        services.AddLogging();
+        services.AddSingleton<Microsoft.Extensions.Configuration.IConfiguration>(
+            new Microsoft.Extensions.Configuration.ConfigurationBuilder()
+                .Add(new SingleValueSource("Methods:Authorization:AdministratorRoles:0", "Root")).Build());
+        services.AddSingleton(A.Fake<ICkCacheService>());
+        services.AddCkMethodAuthorization();
+        using var provider = services.BuildServiceProvider();
+        var evaluator = provider.GetRequiredService<ICkMethodAuthorizationEvaluator>();
+
+        Assert.True(evaluator.Evaluate(null, CkMethodKindDto.Instance, Owner, Caller(roles: ["Root"])).Allowed);
+        Assert.False(evaluator.Evaluate(null, CkMethodKindDto.Instance, Owner, Caller(roles: ["AdminPanelManagement"])).Allowed);
+    }
+
     // ---- definition source -----------------------------------------------------------------------------------
 
     private const string Tenant = "meshtest";
@@ -302,6 +319,17 @@ public class CkMethodAuthorizationFilterTests
         Assert.Null(source.Find(Tenant, "Sample.Accounts/Account", "Sample.Accounts/Account.ChangePassword-1")); // unknown type
         Assert.Null(source.Find(Tenant, "Sample.Accounts/Account", "not a method id"));
         Assert.Null(source.Find(Tenant, "###", "Sample.Accounts/Account.ChangePassword-1"));
+    }
+
+    private sealed class SingleValueSource(string key, string value) : Microsoft.Extensions.Configuration.IConfigurationSource
+    {
+        public Microsoft.Extensions.Configuration.IConfigurationProvider Build(
+            Microsoft.Extensions.Configuration.IConfigurationBuilder builder) => new Provider(key, value);
+
+        private sealed class Provider : Microsoft.Extensions.Configuration.ConfigurationProvider
+        {
+            public Provider(string key, string value) => Data = new Dictionary<string, string?>(StringComparer.OrdinalIgnoreCase) { [key] = value };
+        }
     }
 
     // ---- helpers ---------------------------------------------------------------------------------------------
