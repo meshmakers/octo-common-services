@@ -35,6 +35,7 @@ serialized form of every message; a wire change fails `MethodWireContractTests`.
 | `caller` | `CkMethodCaller`? | Informational caller identity (`subjectId`, `clientId`, `tenantId`, `name`, `roles`). Handlers must not authorize on it. |
 | `callerAccessToken` | string? | Raw JWT for the handler to re-validate. **Sensitive**, never log. |
 | `deadlineUtc` | DateTime | Absolute deadline. A handler that receives the request later answers `METHOD_TIMEOUT` without executing. |
+| `timeoutSeconds` | int? | Timeout of the method in seconds that `deadlineUtc` was derived from (informational; the deadline decides). The dispatcher fills it when the caller did not. It is reported back as the `timeoutSeconds` parameter of `METHOD_TIMEOUT`. Additive, no version bump. |
 | `idempotencyKey` | string? | Client key for safe retries of non-idempotent methods (F3.5; ignored until then). |
 
 `CkMethodRequest` is sealed and overrides `ToString()` to print only method, tenant, target and invocation id; the

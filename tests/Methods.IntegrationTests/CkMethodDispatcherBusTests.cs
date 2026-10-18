@@ -443,6 +443,98 @@ public sealed class CkMethodDispatcherBusTests(RabbitMqFixture rabbitMq) : IAsyn
     }
 
     [Fact]
+    public async Task BrokerRedelivery_AfterTheConsumerConnectionDropped_IsNotExecuted_AndAnsweredOutcomeUnknown()
+    {
+        // two instances share the queue: when one loses its connection, the broker redelivers to the other
+        var (_, probeA) = await StartHandlerHostAsync("HandlerA");
+        var (_, probeB) = await StartHandlerHostAsync("HandlerB");
+        var (_, dispatcher, _) = await StartGatewayAsync();
+
+        var call = dispatcher.InvokeAsync(NewRequest(target: "gate", timeout: TimeSpan.FromSeconds(30)),
+            TestContext.Current.CancellationToken);
+        await Task.WhenAny(probeA.Entered.Task, probeB.Entered.Task).WaitAsync(TimeSpan.FromSeconds(5),
+            TestContext.Current.CancellationToken);
+        var (busy, idle) = probeA.Entered.Task.IsCompleted ? (probeA, probeB) : (probeB, probeA);
+
+        // the handler has the message but has not acknowledged it: its broker connection is lost
+        await CloseConnectionWithUnacknowledgedMessageAsync();
+        var response = await call.WaitAsync(TimeSpan.FromSeconds(40), TestContext.Current.CancellationToken);
+
+        Assert.Equal(CkMethodErrorCodes.MethodOutcomeUnknown, response.Error!.Code);
+        Assert.Equal(MethodId, response.Error.Parameters[CkMethodErrorParameters.MethodId]);
+        Assert.Equal(1, busy.Calls);
+        Assert.Equal(0, idle.Calls); // the redelivery did not run the handler again
+        busy.Release.TrySetResult(); // the first execution ends; its answer cannot be delivered and is swallowed
+    }
+
+    [Fact]
+    public async Task TimeoutOfTheMethod_ReachesTheCaller_AsTimeoutSeconds_FromTheHandlerHost()
+    {
+        await StartHandlerHostAsync();
+        var (_, dispatcher, _) = await StartGatewayAsync();
+
+        var sw = Stopwatch.StartNew();
+        var response = await dispatcher.InvokeAsync(
+            NewRequest(target: "slow", timeout: TimeSpan.FromSeconds(2)) with { TimeoutSeconds = 2 },
+            TestContext.Current.CancellationToken);
+        sw.Stop();
+
+        Assert.Equal(CkMethodErrorCodes.MethodTimeout, response.Error!.Code);
+        Assert.Equal("2", response.Error.Parameters[CkMethodErrorParameters.TimeoutSeconds]); // not the host default 15
+        Assert.True(sw.Elapsed < TimeSpan.FromSeconds(2 + 2), $"took {sw.Elapsed}");
+        // the handler host itself answered at the deadline, not the dispatcher after its grace
+        Assert.NotEqual(string.Empty, response.HandlerInstanceId);
+    }
+
+    [Fact]
+    public async Task RequestArrivingAfterItsDeadline_IsNotExecuted_AndAnsweredTimeout_ByTheHandlerHost()
+    {
+        var (_, probe) = await StartHandlerHostAsync();
+        var (gateway, _, _) = await StartGatewayAsync();
+        var request = NewRequest() with { DeadlineUtc = DateTime.UtcNow.AddSeconds(-30), TimeoutSeconds = 5 };
+
+        // a sender that is not the dispatcher (the dispatcher never sends an expired request)
+        var response = await gateway.Provider.GetRequiredService<IDistributionEventHubService>()
+            .GetCommandResponseAsync<CkMethodRequest, CkMethodResponse>(CkMethodQueueNames.For(request.MethodId), request,
+                new CommandSendOptions { Mandatory = true, Timeout = CallTimeout, TimeToLive = CallTimeout },
+                TestContext.Current.CancellationToken);
+
+        Assert.Equal(CkMethodErrorCodes.MethodTimeout, response.Error!.Code);
+        Assert.Equal("5", response.Error.Parameters[CkMethodErrorParameters.TimeoutSeconds]);
+        Assert.NotEqual(string.Empty, response.HandlerInstanceId);
+        Assert.Equal(0, probe.Calls);
+    }
+
+    [Fact]
+    public async Task DeadlineMaxValue_FromANonDispatcherSender_IsServedByTheHandlerHost_AndItsInvocationIdIsRemembered()
+    {
+        var (_, probe) = await StartHandlerHostAsync();
+        var (gateway, _, _) = await StartGatewayAsync();
+        var request = NewRequest() with { DeadlineUtc = DateTime.SpecifyKind(DateTime.MaxValue, DateTimeKind.Utc) };
+        var hub = gateway.Provider.GetRequiredService<IDistributionEventHubService>();
+        Task<CkMethodResponse> Send() => hub.GetCommandResponseAsync<CkMethodRequest, CkMethodResponse>(
+            CkMethodQueueNames.For(request.MethodId), request,
+            new CommandSendOptions { Mandatory = true, Timeout = CallTimeout, TimeToLive = CallTimeout },
+            TestContext.Current.CancellationToken);
+
+        var first = await Send();
+        var second = await Send(); // same invocation id, same instance
+
+        Assert.True(first.Success);
+        Assert.Equal(CkMethodErrorCodes.MethodOutcomeUnknown, second.Error!.Code);
+        Assert.Equal(1, probe.Calls);
+    }
+
+    /// <summary>Closes the broker connection of the consumer that holds an unacknowledged message (a lost connection).</summary>
+    private async Task CloseConnectionWithUnacknowledgedMessageAsync()
+    {
+        var channels = await rabbitMq.RabbitMqCtlAsync("list_channels", "connection", "messages_unacknowledged");
+        var connectionPid = channels.Select(l => l.Split('\t'))
+            .First(p => p.Length >= 2 && int.TryParse(p[1], out var unacked) && unacked > 0)[0];
+        await rabbitMq.RabbitMqCtlAsync("close_connection", connectionPid, "AB6907-redelivery-test");
+    }
+
+    [Fact]
     public async Task HandlerThatDoesNotFinish_AnswersMethodTimeoutAtTheDeadline()
     {
         await StartHandlerHostAsync();

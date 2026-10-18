@@ -652,7 +652,8 @@ and registry (F3.2/F3.3) and the pipeline handler (AB#6879) are other stories. D
   parameter (request correlation id, else the invocation id); the exception is logged with that id, never sent.
 - **Host core** `ICkMethodHandlerInvoker` (public, transport independent): contract version check
   (`METHOD_CONTRACT_VERSION_UNSUPPORTED`), unknown method (`METHOD_HANDLER_NOT_AVAILABLE`, reason `method-not-registered`),
-  deadline already passed (`METHOD_TIMEOUT`, not executed), deadline cancellation of the handler token (`METHOD_TIMEOUT`),
+  deadline already passed (`METHOD_TIMEOUT`, not executed), deadline cancellation of the handler token (`METHOD_TIMEOUT`; `timeoutSeconds` =
+  `request.TimeoutSeconds`, the definition's value only as fallback),
   parameter deserialization with `CkMethodJson.Options` (invalid or missing member -> `METHOD_VALIDATION_FAILED` with the
   member name only, never the value), result serialization. It never throws for a request; only the caller's own
   `CancellationToken` surfaces as `OperationCanceledException`. Other transports call this instead of re-implementing it.
@@ -660,8 +661,9 @@ and registry (F3.2/F3.3) and the pipeline handler (AB#6879) are other stories. D
   with `RegisterCommandConsumer(name, handler, CommandConsumerOptions { SuppressFaults = true })`; senders use
   `GetCommandResponseAsync(name, request, CommandSendOptions { Mandatory = true, ... })`, a missing consumer fails with
   `CommandNotRoutableException`). A possible duplicate delivery (`CommandDeliveryInfo.IsPossibleDuplicate`: broker redelivery or
-  retry) is not executed and answered `METHOD_OUTCOME_UNKNOWN` (all methods count as non-idempotent); a repeated invocation id is
-  the second line, with the same answer. A failing response send is swallowed (a rethrow would let the bus retry run the method
+  retry) is not executed and answered `METHOD_OUTCOME_UNKNOWN` (all methods count as non-idempotent; the log line names invocation id,
+  tenant and delivery info, never parameters); a repeated invocation id is the second line, with the same answer. The seen-ids
+  retention is `min(DeadlineUtc, now + 1 h) + 5 min`, capped at `now + 1 h` (an endless deadline from another sender cannot overflow). A failing response send is swallowed (a rethrow would let the bus retry run the method
   again, AB#4348).
 - **Life cycle** (all internal, `AddCkMethodHandlers(serviceName, m => m.Handle<THandler>(methodId))`): start order 15 validation,
   20 event hub, 25 endpoints, wait for `WaitUntilReadyAsync` of every endpoint (`Methods:EndpointReadyTimeout`, 30 s; timeout = start
@@ -715,8 +717,17 @@ tests `tests/Methods.Tests/InProcess/`. Guide: `docs/method-handler-sdk.md` sect
 - **Error mapping**: `CommandNotRoutableException` -> `METHOD_HANDLER_NOT_AVAILABLE` (`methodId`, `reason` `no-live-handler`);
   `DistributionTimeoutException` / deadline passed -> `METHOD_TIMEOUT`; `DistributedOperationFailedException`, bus-side cancellation,
   resolver/DI faults -> `METHOD_HANDLER_FAILED` + `correlationId`. No exception text on the wire.
-- **Timeout**: wait = `DeadlineUtc - now + Methods:Dispatcher:ResponseGrace` (2 s), TTL the same; `MaxTimeout` (10 min) clamps first
-  (also the deadline the handler sees), so `DateTime.MaxValue` cannot throw. AB#6906 refines the timeout rules.
+- **Timeout** (AB#6906): `NormalizeTimeout` runs first in `InvokeAsync` (before routing, filters and the in-process/bus branch): it cuts
+  `DeadlineUtc` to `now + MaxTimeout` (10 min, also the deadline the handler sees) and fills `CkMethodRequest.TimeoutSeconds`
+  (`ceil(remaining)`, 1-300) when the caller left it out. The bus send waits `DeadlineUtc - now + ResponseGrace` (2 s, the documented
+  tolerance), TTL the same, and clamps again (a filter may set a later deadline). `ICkMethodTimeoutResolver` (public, `AddCkMethodDispatcher`;
+  `CkMethodTimeoutResolver.cs`) is how a gateway gets the deadline: effective `execution.timeoutSeconds` from the CK cache
+  (`CkMethodGraph.TimeoutSeconds`, 15 s default, clamped 1-300; unknown method or cache fault = default, never throws). Clamping rules
+  live in internal `CkMethodDeadline`. `timeoutSeconds` of every `METHOD_TIMEOUT` is the request's `TimeoutSeconds`.
+- **No retry** (AB#6907): one `GetCommandResponseAsync` per call, never resent; every transport fault is `METHOD_TIMEOUT`,
+  `METHOD_HANDLER_NOT_AVAILABLE` or `METHOD_HANDLER_FAILED`. Duplicates: see the bus transport above. Not detected (no "at most once"):
+  new invocation id, other instance without broker flag, restarted instance, single instance that loses its connection. A shared
+  duplicate store / idempotency store is open decision OD-3/OD-4 (`methodConsistency.md`) and is **not** built; do not add one here.
 - **Registry** (`ICkMethodHandlerRegistry`, in-memory, advisory): fed by announce/withdraw, expiry = receipt time + TTL (dispatcher
   clock), withdrawal beats older announcements, `MarkNoQueueBound` spares instances announced during the send. Used for the tenant check
   (`tenant-not-served`) and the contract version check (never send a newer version than announced); it never vetoes a send, the broker's

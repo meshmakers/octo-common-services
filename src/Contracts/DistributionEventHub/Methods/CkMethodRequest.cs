@@ -77,6 +77,15 @@ public sealed record CkMethodRequest : CommandBaseRequest
     public required DateTime DeadlineUtc { get; init; }
 
     /// <summary>
+    ///     The timeout of the method in seconds that <see cref="DeadlineUtc" /> was derived from (the effective
+    ///     <c>execution.timeoutSeconds</c> of the CK method, 1-300, default 15). The dispatcher fills it when the caller
+    ///     left it out. Informational: a handler or the dispatcher reports it as the <c>timeoutSeconds</c> parameter of
+    ///     <see cref="CkMethodErrorCodes.MethodTimeout" />; the deadline alone decides when the call ends. <c>null</c>
+    ///     (a sender that does not know it) reads as "not set"; additive member, no contract version bump.
+    /// </summary>
+    public int? TimeoutSeconds { get; init; }
+
+    /// <summary>
     ///     Client-chosen key that makes a retry of a non-idempotent method safe (processed by F3.5; until then handlers
     ///     ignore it). Opaque, at most 128 characters.
     /// </summary>

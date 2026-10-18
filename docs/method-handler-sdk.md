@@ -178,7 +178,29 @@ The bus consumer receives the transport delivery info (`CommandDeliveryInfo`). A
 because the previous consumer lost its connection before the acknowledgement, or the bus retries) is **not executed**: the
 previous delivery may have run the method. The caller gets `METHOD_OUTCOME_UNKNOWN` (see the wire contract). The host does not
 know which methods are idempotent, so every method is treated as non-idempotent. The invocation id check stays as a second
-line (a repeated id is answered `METHOD_OUTCOME_UNKNOWN` as well, also after a refused redelivery).
+line (a repeated id is answered `METHOD_OUTCOME_UNKNOWN` as well, also after a refused redelivery). The log line of a refusal names
+the invocation id, the method, the tenant and the delivery info (redelivered flag, retry attempt, redelivery count, message id)
+and never the parameters or the token.
+
+**No automatic retry (AB#6907).** The platform never runs a method twice on its own: the dispatcher sends once (no publisher-side
+resend; a transport fault ends as `METHOD_TIMEOUT` or `METHOD_HANDLER_NOT_AVAILABLE`), the handler endpoint suppresses faults and the
+consumer swallows a failing response send, so the bus retry (AB#4348) cannot run the method again. A handler that throws after a side
+effect ran once; the caller gets `METHOD_HANDLER_FAILED`. Tests: a counting handler on the RabbitMQ fixture, and a real broker
+redelivery (the connection of the busy instance is closed with `rabbitmqctl close_connection`, the second instance gets the message
+flagged and refuses it).
+
+**Limits: what is NOT detected.** There is no "at most once" guarantee.
+
+* The same logical operation with a **new invocation id** (caller retry after a timeout, double click). Helps: the idempotency key
+  (F3.5, filter band 300) or `execution.idempotent`.
+* The same invocation id on **another instance** without a broker flag (the caller re-sends the request unchanged). The seen-ids
+  memory is per instance. A shared store is open decision **OD-3** (`methodConsistency.md`); it is not built here.
+* The same invocation id after the handler instance **restarted** (the memory is not persisted).
+* A single instance that loses its connection while it works: the queue goes with the consumer, the message is lost and the caller
+  runs into `METHOD_TIMEOUT` (outcome unknown).
+
+The seen-ids memory keeps an id until `min(DeadlineUtc, now + 1 h) + 5 min`, capped at `now + 1 h`: a deadline from another sender
+(`DateTime.MaxValue`) can no longer overflow the sum.
 
 A sender must use the shared-endpoint send, `IDistributionEventHubService.GetCommandResponseAsync(queue, request,
 new CommandSendOptions { Mandatory = true, Timeout = ..., TimeToLive = ... }, ct)`. With `Mandatory`, a request to a queue
@@ -236,11 +258,26 @@ and run once per call for both transports.
 | Bus fault, bus stopping, filter or resolver exception | `METHOD_HANDLER_FAILED` with `correlationId` (details only in the log) |
 | Caller cancels its token | `OperationCanceledException` (the only exception) |
 
-**Timeouts.** The deadline is `request.DeadlineUtc`, the handler's cancellation token fires at it and the handler answers
-`METHOD_TIMEOUT` itself. The dispatcher waits `ResponseGrace` longer (`Methods:Dispatcher:ResponseGrace`, default 2 s) before it
-answers `METHOD_TIMEOUT` itself; message TTL and send timeout are the same value. `Methods:Dispatcher:MaxTimeout` (default 10
-minutes, the CK compiler allows 300 s) clamps an absurd deadline first, and the handler sees the clamped deadline. `DateTime.MaxValue`
-is therefore served, not thrown on. Reading the timeout of a method from the CK definition and the further timeout rules are AB#6906.
+**Timeouts (AB#6906).** The deadline is `request.DeadlineUtc`, the handler's cancellation token fires at it and the handler answers
+`METHOD_TIMEOUT` itself. The dispatcher waits `ResponseGrace` longer (`Methods:Dispatcher:ResponseGrace`, default 2 s, the documented
+tolerance) before it answers `METHOD_TIMEOUT` itself; message TTL and send timeout are the same value. The rules, in order:
+
+1. **Where the timeout comes from.** `ICkMethodTimeoutResolver` (registered by `AddCkMethodDispatcher`) reads the effective
+   `execution.timeoutSeconds` of the method from the CK cache of the tenant (`CkMethodGraph.TimeoutSeconds`: the key, or 15 s without
+   it; clamped to 1-300 defensively). `GetDeadlineUtc(tenantId, ckTypeId, methodId)` returns now plus that timeout, clamped to
+   `MaxTimeout`; unknown tenant/type/method or a cache fault give the 15 s default and never throw. A gateway builds its request with
+   `DeadlineUtc = resolver.GetDeadlineUtc(...)` and `TimeoutSeconds = (int)resolver.GetTimeout(...).TotalSeconds`.
+2. **Clamp first.** Before the declaring element is routed, before any filter and before the in-process or bus branch, the dispatcher
+   cuts `DeadlineUtc` to `now + Methods:Dispatcher:MaxTimeout` (default 10 minutes; the CK compiler allows 300 s) and fills
+   `TimeoutSeconds` (`ceil(remaining)`, clamped to 1-300) when the caller left it out. `DateTime.MaxValue` is therefore served and
+   `TimeSpan.MaxValue` (through the resolver) is clamped, not thrown on. A filter that sets a later deadline is cut again before the send.
+3. **The handler side.** `request.TimeoutSeconds` is the value of the `timeoutSeconds` parameter of every `METHOD_TIMEOUT` (handler
+   host, in-process transport, dispatcher). Without it (another sender) the host falls back to the definition (15 s when the key is
+   omitted); AB#6905 shipped with that fallback only, so a method with `timeoutSeconds: 2` reported 15. A request that arrives after its
+   deadline is not executed (`METHOD_TIMEOUT`). The host never throws for a deadline: `DateTime.MaxValue` runs the handler (the token
+   delay is capped at ~24 days), `DateTime.MinValue` is expired, and the seen-ids retention is computed from `min(DeadlineUtc, now + 1 h)`.
+4. **In-process.** The same clamp runs in front of the in-process branch, the handler token fires at the deadline and a handler that
+   ignores it is not waited for past `DeadlineUtc` (same envelope as on the bus, tests compare them).
 
 **The registry is advisory.** `ICkMethodHandlerRegistry` (fed by `CkMethodHandlerAnnounced` / `Withdrawn`, expiry = receipt time + the
 announced TTL, 45 s by default; a dispatcher asks for a fresh announcement at start) provides the tenant and contract version
@@ -252,6 +289,7 @@ before the send started.
 **A handler stopping mid-flight.** A graceful stop withdraws first and removes the endpoints; new calls fail at once with
 `METHOD_HANDLER_NOT_AVAILABLE`. A call that is running on that instance gets its cancellation token cancelled and ends as
 `METHOD_TIMEOUT` (outcome unknown) or, when the handler finished first, with its result. It is never lost silently and never run twice.
+The `timeoutSeconds` of that `METHOD_TIMEOUT` is the timeout of the request (AB#6906), not a host default.
 
 **Tests.** `tests/Methods.Tests/Dispatching` (dispatcher with a faked hub, registry races, declaring-element resolution, registration)
 and `tests/Methods.IntegrationTests/CkMethodDispatcherBusTests.cs` (private RabbitMQ: the same cases over the bus and in-process,

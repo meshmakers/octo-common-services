@@ -16,6 +16,18 @@ public sealed class RabbitMqFixture : IAsyncLifetime
     public string Host => _container.Hostname;
     public int Port => _container.GetMappedPublicPort(5672);
 
+    /// <summary>Runs <c>rabbitmqctl -q ...</c> in the private broker container and returns its output lines.</summary>
+    public async Task<string[]> RabbitMqCtlAsync(params string[] arguments)
+    {
+        var result = await _container.ExecAsync(["rabbitmqctl", "-q", .. arguments]);
+        if (result.ExitCode != 0)
+        {
+            throw new InvalidOperationException($"rabbitmqctl {string.Join(' ', arguments)} failed: {result.Stderr}");
+        }
+
+        return result.Stdout.Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+    }
+
     public async ValueTask InitializeAsync() => await _container.StartAsync();
 
     public async ValueTask DisposeAsync() => await _container.DisposeAsync();

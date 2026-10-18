@@ -1,5 +1,6 @@
 using Meshmakers.Octo.Common.DistributionEventHub;
 using Meshmakers.Octo.Common.DistributionEventHub.Services;
+using Meshmakers.Octo.ConstructionKit.Contracts.DataTransferObjects;
 using Meshmakers.Octo.Services.Contracts.DistributionEventHub.Methods;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
@@ -35,6 +36,10 @@ internal sealed class CkMethodDispatcher(
                 request = request with { MethodId = methodId };
             }
 
+            // Clamp first, before any transport, filter or send: from here on nothing can overflow for an absurd
+            // deadline (DateTime.MaxValue) and the in-process and the bus path see the same request.
+            request = NormalizeTimeout(request);
+
             // A method registered in-process is found before any registry lookup; the in-process transport runs the
             // same pipeline itself (transport name "in-process").
             var inProcess = serviceProvider.GetService(typeof(ICkInProcessMethodTransport)) as ICkInProcessMethodTransport;
@@ -61,19 +66,36 @@ internal sealed class CkMethodDispatcher(
         }
     }
 
+    /// <summary>
+    ///     The deadline is at most now + <see cref="CkMethodDispatcherOptions.MaxTimeout" /> (also the deadline the handler
+    ///     sees); <see cref="CkMethodRequest.TimeoutSeconds" /> is filled from the deadline when the caller left it out.
+    /// </summary>
+    private CkMethodRequest NormalizeTimeout(CkMethodRequest request)
+    {
+        var now = timeProvider.GetUtcNow().UtcDateTime;
+        var max = CkMethodDeadline.MaxOf(options.Value);
+        var deadline = CkMethodDeadline.Clamp(request.DeadlineUtc, now, max);
+        var seconds = request.TimeoutSeconds is { } given
+            ? CkMethodDeadline.ClampSeconds(given)
+            : CkMethodDeadline.ClampSeconds((int)Math.Ceiling(Math.Max((deadline - now).TotalSeconds, 0)));
+        return deadline == request.DeadlineUtc && seconds == request.TimeoutSeconds
+            ? request
+            : request with { DeadlineUtc = deadline, TimeoutSeconds = seconds };
+    }
+
     /// <summary>The bus transport: the terminal delegate of the pipeline.</summary>
     private async Task<CkMethodResponse> SendAsync(CkMethodRequest request, CancellationToken cancellationToken)
     {
         var sendStartedUtc = timeProvider.GetUtcNow().UtcDateTime;
         var opt = options.Value;
-        var maxTimeout = opt.MaxTimeout > TimeSpan.Zero ? opt.MaxTimeout : TimeSpan.FromMinutes(10);
+        var maxTimeout = CkMethodDeadline.MaxOf(opt);
         var grace = opt.ResponseGrace > TimeSpan.Zero ? opt.ResponseGrace : TimeSpan.Zero;
 
         // Clamp first: nothing below can overflow or throw for an absurd deadline (DateTime.MaxValue, TimeSpan.MaxValue).
         var remaining = request.DeadlineUtc - sendStartedUtc;
         if (remaining <= TimeSpan.Zero)
         {
-            return Timeout(request, TimeSpan.Zero);
+            return Timeout(request);
         }
 
         if (remaining > maxTimeout)
@@ -129,7 +151,7 @@ internal sealed class CkMethodDispatcher(
             logger.LogWarning(
                 "CK method {MethodId} invocation {InvocationId} tenant {TenantId}: no answer within {Timeout} (outcome unknown)",
                 request.MethodId, request.InvocationId, request.TenantId, wait);
-            return Timeout(request, remaining);
+            return Timeout(request);
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
@@ -157,11 +179,13 @@ internal sealed class CkMethodDispatcher(
                 (CkMethodErrorParameters.Reason, reason)));
     }
 
-    private static CkMethodResponse Timeout(CkMethodRequest request, TimeSpan timeout) =>
+    private static CkMethodResponse Timeout(CkMethodRequest request) =>
         CkMethodResponse.Failed(request.InvocationId, string.Empty,
             CkMethodError.Create(CkMethodErrorCodes.MethodTimeout,
                 (CkMethodErrorParameters.MethodId, request.MethodId),
-                (CkMethodErrorParameters.TimeoutSeconds, ((int)Math.Ceiling(timeout.TotalSeconds)).ToString())));
+                (CkMethodErrorParameters.TimeoutSeconds,
+                    CkMethodDeadline.ClampSeconds(request.TimeoutSeconds ?? CkMethodExecutionDto.DefaultTimeoutSeconds)
+                        .ToString())));
 
     private static CkMethodResponse HandlerFailed(CkMethodRequest request, Guid correlationId) =>
         CkMethodResponse.Failed(request.InvocationId, string.Empty,
