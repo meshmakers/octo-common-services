@@ -62,6 +62,16 @@ public sealed class S3ArtifactStorageOptions
     /// </summary>
     public string? ServiceUrl { get; set; }
 
+    /// <summary>
+    ///     The endpoint of the same store <b>as the CrateDB nodes reach it</b>, when it differs from
+    ///     <see cref="ServiceUrl" /> (the endpoint the service itself reaches the store with). Local development: the
+    ///     bot uses the host port (<c>http://localhost:9000</c>), CrateDB the cluster name
+    ///     (<c>http://minio.octo-infra:9000</c>). Only scheme (<c>http</c> or <c>https</c>), host and port; used for the
+    ///     <c>COPY</c> location of a native archive dump or restore only. Empty = CrateDB uses <see cref="ServiceUrl" />.
+    ///     Environment variable <c>OCTO_ARTIFACTSTORAGE__S3__CRATEDBSERVICEURL</c>.
+    /// </summary>
+    public string? CrateDbServiceUrl { get; set; }
+
     /// <summary>Region, e.g. <c>eu-central-1</c>, <c>fsn1</c> or <c>at-vie-1</c>. Used for request signing.</summary>
     public string? Region { get; set; }
 
@@ -120,4 +130,15 @@ public sealed class AzureBlobArtifactStorageOptions
 
     /// <summary>Create the container on first use when it does not exist (development only; defaults to <c>false</c>).</summary>
     public bool CreateContainerIfNotExists { get; set; }
+
+    /// <summary>
+    ///     Lifetime of the container-level shared access signature (SAS) issued per native archive dump or restore run
+    ///     for the CrateDB <c>COPY</c> statements. Defaults to 2 hours; must be greater than zero. Needs an account key
+    ///     (<see cref="AccountKey" /> or a connection string with <c>AccountKey</c>). Environment variable
+    ///     <c>OCTO_ARTIFACTSTORAGE__AZUREBLOB__STAGINGSASLIFETIME</c> (e.g. <c>00:30:00</c>).
+    /// </summary>
+    public TimeSpan StagingSasLifetime { get; set; } = DefaultStagingSasLifetime;
+
+    /// <summary>Default of <see cref="StagingSasLifetime" />.</summary>
+    public static readonly TimeSpan DefaultStagingSasLifetime = TimeSpan.FromHours(2);
 }
