@@ -177,9 +177,13 @@ internal sealed class CkMethodHandlerInvoker(
 
     private CkMethodResponse TimeoutResponse(CkMethodRequest request, CkMethodRegistration registration)
     {
-        int? timeout = registration.Definition is null
-            ? null
-            : registration.Definition.Execution?.TimeoutSeconds ?? CkMethodExecutionDto.DefaultTimeoutSeconds;
+        // The request carries the timeout its deadline was derived from; the definition is the fallback for a sender that
+        // does not know it, and without either the parameter is left out rather than guessed.
+        int? timeout = request.TimeoutSeconds is { } requested
+            ? requested
+            : registration.Definition is null
+                ? null
+                : registration.Definition.Execution?.TimeoutSeconds ?? CkMethodExecutionDto.DefaultTimeoutSeconds;
         return timeout is { } seconds
             ? Failed(request, CkMethodErrorCodes.MethodTimeout,
                 (CkMethodErrorParameters.TimeoutSeconds, seconds.ToString()))

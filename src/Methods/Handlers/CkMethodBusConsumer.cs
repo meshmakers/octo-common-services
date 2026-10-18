@@ -84,10 +84,15 @@ internal sealed class CkMethodBusConsumer(
     private bool TryMarkSeen(CkMethodRequest request)
     {
         var now = timeProvider.GetUtcNow().UtcDateTime;
-        var keepUntil = request.DeadlineUtc + SeenRetentionAfterDeadline;
-        if (keepUntil > now + MaxSeenRetention)
+
+        // Clamp first: DeadlineUtc comes from the wire and may be DateTime.MaxValue (a non-dispatcher sender), where
+        // DeadlineUtc + retention would throw. The sum below is at most now + MaxSeenRetention + SeenRetentionAfterDeadline.
+        var latest = now + MaxSeenRetention;
+        var clampedDeadline = request.DeadlineUtc > latest ? latest : request.DeadlineUtc;
+        var keepUntil = clampedDeadline + SeenRetentionAfterDeadline;
+        if (keepUntil > latest)
         {
-            keepUntil = now + MaxSeenRetention;
+            keepUntil = latest;
         }
 
         if (!_seenInvocations.TryAdd(request.InvocationId, keepUntil))

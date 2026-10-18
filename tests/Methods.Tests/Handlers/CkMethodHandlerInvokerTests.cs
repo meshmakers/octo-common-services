@@ -342,4 +342,89 @@ public class CkMethodHandlerInvokerTests
         public Task<CkMethodOutcome> HandleAsync(CkMethodContext<UserChangePasswordParameters> context,
             CancellationToken cancellationToken) => Task.FromResult(CkMethodOutcome.Ok());
     }
+
+    [Fact]
+    public async Task TimeoutAnswer_CarriesTheTimeoutOfTheRequest_NotTheDefaultOfTheHost()
+    {
+        // the definition has no execution.timeoutSeconds (default 15), the request says 2
+        var handler = Handler();
+        var host = HostFixture.With(handler, TestData.Definition());
+
+        var response = await Invoke(host, TestData.Request(host.InSeconds(-1)) with { TimeoutSeconds = 2 });
+
+        Assert.Equal(CkMethodErrorCodes.MethodTimeout, response.Error!.Code);
+        Assert.Equal("2", response.Error.Parameters[CkMethodErrorParameters.TimeoutSeconds]);
+        Assert.Equal(0, handler.Calls);
+    }
+
+    [Fact]
+    public async Task TimeoutAtTheDeadlineOfARunningHandler_CarriesTheTimeoutOfTheRequest()
+    {
+        var started = new TaskCompletionSource();
+        var handler = Handler(async (_, ct) =>
+        {
+            started.SetResult();
+            await Task.Delay(Timeout.Infinite, ct);
+            return new UserChangePasswordResult();
+        });
+        var host = HostFixture.With(handler, TestData.Definition());
+
+        var invocation = Invoke(host, TestData.Request(host.InSeconds(2)) with { TimeoutSeconds = 2 });
+        await started.Task;
+        host.Time.Advance(TimeSpan.FromSeconds(3));
+        var response = await invocation;
+
+        Assert.Equal("2", response.Error!.Parameters[CkMethodErrorParameters.TimeoutSeconds]);
+    }
+
+    [Fact]
+    public async Task TimeoutAnswer_WithoutTimeoutInTheRequest_FallsBackToTheDefinition()
+    {
+        var host = HostFixture.With(Handler(), TestData.Definition());
+
+        var response = await Invoke(host, TestData.Request(host.InSeconds(-1)));
+
+        Assert.Equal("15", response.Error!.Parameters[CkMethodErrorParameters.TimeoutSeconds]);
+    }
+
+    [Fact]
+    public async Task DeadlineMaxValue_DoesNotThrow_TheHandlerRuns_AndItsTokenIsNotFiredEarly()
+    {
+        CancellationToken seen = default;
+        var handler = Handler((_, ct) =>
+        {
+            seen = ct;
+            return Task.FromResult<CkMethodOutcome<UserChangePasswordResult>>(new UserChangePasswordResult());
+        });
+        var host = HostFixture.With(handler, TestData.Definition());
+
+        var response = await Invoke(host, TestData.Request(DateTime.MaxValue));
+
+        Assert.True(response.Success);
+        Assert.False(seen.IsCancellationRequested);
+    }
+
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task ExtremeDeadlines_NeverThrow_TheyAreTimeoutOrServed(bool minValue)
+    {
+        var handler = Handler();
+        var host = HostFixture.With(handler, TestData.Definition());
+        var deadline = minValue
+            ? DateTime.SpecifyKind(DateTime.MinValue, DateTimeKind.Utc)
+            : DateTime.SpecifyKind(DateTime.MaxValue, DateTimeKind.Utc);
+
+        var response = await Invoke(host, TestData.Request(deadline));
+
+        if (minValue)
+        {
+            Assert.Equal(CkMethodErrorCodes.MethodTimeout, response.Error!.Code);
+            Assert.Equal(0, handler.Calls);
+        }
+        else
+        {
+            Assert.True(response.Success);
+        }
+    }
 }

@@ -123,4 +123,85 @@ public class CkMethodBusConsumerTests
         Assert.Equal(CkMethodErrorCodes.MethodOutcomeUnknown, second.Error!.Code);
         Assert.Equal(1, handler.Calls);
     }
+
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task ExtremeDeadline_NeverThrows_InTheSeenBookkeeping(bool maxValue)
+    {
+        var handler = new ChangePasswordHandler();
+        var host = HostFixture.With(handler, TestData.Definition());
+        var deadline = DateTime.SpecifyKind(maxValue ? DateTime.MaxValue : DateTime.MinValue, DateTimeKind.Utc);
+        var request = TestData.Request(deadline);
+
+        var first = await host.BusConsumer.HandleAsync(request);
+        var second = await host.BusConsumer.HandleAsync(request);
+
+        // MaxValue: served, then refused as a repeat; MinValue: both are late
+        Assert.Equal(maxValue, first.Success);
+        Assert.Equal(CkMethodErrorCodes.MethodOutcomeUnknown, second.Error!.Code);
+        Assert.Equal(maxValue ? 1 : 0, handler.Calls);
+    }
+
+    [Fact]
+    public async Task SeenRetention_IsCappedAtOneHour_EvenForAnEndlessDeadline()
+    {
+        var host = HostFixture.With(new ChangePasswordHandler(), TestData.Definition());
+        await host.BusConsumer.HandleAsync(TestData.Request(DateTime.SpecifyKind(DateTime.MaxValue, DateTimeKind.Utc)));
+
+        host.Time.Advance(TimeSpan.FromMinutes(61)); // keepUntil = min(deadline, now + 1 h) + 5 min, capped at now + 1 h
+        for (var i = 0; i < 256; i++)
+        {
+            await host.BusConsumer.HandleAsync(TestData.Request(host.InSeconds(1)));
+        }
+
+        Assert.True(host.BusConsumer.SeenInvocationCount <= 256);
+    }
+
+    [Fact]
+    public async Task SeenRetention_OfARegularDeadline_IsTheDeadlinePlusFiveMinutes()
+    {
+        var handler = new ChangePasswordHandler();
+        var host = HostFixture.With(handler, TestData.Definition());
+        var request = TestData.Request(host.InSeconds(15));
+        await host.BusConsumer.HandleAsync(request);
+
+        host.Time.Advance(TimeSpan.FromSeconds(15 + 4 * 60)); // inside deadline + 5 min: still remembered
+        var repeat = await host.BusConsumer.HandleAsync(request);
+
+        Assert.Equal(CkMethodErrorCodes.MethodOutcomeUnknown, repeat.Error!.Code);
+        Assert.Equal(1, handler.Calls);
+    }
+
+    [Fact]
+    public async Task DuplicateLogLine_NamesInvocationTenantAndDeliveryInfo_ButNoParameters()
+    {
+        var host = HostFixture.With(new ChangePasswordHandler(), TestData.Definition());
+        var request = TestData.Request(host.InSeconds(15));
+
+        await host.BusConsumer.HandleAsync(request, TestDelivery.Redelivered);
+
+        var line = Assert.Single(host.Logs.GetSnapshot(), r => r.Message.Contains("possible duplicate")).Message;
+        Assert.Contains(request.InvocationId.ToString(), line);
+        Assert.Contains("meshtest", line);
+        Assert.Contains("redelivered True", line);
+        Assert.DoesNotContain(TestData.Secret, host.AllLogText());
+        Assert.DoesNotContain(TestData.OldSecret, host.AllLogText());
+        Assert.DoesNotContain(TestData.Token, host.AllLogText());
+    }
+
+    [Fact]
+    public async Task SideEffectThenThrow_RunsOnce_AndAnAlreadySeenRedeliveryDoesNotRunItAgain()
+    {
+        var handler = new ChangePasswordHandler((_, _) => throw new InvalidOperationException("after the side effect"));
+        var host = HostFixture.With(handler, TestData.Definition());
+        var request = TestData.Request(host.InSeconds(15));
+
+        var first = await host.BusConsumer.HandleAsync(request);
+        var redelivery = await host.BusConsumer.HandleAsync(request, TestDelivery.Redelivered);
+
+        Assert.Equal(CkMethodErrorCodes.MethodHandlerFailed, first.Error!.Code);
+        Assert.Equal(CkMethodErrorCodes.MethodOutcomeUnknown, redelivery.Error!.Code);
+        Assert.Equal(1, handler.Calls);
+    }
 }

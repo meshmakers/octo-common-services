@@ -17,6 +17,7 @@
   },
   "callerAccessToken": "jwt",
   "deadlineUtc": "2026-10-17T12:00:15Z",
+  "timeoutSeconds": 15,
   "idempotencyKey": "key-1",
   "tenantId": "meshtest"
 }

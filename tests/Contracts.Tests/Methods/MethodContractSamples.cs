@@ -25,6 +25,7 @@ internal static class MethodContractSamples
         },
         CallerAccessToken = "jwt",
         DeadlineUtc = Deadline,
+        TimeoutSeconds = 15,
         IdempotencyKey = "key-1"
     };
 

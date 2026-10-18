@@ -232,6 +232,118 @@ public class CkMethodDispatcherTests
     }
 
     [Fact]
+    public async Task TimeoutSeconds_IsFilledFromTheDeadline_WhenTheCallerLeftItOut()
+    {
+        BusReturns(CkMethodResponse.Succeeded(Guid.Empty, "h"));
+
+        await Dispatcher().InvokeAsync(Request(deadlineSeconds: 7), TestContext.Current.CancellationToken);
+
+        Assert.Equal(7, SentRequest().TimeoutSeconds);
+    }
+
+    [Fact]
+    public async Task TimeoutSeconds_OfTheCaller_IsKept_AndReportedByTheDispatchersOwnTimeout()
+    {
+        BusThrows(NewTimeoutException());
+
+        var response = await Dispatcher().InvokeAsync(Request(deadlineSeconds: 2) with { TimeoutSeconds = 2 },
+            TestContext.Current.CancellationToken);
+
+        Assert.Equal(2, SentRequest().TimeoutSeconds);
+        Assert.Equal("2", response.Error!.Parameters[CkMethodErrorParameters.TimeoutSeconds]);
+    }
+
+    [Theory]
+    [InlineData(0, 1)]
+    [InlineData(-5, 1)]
+    [InlineData(100000, 300)]
+    public async Task TimeoutSeconds_OutsideTheCompilerRange_IsClampedDefensively(int given, int expected)
+    {
+        BusReturns(CkMethodResponse.Succeeded(Guid.Empty, "h"));
+
+        await Dispatcher().InvokeAsync(Request() with { TimeoutSeconds = given }, TestContext.Current.CancellationToken);
+
+        Assert.Equal(expected, SentRequest().TimeoutSeconds);
+    }
+
+    [Fact]
+    public async Task AbsurdDeadline_IsClampedBeforeTheFilters_AndTheTimeoutSecondsStayWithinTheCompilerRange()
+    {
+        DateTime? seenByFilter = null;
+        _filters.Add(new LambdaFilter(CkMethodInvocationFilterOrder.Audit, (ctx, next) =>
+        {
+            seenByFilter = ctx.Request.DeadlineUtc;
+            return next(ctx.Request);
+        }));
+        BusReturns(CkMethodResponse.Succeeded(Guid.Empty, "h"));
+
+        await Dispatcher().InvokeAsync(Request() with { DeadlineUtc = DateTime.MaxValue },
+            TestContext.Current.CancellationToken);
+
+        Assert.Equal(Now + _options.MaxTimeout, seenByFilter);
+        Assert.Equal(300, SentRequest().TimeoutSeconds);
+    }
+
+    [Fact]
+    public async Task AbsurdDeadlineSetByAFilter_IsClampedAgainBeforeTheSend()
+    {
+        _filters.Add(new LambdaFilter(CkMethodInvocationFilterOrder.Audit,
+            (ctx, next) => next(ctx.Request with { DeadlineUtc = DateTime.MaxValue })));
+        BusReturns(CkMethodResponse.Succeeded(Guid.Empty, "h"));
+
+        var response = await Dispatcher().InvokeAsync(Request(), TestContext.Current.CancellationToken);
+
+        Assert.True(response.Success);
+        Assert.Equal(_options.MaxTimeout + _options.ResponseGrace, SentOptions().Timeout);
+    }
+
+    [Fact]
+    public async Task AbsurdDeadline_OnTheInProcessPath_IsClampedToo_AndNeverThrows()
+    {
+        var handler = new ChangePasswordHandler();
+        var inProcess = InProcessFixture.With(handler, TestData.Definition());
+        _inProcess = inProcess.Transport;
+        _pipeline = inProcess.Pipeline;
+
+        var response = await Dispatcher().InvokeAsync(TestData.Request(DateTime.MaxValue),
+            TestContext.Current.CancellationToken);
+
+        Assert.True(response.Success);
+        Assert.Equal(1, handler.Calls);
+    }
+
+    [Fact]
+    public async Task EveryTransportFault_EndsAsTimeoutOrNotAvailable_NeverAsASecondDelivery()
+    {
+        Exception[] faults =
+        [
+            NewTimeoutException(), new CommandNotRoutableException(), new DistributedOperationFailedException("x"),
+            new OperationCanceledException()
+        ];
+        foreach (var fault in faults)
+        {
+            Fake.ClearRecordedCalls(_eventHub);
+            BusThrows(fault);
+
+            var response = await Dispatcher().InvokeAsync(Request(), TestContext.Current.CancellationToken);
+
+            Assert.False(response.Success);
+            Assert.Equal(1, Sends()); // one delivery attempt, no publisher-side resend
+        }
+    }
+
+    [Fact]
+    public async Task TransportFault_IsNotRetriedByTheDispatcher_EvenWhenTheDeadlineIsFarAway()
+    {
+        BusThrows(new CommandNotRoutableException());
+
+        var first = await Dispatcher().InvokeAsync(Request(deadlineSeconds: 250), TestContext.Current.CancellationToken);
+
+        Assert.Equal(CkMethodErrorCodes.MethodHandlerNotAvailable, first.Error!.Code);
+        Assert.Equal(1, Sends());
+    }
+
+    [Fact]
     public async Task NonPositiveOptions_FallBackToSafeValues()
     {
         _options.MaxTimeout = TimeSpan.Zero;
