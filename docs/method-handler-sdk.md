@@ -186,3 +186,73 @@ without any consumer fails at once with `CommandNotRoutableException` (typically
 `METHOD_TIMEOUT`; the dispatcher maps it to `METHOD_HANDLER_NOT_AVAILABLE`. The plain `GetCommandResponseAsync` overload does
 not reach the shared endpoint. Handler endpoints suppress faults: an exception escaping the consumer is logged without the
 message, is not retried and leaves no `_error` / `_skipped` copy of the request (it holds passwords and tokens).
+
+## 9. Calling a method: the dispatcher (F3.3, AB#6905)
+
+`ICkMethodDispatcher` is the one entry point for a gateway (GraphQL gateway, pipeline node, REST facade). The caller never
+chooses a transport; the dispatcher does, and the answer is always the same `CkMethodResponse` envelope.
+
+```csharp
+// Program.cs of the calling service
+services.AddDistributionEventHub(c =>
+{
+    c.UniqueServiceAddress = "asset-repo";
+    c.AddCkMethodHandlerRegistryFeed();            // announce / withdraw broadcasts fill the dispatcher's registry
+});
+services.AddCkMethodDispatcher();                   // dispatcher + registry + the shared invocation pipeline
+services.AddCkMethodInvocationFilter<MyAuthorizationFilter>();   // filters: see section 8, run for both transports
+
+// at the call site
+CkMethodResponse response = await dispatcher.InvokeAsync(request, cancellationToken);
+```
+
+**What `InvokeAsync` does, in this order**
+
+1. **Resolve the declaring element.** A method is routed by the element that *declares* it. Methods cannot be overridden (CK
+   message 100), so there is exactly one. When `request.CkTypeId` is a derived type, or a type that implements the interface that
+   carries the method, the dispatcher looks the method up in the CK cache of the tenant (`CkTypeGraph.AllMethods`: the engine
+   records the base type for an inherited method and the highest implementing type for an interface method) and rewrites
+   `request.MethodId` to the qualified id of the declaring element, for example `Fleet/Car.Start-1` becomes
+   `Fleet/Vehicle.Start-1`. This happens before the pipeline, so filters, the queue name and the handler registration all see the
+   same id. A type or method the cache does not know (or a service without CK cache) is routed as given.
+2. **Prefer in-process.** A method registered with `AddCkInProcessMethodHandlers` in the same service runs through
+   `ICkInProcessMethodTransport` (pipeline transport name `in-process`); the bus and the registry are not touched.
+3. **Otherwise the bus.** `ICkMethodInvocationPipeline.ExecuteAsync("bus", request, send, ct)` where `send` is the dispatcher's
+   only own code: one mandatory, non-persistent `GetCommandResponseAsync` to the shared queue `CkMethodQueueNames.For(methodId)`.
+   Handlers consume that queue as competing consumers, so replicas of one service share the traffic.
+
+The dispatcher adds **no filter and no pipeline of its own**: audit, authorization and idempotency are `ICkMethodInvocationFilter`s
+and run once per call for both transports.
+
+**Outcomes (the caller sees an envelope, never an exception)**
+
+| Situation | Envelope |
+|---|---|
+| Handler answered | the handler's `CkMethodResponse` unchanged (success, declared error, `METHOD_HANDLER_FAILED`, `METHOD_TIMEOUT`, `METHOD_OUTCOME_UNKNOWN`, ...) |
+| Nobody consumes the queue (never created, or the consumers are gone) | `METHOD_HANDLER_NOT_AVAILABLE`, parameters `methodId` and `reason` = `no-live-handler`, within milliseconds, no stack trace |
+| The registry knows live handlers, none serves the tenant | `METHOD_HANDLER_NOT_AVAILABLE`, `reason` = `tenant-not-served`, nothing sent |
+| The request carries a newer contract version than every live handler announced | `METHOD_CONTRACT_VERSION_UNSUPPORTED`, nothing sent (wire contract rule 4) |
+| No answer before `DeadlineUtc` + `ResponseGrace` (2 s), or the deadline has passed already | `METHOD_TIMEOUT` (outcome unknown), nothing is re-sent |
+| Bus fault, bus stopping, filter or resolver exception | `METHOD_HANDLER_FAILED` with `correlationId` (details only in the log) |
+| Caller cancels its token | `OperationCanceledException` (the only exception) |
+
+**Timeouts.** The deadline is `request.DeadlineUtc`, the handler's cancellation token fires at it and the handler answers
+`METHOD_TIMEOUT` itself. The dispatcher waits `ResponseGrace` longer (`Methods:Dispatcher:ResponseGrace`, default 2 s) before it
+answers `METHOD_TIMEOUT` itself; message TTL and send timeout are the same value. `Methods:Dispatcher:MaxTimeout` (default 10
+minutes, the CK compiler allows 300 s) clamps an absurd deadline first, and the handler sees the clamped deadline. `DateTime.MaxValue`
+is therefore served, not thrown on. Reading the timeout of a method from the CK definition and the further timeout rules are AB#6906.
+
+**The registry is advisory.** `ICkMethodHandlerRegistry` (fed by `CkMethodHandlerAnnounced` / `Withdrawn`, expiry = receipt time + the
+announced TTL, 45 s by default; a dispatcher asks for a fresh announcement at start) provides the tenant and contract version
+checks and diagnostics (`GetLiveHandlers`, `GetLastSeen`, `Snapshot`; the persisted snapshot and the Studio view are F3.2). It never
+vetoes a send: an empty registry (dispatcher just started, heartbeat lost) must not refuse a call the broker can still deliver, so the
+mandatory flag decides. A withdrawal beats any announcement written before it; a broker "not routable" expires only entries last seen
+before the send started.
+
+**A handler stopping mid-flight.** A graceful stop withdraws first and removes the endpoints; new calls fail at once with
+`METHOD_HANDLER_NOT_AVAILABLE`. A call that is running on that instance gets its cancellation token cancelled and ends as
+`METHOD_TIMEOUT` (outcome unknown) or, when the handler finished first, with its result. It is never lost silently and never run twice.
+
+**Tests.** `tests/Methods.Tests/Dispatching` (dispatcher with a faked hub, registry races, declaring-element resolution, registration)
+and `tests/Methods.IntegrationTests/CkMethodDispatcherBusTests.cs` (private RabbitMQ: the same cases over the bus and in-process,
+no consumer, consumer gone, mid-flight stop, timeout, derived type, replicas).
