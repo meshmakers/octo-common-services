@@ -22,7 +22,15 @@ internal sealed class CkMethodRedactor
     public static CkMethodRedactor ForToken(CkMethodRequest request) =>
         new(string.IsNullOrEmpty(request.CallerAccessToken) ? [] : [request.CallerAccessToken]);
 
-    public static CkMethodRedactor For(CkMethodRegistration registration, CkMethodRequest request)
+    public static CkMethodRedactor For(CkMethodRegistration registration, CkMethodRequest request) =>
+        For(registration.SensitiveParameters, request);
+
+    /// <summary>
+    ///     Masks the caller token and the values of the named sensitive parameters. <paramref name="sensitive" /> =
+    ///     <c>null</c> (method not known) masks every parameter value. A payload that cannot be parsed is masked as a
+    ///     whole, so an exception message that quotes it stays clean.
+    /// </summary>
+    public static CkMethodRedactor For(IReadOnlySet<string>? sensitive, CkMethodRequest request)
     {
         var secrets = new List<string>();
         if (!string.IsNullOrEmpty(request.CallerAccessToken))
@@ -30,7 +38,7 @@ internal sealed class CkMethodRedactor
             secrets.Add(request.CallerAccessToken);
         }
 
-        if (registration.SensitiveParameters.Count > 0)
+        if (sensitive == null || sensitive.Count > 0)
         {
             try
             {
@@ -38,16 +46,20 @@ internal sealed class CkMethodRedactor
                 if (document.RootElement.ValueKind == JsonValueKind.Object)
                 {
                     foreach (var property in document.RootElement.EnumerateObject()
-                                 .Where(p => registration.SensitiveParameters.Contains(p.Name,
-                                     StringComparer.OrdinalIgnoreCase)))
+                                 .Where(p => sensitive == null ||
+                                             sensitive.Contains(p.Name, StringComparer.OrdinalIgnoreCase)))
                     {
                         CollectSecrets(property.Value, secrets);
                     }
                 }
+                else
+                {
+                    CollectSecrets(document.RootElement, secrets);
+                }
             }
             catch (JsonException)
             {
-                // unparsable payloads are rejected as validation failures; nothing to collect
+                secrets.Add(request.ParametersJson);
             }
         }
 

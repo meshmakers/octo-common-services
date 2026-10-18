@@ -98,6 +98,12 @@ The host logs method id, invocation id, tenant and correlation id, never `Parame
 marked `sensitive: true` in the model, and the caller token, are masked (`***`) in an exception message a handler throws
 before the host logs it. Do not log `context.Parameters` yourself; the generated records print `***` for sensitive members.
 
+Filters and the audit trail never see those values either (AB#6914): the invocation context hands every filter a **redacted view** of the
+request. Sensitive parameter values are `"***"`, the caller token is `null`, a payload that cannot be parsed is `{}`, and a method that is
+not known is redacted completely. Only the transport (and so the handler) gets the raw values. A validation error names the parameter
+(`field`) and never echoes its value; exceptions logged by the pipeline and the dispatcher are masked the same way. Limits: result values
+are not redacted (the meta-model has no flag for results), and a method that is implemented as a pipeline is a separate decision (OD-9).
+
 ## 6. Unit-testing a handler
 
 ```csharp
@@ -166,6 +172,10 @@ public sealed class MyAuditFilter : ICkMethodInvocationFilter
     }
 }
 ```
+
+`context.Request` is the redacted view (sensitive parameter values `"***"`, token `null`): a filter cannot leak what it cannot see, so an audit
+filter may serialise it. A filter that passes it (or a copy) to `next` continues with the raw values for the transport; a filter that
+replaces `ParametersJson` itself gets its replacement used. It follows that a filter cannot fingerprint the real parameter values.
 
 A filter refuses with a normal failed `CkMethodResponse` (for example `METHOD_FORBIDDEN`), may continue with a modified request
 (`next(request with { IdempotencyKey = ... })`) and must not log `ParametersJson` or the token. An exception escaping a filter is
