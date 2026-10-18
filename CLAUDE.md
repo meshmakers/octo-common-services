@@ -701,6 +701,22 @@ tests `tests/Methods.Tests/InProcess/`. Guide: `docs/method-handler-sdk.md` sect
   `CkMethodInvocationFilterOrder` (Audit 100 outermost, Authorization 200, Idempotency 300 innermost; decided by Odin: exactly one audit event per invocation incl. refusals and replays). A filter may refuse (return a failed response), pass a
   modified request to `next`, or wrap the call. An exception in a filter becomes `METHOD_HANDLER_FAILED`; caller cancellation
   passes through. The F3.3 dispatcher runs its bus send as the terminal delegate of the same pipeline instance.
+- **Method authorization filter** (AB#6911, F3.4; `src/Methods/Authorization/`, tests `tests/Methods.Tests/Authorization`,
+  `tests/Methods.IntegrationTests/CkMethodAuthorizationBusTests.cs`): `AddCkMethodAuthorization()` registers
+  `CkMethodAuthorizationFilter` at band 200 through `AddCkMethodInvocationFilter<T>()` (once per service) plus the shared
+  `ICkMethodAuthorizationEvaluator` (public, pure: `Evaluate(authorization, kind, targetRtId, principal)`; the gateway gate AB#6912 uses
+  the same instance), `ICkMethodPrincipalProvider` (default `CkMethodPrincipalScope`, an `AsyncLocal` the gateway or job opens with
+  `CkMethodPrincipalScope.Begin(CkMethodPrincipal.FromClaimsPrincipal(user))` around the call) and `ICkMethodAuthorizationDefinitionSource`
+  (CK cache: concrete target type `AllMethods`, then the declaring type). **The principal is never read from `CkMethodRequest.Caller` or the
+  forwarded token**; no principal = refused. Rules: `octo_api` always required, then all declared `scopes` (administrators too); `roles` any-of,
+  case-insensitive; `allowSelf` compares parsed `OctoObjectId`s (instance methods with a target only; honoured also with empty roles);
+  **default-deny**: no `authorization` or empty `roles` admits only `Methods:Authorization:AdministratorRoles` (default `AdminPanelManagement`)
+  and, if declared, the target itself; an administrator is not implicitly admitted to a method that lists roles. An unknown method definition
+  is refused. A refusal is a normal failed response `METHOD_FORBIDDEN` with `methodId` and the fixed reason `not-authorized`
+  (`CkMethodAuthorizationErrors.Forbidden`): the filter never loads the target, so the answer is the same whether it exists or not; the log
+  names the rule (`CkMethodDenial`) but no token, parameter or target id. Audit (100) sees the refusal, idempotency (300) and the transport
+  never run. Open decisions that this filter does not settle: token trust for remote handlers (AB#6916), CK data permissions for method
+  calls (AB#6917, D3:A), OD-9 (AB#6918).
 - `CkMethodRequest` carries `Caller` and `CallerAccessToken` unchanged to the handler; neither reaches a log (`ToString()` redacts,
   the redactor masks the token in exceptions).
 
