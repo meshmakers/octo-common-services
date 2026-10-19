@@ -72,7 +72,10 @@ internal sealed class CkMethodHandlerStartupService(
             {
                 throw new TimeoutException(
                     $"CK method {methodId}: endpoint {queueName} did not accept messages within " +
-                    $"{options.Value.EndpointReadyTimeout}; the handler is not announced.");
+                    $"{options.Value.EndpointReadyTimeout}; the handler is not announced. Typical causes: the broker is not " +
+                    "reachable, or a queue of this name already exists with different arguments (PRECONDITION_FAILED, " +
+                    "e.g. a replica of an older build during a rolling update); the bus log names the reason. " +
+                    "The existing queue is left untouched.");
             }
 
             logger.LogInformation("CK method {MethodId} handler endpoint {QueueName} ready", methodId, queueName);

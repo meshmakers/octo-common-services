@@ -339,3 +339,9 @@ The `timeoutSeconds` of that `METHOD_TIMEOUT` is the timeout of the request (AB#
 **Tests.** `tests/Methods.Tests/Dispatching` (dispatcher with a faked hub, registry races, declaring-element resolution, registration)
 and `tests/Methods.IntegrationTests/CkMethodDispatcherBusTests.cs` (private RabbitMQ: the same cases over the bus and in-process,
 no consumer, consumer gone, mid-flight stop, timeout, derived type, replicas).
+
+## Replicas and sharing
+
+Several instances of a service (replicaCount > 1) all register the same method endpoint; the broker delivers each call to exactly one of
+them. Nothing has to be configured. Proof, a rolling-update caveat (a queue with different arguments blocks the start of the new build,
+never the old replicas) and the measured dispatch overhead (p95 about 1 ms on loopback) are in `docs/method-performance.md`.

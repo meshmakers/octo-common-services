@@ -766,6 +766,16 @@ tests `tests/Methods.Tests/InProcess/`. Guide: `docs/method-handler-sdk.md` sect
 - **Tests**: `tests/Methods.Tests/Dispatching`, `tests/Methods.IntegrationTests/CkMethodDispatcherBusTests.cs` (the integration project
   now references FakeItEasy for a fake `ICkCacheService`).
 
+### Replica sharing and dispatch overhead (AB#6908, F3.3)
+
+Tests `tests/Methods.IntegrationTests/CkMethodReplicaSharingBusTests.cs` and `CkMethodQueueArgumentsBusTests.cs`; report with numbers,
+setup and the repeat command: `docs/method-performance.md`. Replicas of one service share the one non-exclusive method queue (each call
+executed exactly once, spread proven for 2 and 3 replicas; a gracefully stopped replica loses no call). The latency test (category
+`Performance`, no-op handler, sequential) asserts p95 < 250 ms by default and p95 < 20 ms with `OCTO_METHOD_PERF_STRICT=1`; measured p95
+is about 1 ms (1 or 3 replicas, Apple M4 Pro, loopback). A shared method queue must never change its arguments in place (the new build
+would fail its start with `PRECONDITION_FAILED` behind an `EndpointReadyTimeout` `TimeoutException`; the old replicas keep serving): a
+change needs a new queue name.
+
 ## Artifact store: nested keys and the archive copy staging location (AB#5967 / AB#6969)
 
 `src/ArtifactStorage` (package `Meshmakers.Octo.Services.ArtifactStorage`, docs: `README.md`, "Artifact storage configuration" and
