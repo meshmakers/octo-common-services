@@ -23,6 +23,11 @@ internal sealed class InProcessFixture
 
     public ICkInProcessMethodTransport Transport { get; private set; } = null!;
 
+    public IServiceProvider Provider { get; private set; } = null!;
+
+    /// <summary>The factory of the invoker and of the handlers; one factory = one logging scope provider.</summary>
+    public ILoggerFactory Loggers { get; private set; } = null!;
+
     public static InProcessFixture With<THandler>(THandler handler, CkMethodDto? definition = null,
         string methodId = TestData.MethodId, params ICkMethodInvocationFilter[] filters)
         where THandler : class, ICkMethodHandler
@@ -34,10 +39,20 @@ internal sealed class InProcessFixture
 
     public static InProcessFixture Build<THandler>(IServiceCollection services, CkMethodDto? definition = null,
         string methodId = TestData.MethodId, params ICkMethodInvocationFilter[] filters)
+        where THandler : class, ICkMethodHandler =>
+        BuildWithProbes<THandler>(services, [], definition, methodId, filters);
+
+    public static InProcessFixture BuildWithProbes<THandler>(IServiceCollection services,
+        IReadOnlyCollection<ICkInProcessAmbientStateProbe> probes, CkMethodDto? definition = null,
+        string methodId = TestData.MethodId, params ICkMethodInvocationFilter[] filters)
         where THandler : class, ICkMethodHandler
     {
         var fixture = new InProcessFixture();
+        var loggers = LoggerFactory.Create(b => b.AddProvider(new FakeLoggerProvider(fixture.Logs)));
+        fixture.Loggers = loggers;
+        services.AddSingleton(loggers);
         var provider = services.BuildServiceProvider();
+        fixture.Provider = provider;
         var registration = fixture.Registrations.Add(methodId, typeof(THandler));
         if (definition != null)
         {
@@ -45,11 +60,10 @@ internal sealed class InProcessFixture
             Assert.NotNull(registration.Definition);
         }
 
-        var loggers = LoggerFactory.Create(b => b.AddProvider(new FakeLoggerProvider(fixture.Logs)));
         fixture.Pipeline = new CkMethodInvocationPipeline(filters, new DefinitionSensitivity(definition), loggers.CreateLogger<CkMethodInvocationPipeline>());
         fixture.Transport = new CkInProcessMethodTransport(provider.GetRequiredService<IServiceScopeFactory>(),
             fixture.Registrations, fixture.Pipeline, Options.Create(new CkMethodHandlerOptions()), fixture.Time,
-            loggers);
+            loggers, probes);
         return fixture;
     }
 

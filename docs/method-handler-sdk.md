@@ -154,7 +154,21 @@ public sealed class Caller(ICkInProcessMethodTransport methods)
 * **Deadline.** `DeadlineUtc` works as on the bus: the handler token fires there, and a handler that ignores it is not waited for;
   the caller gets `METHOD_TIMEOUT`. The caller's own token surfaces as `OperationCanceledException`.
 * **Scope and transaction.** Each call gets a new DI scope of the root provider, not the scope of the caller's HTTP request,
-  and runs outside the caller's database transaction (decision 2026-10-07). The handler does not see the request's scoped services.
+  and runs outside the caller's database transaction (decision 2026-10-07). The handler does not see the request's scoped services (see the next two points for the ambient context).
+* **Detached from the caller's context (OD-8).** The handler runs in an execution flow that does **not** inherit the caller's
+  `ExecutionContext`: an `AsyncLocal` the caller set (the asset-repo request session, a principal scope, a logging scope) is empty
+  in the handler, also after its first `await`, and nothing the handler sets leaks back. A fresh DI scope alone would not do this,
+  because ambient values travel with the async flow, not with the scope. Carried across explicitly: the trace (the handler span
+  `CK method handle` of the `ActivitySource` `Meshmakers.Octo.Methods` is a child of the caller's activity; subscribe to the source to
+  export it, the trace continues without a listener), `CultureInfo.CurrentCulture` / `CurrentUICulture`, the cancellation token with
+  the deadline, and the logging scope that identifies the call (`MethodId`, `InvocationId`, `CorrelationId`, `TenantId`). A library
+  that reads another `AsyncLocal` inside a handler sees the default; pass what a handler needs in the request (`Caller`, parameters).
+* **Tripwire.** A host registers `services.AddCkInProcessAmbientStateProbe<MyProbe>()` for each kind of request-bound ambient state it
+  owns; `MyProbe : ICkInProcessAmbientStateProbe` answers `IsRequestStateVisible(IServiceProvider handlerScope)` with yes/no (the
+  asset-repo probe asks `IOctoSessionAccessor.HasSession`). It is asked in the handler's flow and new scope, before the handler is
+  created. `true` (or an exception) fails the call with `METHOD_HANDLER_FAILED` (`methodId`, `correlationId`), the handler does not run,
+  and the log names the probe type, never data. With the detach in place the answer must always be `false`; a `true` is a regression.
+  A probe is a singleton, thread-safe, cheap, and never logs or returns what it looked at.
 * **Identity.** Put `Caller` and `CallerAccessToken` into the request exactly as for a remote call; the handler receives them
   unchanged and a handler must still re-validate the token. Neither value is ever logged.
 * **One place per method.** A method registered in-process and as a remote handler stops the startup. Not announced, so a

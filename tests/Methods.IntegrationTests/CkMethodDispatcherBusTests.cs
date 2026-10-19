@@ -66,6 +66,15 @@ public sealed class CkMethodDispatcherBusTests(RabbitMqFixture rabbitMq) : IAsyn
         public readonly TaskCompletionSource Release = new(TaskCreationOptions.RunContinuationsAsynchronously);
     }
 
+    /// <summary>Stands for the request session of the gateway: set by the caller, must be empty inside a handler.</summary>
+    private static readonly AsyncLocal<string?> RequestAmbient = new();
+
+    /// <summary>Tripwire probe of the in-process gateway (what the asset-repo session probe does with HasSession).</summary>
+    private sealed class FixedProbe(bool visible) : ICkInProcessAmbientStateProbe
+    {
+        public bool IsRequestStateVisible(IServiceProvider handlerServices) => visible;
+    }
+
     /// <summary>target "acc-1" succeeds, "boom" throws, "slow" never finishes, "gate" waits until released.</summary>
     public sealed class ChangePasswordHandler(HandlerProbe probe)
         : ICkMethodHandler<AccountChangePasswordParameters, AccountChangePasswordResult>
@@ -83,6 +92,10 @@ public sealed class CkMethodDispatcherBusTests(RabbitMqFixture rabbitMq) : IAsyn
             {
                 case "boom":
                     throw new InvalidOperationException($"store failed for {context.Parameters.NewPassword}");
+                case "ambient":
+                    // 1 when the caller's AsyncLocal is visible in the handler, also after an await
+                    await Task.Yield();
+                    return new AccountChangePasswordResult { Value = RequestAmbient.Value is null ? 0 : 1 };
                 case "slow":
                     await Task.Delay(Timeout.Infinite, cancellationToken);
                     break;
@@ -229,7 +242,8 @@ public sealed class CkMethodDispatcherBusTests(RabbitMqFixture rabbitMq) : IAsyn
 
     /// <summary>A gateway: dispatcher + registry feed. With <paramref name="inProcess" /> it also hosts the handler.</summary>
     private async Task<(Host Host, ICkMethodDispatcher Dispatcher, RecordingFilter Filter)> StartGatewayAsync(
-        bool inProcess = false, ICkCacheService? ckCache = null, string name = "Gateway")
+        bool inProcess = false, ICkCacheService? ckCache = null, string name = "Gateway",
+        ICkInProcessAmbientStateProbe? probe = null)
     {
         var filter = new RecordingFilter();
         var services = BaseServices();
@@ -251,6 +265,10 @@ public sealed class CkMethodDispatcherBusTests(RabbitMqFixture rabbitMq) : IAsyn
         if (inProcess)
         {
             services.AddCkInProcessMethodHandlers(m => m.Handle<ChangePasswordHandler>(MethodId));
+            if (probe != null)
+            {
+                services.AddSingleton(probe);
+            }
         }
 
         var host = await StartAsync(services);
@@ -366,6 +384,41 @@ public sealed class CkMethodDispatcherBusTests(RabbitMqFixture rabbitMq) : IAsyn
         Assert.Equal([CkMethodTransportNames.Bus], busFilter.Transports);
         Assert.Equal([name == "not-available" ? CkMethodTransportNames.Bus : CkMethodTransportNames.InProcess],
             inProcessFilter.Transports);
+    }
+
+    [Fact]
+    public async Task InProcess_HandlerRunsDetachedFromTheCallersAmbientContext_AndTheEnvelopeEqualsTheBus()
+    {
+        await StartHandlerHostAsync();
+        var (_, bus, _) = await StartGatewayAsync();
+        var (_, inProcess, _) = await StartGatewayAsync(inProcess: true);
+        var request = NewRequest(target: "ambient");
+
+        RequestAmbient.Value = "request-session"; // what OctoSessionListener does for the request
+        var overBus = await bus.InvokeAsync(request, TestContext.Current.CancellationToken);
+        var local = await inProcess.InvokeAsync(request, TestContext.Current.CancellationToken);
+
+        Assert.True(local.Success);
+        Assert.Equal("{\"value\":0}", local.ResultJson); // empty inside the handler, also after its first await
+        Assert.Equal(Normalized(overBus), Normalized(local));
+        Assert.Equal("request-session", RequestAmbient.Value); // the caller keeps its own context
+    }
+
+    [Fact]
+    public async Task InProcess_TripwireProbe_RefusesTheCallBeforeTheHandlerRuns_AndTheBusIsNotAffected()
+    {
+        var (_, handlerProbe) = await StartHandlerHostAsync();
+        var (gateway, inProcess, _) = await StartGatewayAsync(inProcess: true, probe: new FixedProbe(true));
+        var (_, bus, _) = await StartGatewayAsync(name: "GatewayB");
+
+        var refused = await inProcess.InvokeAsync(NewRequest(), TestContext.Current.CancellationToken);
+        var overBus = await bus.InvokeAsync(NewRequest(), TestContext.Current.CancellationToken);
+
+        Assert.Equal(CkMethodErrorCodes.MethodHandlerFailed, refused.Error!.Code);
+        Assert.Equal(MethodId, refused.Error.Parameters[CkMethodErrorParameters.MethodId]);
+        Assert.Equal(0, gateway.Provider.GetRequiredService<HandlerProbe>().Calls);
+        Assert.True(overBus.Success);
+        Assert.Equal(1, handlerProbe.Calls);
     }
 
     [Fact]
