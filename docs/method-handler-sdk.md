@@ -104,6 +104,13 @@ not known is redacted completely. Only the transport (and so the handler) gets t
 (`field`) and never echoes its value; exceptions logged by the pipeline and the dispatcher are masked the same way. Limits: result values
 are not redacted (the meta-model has no flag for results), and a method that is implemented as a pipeline is a separate decision (OD-9).
 
+The masking of exception text covers every form in which a serializer or a URL can write a value (AB#7015), not only the decoded text:
+the plain value, the JSON-escaped forms (System.Text.Json default and relaxed encoder, Newtonsoft.Json: `\"`, `\\`, `\uXXXX` for quote,
+plus, ampersand, angle brackets, apostrophe, control characters and non-ASCII characters in upper or lower hex case, escaped slash), the
+same once more for JSON embedded in a JSON string, and the percent-encoded form. So a password such as `pa"ss\w+rd&<ä>` is masked in
+`{"newPassword":"pa\u0022ss\\w\u002Brd..."}` as well. A form that no serializer produces (a hash, a base64 copy, a truncation) is not
+recognised: a handler must not put derived forms of a secret into a message.
+
 ## 6. Unit-testing a handler
 
 ```csharp
@@ -175,7 +182,12 @@ public sealed class MyAuditFilter : ICkMethodInvocationFilter
 
 `context.Request` is the redacted view (sensitive parameter values `"***"`, token `null`): a filter cannot leak what it cannot see, so an audit
 filter may serialise it. A filter that passes it (or a copy) to `next` continues with the raw values for the transport; a filter that
-replaces `ParametersJson` itself gets its replacement used. It follows that a filter cannot fingerprint the real parameter values.
+edits `ParametersJson` gets its edit used, **merged per member** (AB#7016): a sensitive member that is still `"***"` in the filter's result is
+restored from the raw request, so editing, normalizing or enriching a non-sensitive member never sends the placeholder to the handler. A
+sensitive member the filter gives another value is an explicit replacement and is used as is; a removed member stays removed. A `"***"` for a
+sensitive member that the request does not carry cannot be restored: the call is refused with `METHOD_VALIDATION_FAILED` (`field` = the
+member) and the handler is not called. (A filter cannot tell the placeholder from a real value `"***"` of a sensitive parameter; the raw
+value wins.) It follows that a filter cannot fingerprint the real parameter values.
 
 A filter refuses with a normal failed `CkMethodResponse` (for example `METHOD_FORBIDDEN`), may continue with a modified request
 (`next(request with { IdempotencyKey = ... })`) and must not log `ParametersJson` or the token. An exception escaping a filter is
