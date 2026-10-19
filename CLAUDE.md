@@ -696,6 +696,22 @@ tests `tests/Methods.Tests/InProcess/`. Guide: `docs/method-handler-sdk.md` sect
   declared error, exception, deadline, unknown method, contract version, validation). The handler runs in a new scope of the
   root provider (not the caller's HTTP scope) and outside the caller's transaction. A handler that ignores its token is not
   waited for past `DeadlineUtc`: `METHOD_TIMEOUT` (`CkMethodHandlerInvoker.TimeoutFor`).
+- **Detached dispatch and tripwire** (AB#7022, OD-8 part 1; `CkDetachedExecution.cs`, `CkInProcessAmbientStateProbe.cs`; tests
+  `InProcessIsolationTests`, `CkMethodDispatcherBusTests` in-process cases): `RunAsync` starts the invoker through
+  `CkDetachedExecution.Run` = `Task.Run` under `ExecutionContext.SuppressFlow()`, so the handler's flow has an **empty** ambient context
+  (an `AsyncLocal` set by the caller, e.g. the asset-repo request session, is not visible, also not after the first `await`; nothing set by the
+  handler leaks back). Carried explicitly, nothing else: the trace (`Activity.Current` of the caller is restored in the flow; our
+  `ActivitySource` `CkMethodTelemetry.ActivitySourceName` = `Meshmakers.Octo.Methods` starts the handler span `CK method handle` as its child,
+  tags `ck.method.id`, `ck.method.transport`; subscribed in `ObservabilityBuilder`; without a listener the caller's trace still continues),
+  `CurrentCulture`/`CurrentUICulture`, the cancellation token with the deadline (argument), and the call-identifying logging scope
+  (`MethodId`, `InvocationId`, `CorrelationId`, `TenantId`, opened by the invoker inside the detached flow). The caller's logging scopes,
+  principal scope (`CkMethodPrincipalScope`), HTTP context and any other `AsyncLocal` are deliberately dropped. **Tripwire**: a host registers
+  `AddCkInProcessAmbientStateProbe<TProbe>()` (`ICkInProcessAmbientStateProbe.IsRequestStateVisible(IServiceProvider handlerScope)`, singleton,
+  thread-safe, never throws, yes/no only). `CkMethodHandlerInvoker` asks every probe (internal `ICkMethodEntryGuard`, in-process only; the bus
+  consumer passes none) after the new scope exists and before the handler is resolved; a probe that reports state or throws (fail closed)
+  fails the call with `METHOD_HANDLER_FAILED` (parameters `methodId`, `correlationId`; no new wire code) and logs ERROR naming the probe
+  type and the exception type only. No probe registered = no check. There is deliberately no switch to turn the detach off. Filters of the
+  pipeline (audit, authorization) still run in the caller's context, before the detach.
 - **Pipeline** `ICkMethodInvocationPipeline` / `ICkMethodInvocationFilter` (public, `AddCkMethodInvocationFilter<T>()`): ordered
   steps around any transport (`CkMethodTransportNames.InProcess` / `Bus`); lower `Order` runs first, bands in
   `CkMethodInvocationFilterOrder` (Audit 100 outermost, Authorization 200, Idempotency 300 innermost; decided by Odin: exactly one audit event per invocation incl. refusals and replays). A filter may refuse (return a failed response), pass a

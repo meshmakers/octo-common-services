@@ -159,6 +159,9 @@ internal class ObservabilityBuilder(
             tracing.AddSource("Meshmakers.Octo.StreamData");
             tracing.AddSource("Meshmakers.Octo.StreamData.Crate");
 
+            // Handler span of the in-process CK method transport (CkMethodTelemetry.ActivitySourceName, AB#7022).
+            tracing.AddSource("Meshmakers.Octo.Methods");
+
             // MongoDB.Driver 3.x emits one CLIENT span per command on its own ActivitySource
             // (TracingOptions are on by default) — but only when someone listens. The injected
             // auto-instrumentation only covers the 2.x driver, so without this subscription every

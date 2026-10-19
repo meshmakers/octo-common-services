@@ -50,6 +50,18 @@ public static class CkInProcessMethodServiceCollectionExtensions
     }
 
     /// <summary>
+    ///     Registers a tripwire probe (<see cref="ICkInProcessAmbientStateProbe" />) for the in-process transport: when it
+    ///     reports request-bound ambient state at handler entry, the call fails with <c>METHOD_HANDLER_FAILED</c> and the
+    ///     handler does not run. Any number of probes may be registered; the probe is a singleton.
+    /// </summary>
+    public static IServiceCollection AddCkInProcessAmbientStateProbe<TProbe>(this IServiceCollection services)
+        where TProbe : class, ICkInProcessAmbientStateProbe
+    {
+        services.AddSingleton<ICkInProcessAmbientStateProbe, TProbe>();
+        return services;
+    }
+
+    /// <summary>
     ///     Registers the invocation pipeline (<see cref="ICkMethodInvocationPipeline" />) that the in-process transport and
     ///     the bus dispatcher both run, and the <see cref="ICkMethodSensitivityResolver" /> behind the redacted request view
     ///     (it uses the registered <c>ICkMethodAuthorizationDefinitionSource</c>, else the CK cache; with neither, every

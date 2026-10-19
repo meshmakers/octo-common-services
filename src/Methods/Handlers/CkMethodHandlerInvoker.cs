@@ -11,7 +11,8 @@ internal sealed class CkMethodHandlerInvoker(
     CkMethodHandlerRegistrations registrations,
     CkMethodHandlerInstance instance,
     TimeProvider timeProvider,
-    ILogger<CkMethodHandlerInvoker> logger) : ICkMethodHandlerInvoker
+    ILogger<CkMethodHandlerInvoker> logger,
+    ICkMethodEntryGuard? entryGuard = null) : ICkMethodHandlerInvoker
 {
     // CancellationTokenSource rejects delays above int.MaxValue ms (~24.8 days)
     private static readonly TimeSpan MaxCancellationDelay = TimeSpan.FromMilliseconds(int.MaxValue - 1);
@@ -86,6 +87,19 @@ internal sealed class CkMethodHandlerInvoker(
             }
 
             await using var scope = scopeFactory.CreateAsyncScope();
+            if (entryGuard?.FindViolation(scope.ServiceProvider) is { } violation)
+            {
+                // Tripwire (OD-8): request-bound ambient state is visible at handler entry. The handler is not created.
+                // The log names the probe, never the state it looked at.
+                logger.LogError(
+                    "CK method {MethodId} invocation {InvocationId} NOT executed: ambient state probe {ProbeType} {Verdict} at handler entry (correlation {CorrelationId})",
+                    request.MethodId, request.InvocationId, violation.ProbeType.FullName,
+                    violation.Fault is null ? "reports request-bound state" : "failed with " + violation.Fault.GetType().FullName,
+                    correlationId);
+                return Failed(request, CkMethodErrorCodes.MethodHandlerFailed,
+                    (CkMethodErrorParameters.CorrelationId, correlationId.ToString()));
+            }
+
             var handler = scope.ServiceProvider.GetRequiredService(registration.HandlerType);
 
             CkMethodAdapterOutcome outcome;

@@ -15,7 +15,11 @@ namespace Meshmakers.Octo.Services.Methods;
 ///     A handler registered in-process is never published to the bus and never announced as a remote handler; a dispatcher
 ///     asks <see cref="CanHandle" /> before its registry lookup.
 ///     The handler runs in a <b>new DI scope</b> of the root provider, not in the scope of the caller's HTTP request, and
-///     outside the caller's database transaction.
+///     outside the caller's database transaction. It also runs <b>detached from the caller's ambient execution context</b>
+///     (OD-8): an <c>AsyncLocal</c> the caller set (the request session, a principal scope) is empty inside the handler.
+///     Only the trace (the caller's activity is the parent of the handler span), the culture and the identifying logging
+///     scope (method id, invocation id, correlation id, tenant) are carried across, and the cancellation token with the
+///     deadline. Registered <see cref="ICkInProcessAmbientStateProbe" />s are asked at handler entry as a tripwire.
 /// </summary>
 public interface ICkInProcessMethodTransport
 {
@@ -54,7 +58,8 @@ internal sealed class CkInProcessMethodTransport : ICkInProcessMethodTransport
         ICkMethodInvocationPipeline pipeline,
         IOptions<CkMethodHandlerOptions> options,
         TimeProvider timeProvider,
-        ILoggerFactory loggerFactory)
+        ILoggerFactory loggerFactory,
+        IEnumerable<ICkInProcessAmbientStateProbe>? probes = null)
     {
         _registrations = registrations;
         _pipeline = pipeline;
@@ -62,7 +67,8 @@ internal sealed class CkInProcessMethodTransport : ICkInProcessMethodTransport
         // The instance id of the envelope is the id of this in-process host; it is never announced.
         var instance = new CkMethodHandlerInstance(registrations, options, timeProvider);
         _invoker = new CkMethodHandlerInvoker(scopeFactory, registrations, instance, timeProvider,
-            loggerFactory.CreateLogger<CkMethodHandlerInvoker>());
+            loggerFactory.CreateLogger<CkMethodHandlerInvoker>(),
+            new CkInProcessEntryGuard(probes ?? []));
     }
 
     public IReadOnlyCollection<string> MethodIds => _invoker.MethodIds;
@@ -79,7 +85,9 @@ internal sealed class CkInProcessMethodTransport : ICkInProcessMethodTransport
     private async Task<CkMethodResponse> RunAsync(CkMethodRequest request, CancellationToken cancellationToken)
     {
         var remaining = request.DeadlineUtc - _timeProvider.GetUtcNow().UtcDateTime;
-        var run = _invoker.InvokeAsync(request, cancellationToken);
+        // The handler runs detached from the caller's ExecutionContext (OD-8): see CkDetachedExecution.
+        var run = CkDetachedExecution.Run(request.MethodId, CkMethodTransportNames.InProcess,
+            () => _invoker.InvokeAsync(request, cancellationToken));
         if (remaining <= TimeSpan.Zero || run.IsCompleted)
         {
             return await run.ConfigureAwait(false);
