@@ -43,11 +43,12 @@ RabbitMQ.
 * A method without a result implements `ICkMethodHandler<TParameters>` and returns `CkMethodOutcome.Ok()`.
 * The handler is created **per invocation in a new DI scope**: take scoped services (repositories, units of work) in the
   constructor. Register nothing yourself, `Handle<THandler>` does `AddScoped<THandler>()`.
-* `context` carries the caller (informational), `TenantId`, `CkTypeId`, `TargetRtId` (null for static methods),
-  `CorrelationId`, `IdempotencyKey`, `DeadlineUtc`/`RemainingTime` and `CallerAccessToken`. It has **no database session and
+* `context` carries the validated caller `CallerPrincipal` (section 4a), the informational `Caller`, `TenantId`, `CkTypeId`,
+  `TargetRtId` (null for static methods), `CorrelationId`, `IdempotencyKey`, `DeadlineUtc`/`RemainingTime` and `CallerAccessToken`. It has **no database session and
   no transaction**: a method runs outside the request transaction of the caller, open your own unit of work.
-* **Authorization**: the CK model declares who may call; the handler may re-check with `CallerAccessToken`. Do not trust
-  `Caller` (it is not authenticated on the bus).
+* **Authorization**: the CK model declares who may call. When a handler decides anything by who the caller is, it uses
+  `context.CallerPrincipal` and nothing else: the host validated the token behind it (section 4a). Never trust `Caller` (it is
+  not authenticated on the bus) and do not parse `CallerAccessToken` yourself.
 * **Cancellation and deadline**: `cancellationToken` is cancelled at `DeadlineUtc`. Pass it to every awaited call. A handler that
   ignores it and finishes late still answers late; the caller has then already received `METHOD_TIMEOUT`.
 
@@ -91,6 +92,70 @@ removes the queues.
 
 Options (section `Methods`): `HeartbeatInterval`, `Ttl`, `ValidateRegistrations` (default `true`, switch off only in tests),
 `ValidationTenantIds`, `EndpointReadyTimeout`.
+
+## 4a. Who is the caller? Token validation in a remote handler (AB#6913)
+
+The method bus is internal but **not authenticated per message**: anything that can publish to the method queue can write any
+`Caller` into a request. So the host re-validates the access token that the caller forwarded (`CallerAccessToken`) before the handler
+runs, with the same rules as the HTTP API of your service. Switch it on once per service:
+
+```csharp
+builder.Services.AddCkMethodHandlers("accounts-services", m => m.Handle<ChangePasswordHandler>(SampleAccountsCkIds.AccountChangePasswordMethodId));
+builder.Services.AddCkMethodCallerTokenValidation(o => o.Authority = builder.Configuration["Identity:Authority"]);   // the authority of your HTTP API
+```
+
+With it, a call without a valid token is answered `METHOD_FORBIDDEN` **before the parameters are even read**, and the handler is not
+called. A valid token reaches the handler as `context.CallerPrincipal` (`Subject`, `SubjectId`, `ClientId`, `Roles`, `Scopes`,
+`TenantId`, `IsServiceToken`):
+
+```csharp
+var caller = context.CallerPrincipal!;          // never null on a host that enabled the validation
+if (!caller.Roles.Contains("AccountManagement", StringComparer.OrdinalIgnoreCase) && caller.Subject != context.TargetRtId)
+{
+    return CkMethodOutcome<AccountChangePasswordResult>.Forbidden("not-owner");
+}
+```
+
+What is checked (defaults mirror the HTTP API; section `Methods:Token`):
+
+| Check | Default | Setting |
+|---|---|---|
+| issuer and signature | issuer = `Authority` with trailing slash; keys from the identity JWKS (`.well-known/openid-configuration`), cached, refreshed once per 5 min when a token carries an unknown key id | `Authority`, `ValidIssuer`, `MetadataAddress`, `KeyAutomaticRefreshInterval`, `KeyRefreshInterval` |
+| algorithm | asymmetric only (RS/PS/ES); `none` and `HS*` are never accepted | `ValidAlgorithms` |
+| expiry | required, 30 s clock skew | `ClockSkew` |
+| scope | `octo_api` | `RequiredScope` |
+| tenant | the `tenant_id` claim equals the tenant of the request (no parent-tenant rule; `allowed_tenants` is a selection hint and is not consulted) | - |
+| audience | **not validated** (like the HTTP API, where `ValidateAudience` is off). Set `ValidAudiences` to require one of them | `ValidAudiences` |
+
+**With `ValidAudiences` empty, every `octo_api` token of the tenant is accepted**, whichever API it was issued for. Set the audience as
+soon as the identity service issues audience-scoped tokens.
+
+**Service tokens.** A client-credentials token has no `sub`. It is accepted when `client_id` is present and `tenant_id` equals the tenant
+of the request, or when the client is listed in `TenantAuthorization:CrossTenantServiceClientIds` (the same list the HTTP API uses). The
+validation always enforces; the `LogOnly` and `Disabled` modes of the HTTP side are not applied. For such a caller
+`CallerPrincipal.Subject` is the client id, `SubjectId` is `null` and `IsServiceToken` is `true`.
+
+**Refusals.** `METHOD_FORBIDDEN` with the additive `reason` parameter:
+
+| `reason` | Meaning | The caller should |
+|---|---|---|
+| `token-missing` | the request carries no token | send the access token |
+| `token-expired` | expired beyond the skew, but otherwise a valid token for this tenant | retry once with a fresh token |
+| `token-invalid` | malformed, unsigned, foreign issuer or key, missing scope, or no `sub`/`client_id` | not retry with this token |
+| `tenant-not-allowed` | issued for another tenant | not retry; sign in to the tenant |
+| `audience-mismatch` | an audience is configured and the token has none of them | not retry |
+
+An expired token is only reported as `token-expired` if it is genuine otherwise; an expired forgery is `token-invalid`. If the signing
+keys cannot be loaded at all (identity service down and nothing cached) the call is answered `METHOD_HANDLER_FAILED`, never accepted.
+
+**Not covered.** The in-process transport does not validate a token: it runs in the process that already authenticated the caller and
+hands the principal of that process (`CkMethodPrincipalScope`) to the handler as `CallerPrincipal`. A remote service that does not call
+`AddCkMethodCallerTokenValidation` gets `CallerPrincipal == null` and no validation. A handler that receives the raw token can replay it
+against the APIs until it expires (about an hour by default); an unauthenticated handler announcement on the bus is a separate
+decision (AB#7039). Switching the validation off (`Methods:Token:DisableValidation`) is a test configuration; the service refuses to
+start outside the `Development` environment. Nothing from the token (value, claims, key id) is ever logged or put into an error.
+
+Unit-test a handler by giving the context a principal: `new CkMethodContext<TParameters>(request, parameters) { CallerPrincipal = new CkMethodPrincipal("user-1", ["AccountManagement"], ["octo_api"]) }`.
 
 ## 5. Logging and sensitive parameters
 

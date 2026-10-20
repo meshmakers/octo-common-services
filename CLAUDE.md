@@ -731,8 +731,34 @@ tests `tests/Methods.Tests/InProcess/`. Guide: `docs/method-handler-sdk.md` sect
   is refused. A refusal is a normal failed response `METHOD_FORBIDDEN` with `methodId` and the fixed reason `not-authorized`
   (`CkMethodAuthorizationErrors.Forbidden`): the filter never loads the target, so the answer is the same whether it exists or not; the log
   names the rule (`CkMethodDenial`) but no token, parameter or target id. Audit (100) sees the refusal, idempotency (300) and the transport
-  never run. Open decisions that this filter does not settle: token trust for remote handlers (AB#6916), CK data permissions for method
-  calls (AB#6917, D3:A), OD-9 (AB#6918).
+  never run. Token trust for remote handlers is settled in the next entry (AB#6913). Open decisions that this filter does not settle:
+  CK data permissions for method calls (AB#6917, D3:A), OD-9 (AB#6918).
+- **Caller token validation for remote handlers** (AB#6913, F3.4b; decision AB#6916 option A; `src/Methods/Authorization/Token/`, tests
+  `tests/Methods.Tests/Authorization/Token`): the bus is not authenticated per message, so `CkMethodRequest.Caller` proves nothing. A
+  service that opts in with `AddCkMethodCallerTokenValidation(o => o.Authority = <authority of its HTTP API>)` (section `Methods:Token`)
+  makes `CkMethodHandlerInvoker` (bus path only) validate `CallerAccessToken` **before the parameters are interpreted** and expose the
+  result as `CkMethodContext.CallerPrincipal` (`CkMethodPrincipal` + `ClientId`, `TenantId`, `Subject`, `IsServiceToken`; the three-argument
+  constructor stays). `ICkMethodCallerTokenValidator.ValidateAsync(token, tenant, ct)` / `ValidateAsync(request, ct)` is public for hosts
+  that handle requests themselves (the pipeline handler, AB#7034) and returns `CkMethodTokenValidationResult` (`Principal` or `Failure` =
+  `METHOD_FORBIDDEN` + `reason`). Reasons (`CkMethodTokenReasons`, additive): `token-missing`, `token-expired`, `token-invalid`,
+  `tenant-not-allowed`, `audience-mismatch`; a missing `octo_api` scope, a service token without `client_id`, an unknown issuer/key and
+  `alg: none` are all `token-invalid` (the answer never names the claim). Settings mirror the HTTP API: `Authority` (issuer = authority with
+  trailing slash, keys from `{Authority}.well-known/openid-configuration` JWKS), `ValidateAudience` **off** unless `ValidAudiences` is set
+  (then one of them is required; with it empty every `octo_api` token of the tenant is accepted), scope `octo_api`, clock skew 30 s,
+  asymmetric algorithms only (HS* and `none` can never be configured in). Tenant rule = `TenantAuthorizationMiddleware`, always enforcing:
+  `tenant_id` must equal the request tenant (case-insensitive); `allowed_tenants` is never consulted (it is a selection hint); no `sub` =
+  service token, needs `client_id`, accepted for the request tenant or when listed in `TenantAuthorization:CrossTenantServiceClientIds`
+  (shared options; the `LogOnly`/`Disabled` modes of the HTTP side are never applied); no parent-tenant rule. `token-expired` is only
+  reported for a token that is genuine otherwise (re-validated without the lifetime/audience check; expired + forged = `token-invalid`;
+  expired + foreign tenant = `tenant-not-allowed`). Keys: own cache (`TimeProvider`), scheduled refresh `KeyAutomaticRefreshInterval` (12 h)
+  keeps the cached keys when the identity service is down, an unknown `kid` forces one refresh throttled by `KeyRefreshInterval` (5 min,
+  counted from the last download). No keys at all (identity unreachable, no authority) = `CkMethodTokenKeysUnavailableException` ->
+  `METHOD_HANDLER_FAILED` (the caller did nothing wrong), never an accepted token. Nothing from the token (value, claim, key id) reaches a log
+  line, exception or failure; logs carry tenant, reason and an internal category only (log capture tests). `DisableValidation` is a test
+  configuration: unverified claims, tenant and scope rules still apply, and `IValidateOptions` + `ValidateOnStart` fail the start outside
+  `Development`. **In-process**: `CkInProcessMethodTransport` builds its invoker without a validator and hands the principal that the calling
+  process established (`ICkMethodPrincipalProvider`, default `CkMethodPrincipalScope`) to the handler as `CallerPrincipal`, read in the
+  caller's flow before the detached run. Without the opt-in a remote handler gets `CallerPrincipal == null` and nothing is validated.
 - `CkMethodRequest` carries `Caller` and `CallerAccessToken` unchanged to the handler; neither reaches a log (`ToString()` redacts,
   the redactor masks the token in exceptions).
 - **Redacted request view** (AB#6914, F3.4; `src/Methods/Redaction/`, tests `tests/Methods.Tests/Redaction`,

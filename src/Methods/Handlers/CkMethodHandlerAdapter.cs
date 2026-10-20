@@ -1,5 +1,6 @@
 using System.Text.Json;
 using Meshmakers.Octo.Services.Contracts.DistributionEventHub.Methods;
+using Meshmakers.Octo.Services.Methods.Authorization;
 
 namespace Meshmakers.Octo.Services.Methods.Handlers;
 
@@ -10,7 +11,8 @@ internal readonly record struct CkMethodAdapterOutcome(CkMethodFailure? Failure,
 internal abstract class CkMethodHandlerAdapter
 {
     public abstract Task<CkMethodAdapterOutcome> InvokeAsync(object handler, CkMethodRequest request,
-        object parameters, TimeProvider timeProvider, CancellationToken cancellationToken);
+        object parameters, TimeProvider timeProvider, CkMethodPrincipal? callerPrincipal,
+        CancellationToken cancellationToken);
 }
 
 internal sealed class CkMethodHandlerAdapter<THandler, TParameters, TResult> : CkMethodHandlerAdapter
@@ -19,9 +21,13 @@ internal sealed class CkMethodHandlerAdapter<THandler, TParameters, TResult> : C
     where TResult : class
 {
     public override async Task<CkMethodAdapterOutcome> InvokeAsync(object handler, CkMethodRequest request,
-        object parameters, TimeProvider timeProvider, CancellationToken cancellationToken)
+        object parameters, TimeProvider timeProvider, CkMethodPrincipal? callerPrincipal,
+        CancellationToken cancellationToken)
     {
-        var context = new CkMethodContext<TParameters>(request, (TParameters)parameters, timeProvider);
+        var context = new CkMethodContext<TParameters>(request, (TParameters)parameters, timeProvider)
+        {
+            CallerPrincipal = callerPrincipal
+        };
         var outcome = await ((THandler)handler).HandleAsync(context, cancellationToken).ConfigureAwait(false)
                       ?? throw new InvalidOperationException("The handler returned a null outcome.");
         return outcome.IsSuccess
@@ -35,9 +41,13 @@ internal sealed class CkMethodHandlerAdapter<THandler, TParameters> : CkMethodHa
     where TParameters : class
 {
     public override async Task<CkMethodAdapterOutcome> InvokeAsync(object handler, CkMethodRequest request,
-        object parameters, TimeProvider timeProvider, CancellationToken cancellationToken)
+        object parameters, TimeProvider timeProvider, CkMethodPrincipal? callerPrincipal,
+        CancellationToken cancellationToken)
     {
-        var context = new CkMethodContext<TParameters>(request, (TParameters)parameters, timeProvider);
+        var context = new CkMethodContext<TParameters>(request, (TParameters)parameters, timeProvider)
+        {
+            CallerPrincipal = callerPrincipal
+        };
         var outcome = await ((THandler)handler).HandleAsync(context, cancellationToken).ConfigureAwait(false)
                       ?? throw new InvalidOperationException("The handler returned a null outcome.");
         return new CkMethodAdapterOutcome(outcome.Failure, null);

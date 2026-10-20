@@ -1,4 +1,5 @@
 using Meshmakers.Octo.Services.Contracts.DistributionEventHub.Methods;
+using Meshmakers.Octo.Services.Methods.Authorization;
 using Meshmakers.Octo.Services.Methods.Handlers;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
@@ -51,6 +52,7 @@ internal sealed class CkInProcessMethodTransport : ICkInProcessMethodTransport
     private readonly ICkMethodInvocationPipeline _pipeline;
     private readonly CkInProcessMethodRegistrations _registrations;
     private readonly TimeProvider _timeProvider;
+    private readonly ICkMethodPrincipalProvider? _principalProvider;
 
     public CkInProcessMethodTransport(
         IServiceScopeFactory scopeFactory,
@@ -59,10 +61,12 @@ internal sealed class CkInProcessMethodTransport : ICkInProcessMethodTransport
         IOptions<CkMethodHandlerOptions> options,
         TimeProvider timeProvider,
         ILoggerFactory loggerFactory,
-        IEnumerable<ICkInProcessAmbientStateProbe>? probes = null)
+        IEnumerable<ICkInProcessAmbientStateProbe>? probes = null,
+        ICkMethodPrincipalProvider? principalProvider = null)
     {
         _registrations = registrations;
         _pipeline = pipeline;
+        _principalProvider = principalProvider;
         _timeProvider = timeProvider;
         // The instance id of the envelope is the id of this in-process host; it is never announced.
         var instance = new CkMethodHandlerInstance(registrations, options, timeProvider);
@@ -86,8 +90,12 @@ internal sealed class CkInProcessMethodTransport : ICkInProcessMethodTransport
     {
         var remaining = request.DeadlineUtc - _timeProvider.GetUtcNow().UtcDateTime;
         // The handler runs detached from the caller's ExecutionContext (OD-8): see CkDetachedExecution.
+        // The principal is read here, in the caller's flow, before the handler is detached from it: the calling process
+        // (the gateway) authenticated the caller, so nothing is re-validated and the handler gets that principal.
+        var principal = (_principalProvider ?? CkMethodPrincipalScope.Instance)
+            .GetPrincipal(new CkMethodInvocationContext(CkMethodTransportNames.InProcess, request, cancellationToken));
         var run = CkDetachedExecution.Run(request.MethodId, CkMethodTransportNames.InProcess,
-            () => _invoker.InvokeAsync(request, cancellationToken));
+            () => _invoker.InvokeInProcessAsync(request, principal, cancellationToken));
         if (remaining <= TimeSpan.Zero || run.IsCompleted)
         {
             return await run.ConfigureAwait(false);

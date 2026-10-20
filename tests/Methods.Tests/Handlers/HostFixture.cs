@@ -1,4 +1,5 @@
 using Meshmakers.Octo.ConstructionKit.Contracts.DataTransferObjects;
+using Meshmakers.Octo.Services.Methods.Authorization;
 using Meshmakers.Octo.Services.Methods.Handlers;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging.Testing;
@@ -24,7 +25,7 @@ internal sealed class HostFixture
     public CkMethodBusConsumer BusConsumer { get; private set; } = null!;
 
     public static HostFixture With<THandler>(THandler handler, CkMethodDto? definition = null,
-        string methodId = TestData.MethodId)
+        string methodId = TestData.MethodId, ICkMethodCallerTokenValidator? tokenValidator = null)
         where THandler : class, ICkMethodHandler
     {
         var fixture = new HostFixture();
@@ -44,7 +45,7 @@ internal sealed class HostFixture
             Options.Create(new CkMethodHandlerOptions()), fixture.Time);
         var invoker = new CkMethodHandlerInvoker(provider.GetRequiredService<IServiceScopeFactory>(),
             fixture.Registrations, fixture.Instance, fixture.Time,
-            new FakeLogger<CkMethodHandlerInvoker>(fixture.Logs));
+            new FakeLogger<CkMethodHandlerInvoker>(fixture.Logs), tokenValidator: tokenValidator);
         fixture.Invoker = invoker;
         fixture.BusConsumer = new CkMethodBusConsumer(invoker, fixture.Instance, fixture.Time,
             new FakeLogger<CkMethodBusConsumer>(fixture.Logs));
