@@ -1,4 +1,5 @@
 using Meshmakers.Octo.Services.Contracts.DistributionEventHub.Methods;
+using Meshmakers.Octo.Services.Methods.Authorization;
 
 namespace Meshmakers.Octo.Services.Methods;
 
@@ -44,12 +45,24 @@ public class CkMethodContext
     public string? TargetRtId => Request.TargetRtId;
 
     /// <summary>
-    ///     Informational caller identity. Never authorize on it: it is not authenticated on the bus.
-    ///     Re-validate <see cref="CallerAccessToken" /> instead.
+    ///     The authenticated caller, or <c>null</c> when none was established. <b>This is the only caller identity a
+    ///     handler may authorize on.</b> A remote host that enabled <c>AddCkMethodCallerTokenValidation</c> validated the
+    ///     forwarded token (issuer, signature, expiry, tenant) before the handler ran, so the value is never <c>null</c>
+    ///     there; the in-process transport passes through the principal that the calling process (the gateway) established.
+    ///     A remote host that did not opt in leaves it <c>null</c>.
+    /// </summary>
+    public CkMethodPrincipal? CallerPrincipal { get; init; }
+
+    /// <summary>
+    ///     Informational caller identity. Never authorize on it: it is not authenticated on the bus. Use
+    ///     <see cref="CallerPrincipal" /> instead.
     /// </summary>
     public CkMethodCaller? Caller => Request.Caller;
 
-    /// <summary>Raw JWT of the caller for the handler to re-validate. Sensitive: never log it.</summary>
+    /// <summary>
+    ///     Raw JWT of the caller. Sensitive: never log it. The host has already validated it when token validation is
+    ///     enabled (<see cref="CallerPrincipal" />); do not parse it again.
+    /// </summary>
     public string? CallerAccessToken => Request.CallerAccessToken;
 
     /// <summary>Client key for safe retries of non-idempotent methods.</summary>

@@ -23,6 +23,9 @@ public sealed class CkMethodPrincipalScope : ICkMethodPrincipalProvider
 {
     private static readonly AsyncLocal<CkMethodPrincipal?> Current = new();
 
+    /// <summary>Stateless instance for code that has no provider registered.</summary>
+    internal static CkMethodPrincipalScope Instance { get; } = new();
+
     /// <summary>The principal of the current async flow, or <c>null</c>.</summary>
     public static CkMethodPrincipal? CurrentPrincipal => Current.Value;
 

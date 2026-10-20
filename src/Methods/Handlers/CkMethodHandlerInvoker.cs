@@ -1,6 +1,7 @@
 using System.Diagnostics;
 using Meshmakers.Octo.ConstructionKit.Contracts.DataTransferObjects;
 using Meshmakers.Octo.Services.Contracts.DistributionEventHub.Methods;
+using Meshmakers.Octo.Services.Methods.Authorization;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 
@@ -12,7 +13,8 @@ internal sealed class CkMethodHandlerInvoker(
     CkMethodHandlerInstance instance,
     TimeProvider timeProvider,
     ILogger<CkMethodHandlerInvoker> logger,
-    ICkMethodEntryGuard? entryGuard = null) : ICkMethodHandlerInvoker
+    ICkMethodEntryGuard? entryGuard = null,
+    ICkMethodCallerTokenValidator? tokenValidator = null) : ICkMethodHandlerInvoker
 {
     // CancellationTokenSource rejects delays above int.MaxValue ms (~24.8 days)
     private static readonly TimeSpan MaxCancellationDelay = TimeSpan.FromMilliseconds(int.MaxValue - 1);
@@ -21,7 +23,23 @@ internal sealed class CkMethodHandlerInvoker(
 
     public bool CanHandle(string methodId) => registrations.Handlers.ContainsKey(methodId);
 
-    public async Task<CkMethodResponse> InvokeAsync(CkMethodRequest request, CancellationToken cancellationToken = default)
+    /// <summary>
+    ///     The remote (bus) path: when the host opted in to caller token validation, the forwarded token is validated
+    ///     before the handler runs.
+    /// </summary>
+    public Task<CkMethodResponse> InvokeAsync(CkMethodRequest request, CancellationToken cancellationToken = default) =>
+        InvokeCoreAsync(request, null, cancellationToken);
+
+    /// <summary>
+    ///     The in-process path: the calling process authenticated the caller already, so no token is validated and the
+    ///     principal it established is handed to the handler as is.
+    /// </summary>
+    internal Task<CkMethodResponse> InvokeInProcessAsync(CkMethodRequest request, CkMethodPrincipal? callerPrincipal,
+        CancellationToken cancellationToken = default) =>
+        InvokeCoreAsync(request, callerPrincipal, cancellationToken, validateToken: false);
+
+    private async Task<CkMethodResponse> InvokeCoreAsync(CkMethodRequest request, CkMethodPrincipal? callerPrincipal,
+        CancellationToken cancellationToken, bool validateToken = true)
     {
         ArgumentNullException.ThrowIfNull(request);
 
@@ -72,6 +90,23 @@ internal sealed class CkMethodHandlerInvoker(
 
         try
         {
+            if (validateToken && tokenValidator is not null)
+            {
+                // Before anything of the request is interpreted: an unauthenticated message learns nothing about the
+                // parameters. The Caller member of the request is never consulted.
+                var validation = await tokenValidator.ValidateAsync(request, linked.Token).ConfigureAwait(false);
+                if (validation.Principal is not { } validated)
+                {
+                    logger.LogInformation(
+                        "CK method {MethodId} invocation {InvocationId} tenant {TenantId} NOT executed: caller token refused ({Reason})",
+                        request.MethodId, request.InvocationId, request.TenantId, validation.Reason);
+                    return Failed(request, CkMethodErrorCodes.MethodForbidden,
+                        (CkMethodErrorParameters.Reason, validation.Reason ?? CkMethodTokenReasons.TokenInvalid));
+                }
+
+                callerPrincipal = validated;
+            }
+
             object parameters;
             try
             {
@@ -106,7 +141,7 @@ internal sealed class CkMethodHandlerInvoker(
             try
             {
                 outcome = await registration.Adapter
-                    .InvokeAsync(handler, request, parameters, timeProvider, linked.Token).ConfigureAwait(false);
+                    .InvokeAsync(handler, request, parameters, timeProvider, callerPrincipal, linked.Token).ConfigureAwait(false);
             }
             catch (CkMethodException e)
             {

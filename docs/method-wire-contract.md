@@ -93,7 +93,9 @@ fails when this table lacks a code or a well-known parameter.
 
 Well-known parameter names (`CkMethodErrorParameters`, camelCase): `methodId`, `correlationId`, `field`, `reason`,
 `timeoutSeconds`, `requestedVersion`, `supportedVersion`. `reason` values are short kebab-case tokens such as
-`no-live-handler` or `pipeline-not-deployed`.
+`no-live-handler` or `pipeline-not-deployed`. `METHOD_FORBIDDEN` carries `not-authorized` (method authorization) or, from a remote handler
+host that validates the caller token, `token-missing`, `token-expired`, `token-invalid`, `tenant-not-allowed` or `audience-mismatch`
+(see `method-handler-sdk.md`, section 4a).
 
 ## Rules of evolution
 

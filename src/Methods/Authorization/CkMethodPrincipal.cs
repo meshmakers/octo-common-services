@@ -11,11 +11,40 @@ namespace Meshmakers.Octo.Services.Methods.Authorization;
 /// <param name="SubjectId">The <c>sub</c> claim; <c>null</c> for client-credentials callers.</param>
 /// <param name="Roles">Role names (compared case-insensitively).</param>
 /// <param name="Scopes">OAuth scopes (compared ordinally, as scopes are case-sensitive).</param>
+/// <param name="ClientId">
+///     The <c>client_id</c> claim; only set by the token validation for remote handlers
+///     (<see cref="ICkMethodCallerTokenValidator" />), <c>null</c> otherwise.
+/// </param>
+/// <param name="TenantId">
+///     The tenant the caller was validated for; only set by the token validation for remote handlers, <c>null</c> otherwise.
+/// </param>
 public sealed record CkMethodPrincipal(
     string? SubjectId,
     IReadOnlyCollection<string> Roles,
-    IReadOnlyCollection<string> Scopes)
+    IReadOnlyCollection<string> Scopes,
+    string? ClientId = null,
+    string? TenantId = null)
 {
+    /// <summary>
+    ///     Keeps the three-argument constructor of earlier versions binary compatible.
+    /// </summary>
+    public CkMethodPrincipal(string? subjectId, IReadOnlyCollection<string> roles, IReadOnlyCollection<string> scopes)
+        : this(subjectId, roles, scopes, null, null)
+    {
+    }
+
+    /// <summary>
+    ///     Who the caller is: the <c>sub</c> of a user, or the <c>client_id</c> of a service token (client credentials,
+    ///     no <c>sub</c>). <c>null</c> when neither is known.
+    /// </summary>
+    public string? Subject => SubjectId ?? ClientId;
+
+    /// <summary>
+    ///     <c>true</c> for a validated token without <c>sub</c> (client credentials). Only meaningful for a principal
+    ///     built by <see cref="ICkMethodCallerTokenValidator" />.
+    /// </summary>
+    public bool IsServiceToken => SubjectId is null && ClientId is not null;
+
     /// <summary>Claim types that carry roles (the OIDC <c>role</c> claim and the .NET role claim).</summary>
     private static readonly string[] RoleClaimTypes = ["role", ClaimTypes.Role];
 
