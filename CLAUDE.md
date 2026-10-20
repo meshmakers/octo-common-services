@@ -644,7 +644,10 @@ and registry (F3.2/F3.3) and the pipeline handler (AB#6879) are other stories. D
   (no result), `HandleAsync(CkMethodContext<TParameters>, CancellationToken)`. `TParameters`/`TResult` are the generated
   `{Type}{Method}Parameters` / `{Type}{Method}Result` records. A handler is resolved from a **new DI scope per invocation**,
   so it can take scoped services. `CkMethodContext` has caller, tenant, target, correlation, deadline/`RemainingTime`,
-  access token; **no database session and no transaction** (methods run outside the request transaction).
+  access token; **no database session and no transaction** (methods run outside the request transaction). `CkMethodContextSessionFreeTests` (reflection over the context, handler
+  abstraction, outcome and wire records) fails if any reachable member is a session or transaction type or a `MongoDB.*` type;
+  `MethodFailureIsolationTests` pins rule 2 (a failing method call leaves earlier committed writes untouched, and a failing
+  earlier write does not block an independent call).
 - **Outcome and errors**: return the result (implicit conversion), `CkMethodOutcome.Ok()`/`Fail(code, params)` or the platform
   helpers (`ValidationFailed`, `TargetNotFound`, `Forbidden`), or throw `CkMethodException`. `CkMethodFailure` validates the
   code (declared shape or platform code). With CK validation on, a code the method does not declare becomes
