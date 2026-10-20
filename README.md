@@ -94,7 +94,7 @@ keys of `ArtifactKeyBuilder.BuildNested`, CrateDB addresses the same objects thr
 The contract tests in `tests/ArtifactStorage.Tests` run against the file system and, when Docker is available, against MinIO
 (`OCTO_TEST_MINIO_IMAGE`, default `cgr.dev/chainguard/minio:latest`) and Azurite containers; the staging location is tested against
 Azurite (the SAS is accepted and refused as designed) and against CrateDB plus MinIO on one Docker network
-(`OCTO_TEST_CRATEDB_IMAGE`, default `crate:5.9.10`: `COPY TO` / `COPY FROM` with a generated location). Without Docker, or with
+(`OCTO_TEST_CRATEDB_IMAGE`, default `crate:6.4.6`: `COPY TO` / `COPY FROM` with a generated location, once with a store without a site region and once with MinIO in region `at-vie-1`, which sends `x-amz-bucket-region` like Exoscale SOS; CrateDB 5.x fails the second one, AB#7059). Without Docker, or with
 `OCTO_SKIP_CONTAINER_TESTS=true`, the container tests are reported as skipped.
 
 ## Build
