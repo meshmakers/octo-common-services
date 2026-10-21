@@ -858,3 +858,12 @@ concept `octo-construction-kit-engine/docs/concept-tenant-backup-native-archive-
 `tests/Infrastructure.Tests` — xUnit + FakeItEasy. `Infrastructure.csproj` exposes internals to this
 assembly via `<InternalsVisibleTo Include="Infrastructure.Tests" />` so internal middleware such as
 `TenantMiddleware` can be unit-tested directly (see `Middleware/TenantMiddlewareTests.cs`).
+
+## Cache streams: missing file is `null` (AB#7256)
+
+`OctoRepository` (`src/Infrastructure/DistributionEventHub`, the `IRepository` of `IDistributedCacheService`) returns
+`null` from both `DownloadBinaryAsync` overloads when the cache file does not exist (it used to leak the repository's
+`EntityNotFoundException` for `IDownloadStreamHandler`). `DistributedCacheService.GetCacheStreamByIdAsync` therefore
+returns `null`, and callers such as the `octo-bot-services` import jobs raise a typed error naming tenant and key.
+The transaction is aborted on a miss. Read-your-writes of the underlying GridFS read lives in
+`octo-construction-kit-engine-mongodb` (primary read on a miss).

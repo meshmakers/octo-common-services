@@ -1,5 +1,6 @@
 using Meshmakers.Octo.Common.DistributionEventHub.Repository;
 using Meshmakers.Octo.ConstructionKit.Contracts;
+using Meshmakers.Octo.Runtime.Contracts.MongoDb;
 using Meshmakers.Octo.Runtime.Contracts.MongoDb.Repositories;
 using MongoDB.Bson;
 using IDownloadInfo = Meshmakers.Octo.Common.DistributionEventHub.Repository.IDownloadInfo;
@@ -116,33 +117,42 @@ internal class OctoRepository(ITenantRepository tenantRepository) : IRepository
         return new DownloadInfo(result);
     }
 
-    public async Task<IDownloadStreamHandler?> DownloadBinaryAsync(ObjectId id,
+    public Task<IDownloadStreamHandler?> DownloadBinaryAsync(ObjectId id,
         CancellationToken cancellationToken = new())
     {
-        var session = await tenantRepository.GetSessionAsync().ConfigureAwait(false);
-        session.StartTransaction();
-
-        var result = await tenantRepository
-            .DownloadLargeBinaryAsync(session, new OctoObjectId(id.ToString()), cancellationToken)
-            .ConfigureAwait(false);
-
-        await session.CommitTransactionAsync().ConfigureAwait(false);
-
-        return new DownloadStreamHandler(result);
+        return DownloadBinaryAsync(new OctoObjectId(id.ToString()), cancellationToken);
     }
 
-    public async Task<IDownloadStreamHandler?> DownloadBinaryAsync(string cacheStreamKey,
+    /// <summary>
+    ///     Returns <c>null</c> when the file does not exist (AB#7256), as <see cref="IRepository" /> promises, instead of
+    ///     leaking the repository's <see cref="EntityNotFoundException" /> to the cache service callers.
+    /// </summary>
+    public Task<IDownloadStreamHandler?> DownloadBinaryAsync(string cacheStreamKey,
         CancellationToken cancellationToken = new())
     {
+        return DownloadBinaryAsync(new OctoObjectId(cacheStreamKey), cancellationToken);
+    }
+
+    private async Task<IDownloadStreamHandler?> DownloadBinaryAsync(OctoObjectId id,
+        CancellationToken cancellationToken)
+    {
+        // The session is not disposed on purpose when the stream is returned: the handler streams from GridFS.
         var session = await tenantRepository.GetSessionAsync().ConfigureAwait(false);
         session.StartTransaction();
 
-        var result = await tenantRepository
-            .DownloadLargeBinaryAsync(session, new OctoObjectId(cacheStreamKey), cancellationToken)
-            .ConfigureAwait(false);
+        try
+        {
+            var result = await tenantRepository.DownloadLargeBinaryAsync(session, id, cancellationToken)
+                .ConfigureAwait(false);
 
-        await session.CommitTransactionAsync().ConfigureAwait(false);
+            await session.CommitTransactionAsync().ConfigureAwait(false);
 
-        return new DownloadStreamHandler(result);
+            return new DownloadStreamHandler(result);
+        }
+        catch (EntityNotFoundException)
+        {
+            await session.AbortTransactionAsync().ConfigureAwait(false);
+            return null;
+        }
     }
 }
