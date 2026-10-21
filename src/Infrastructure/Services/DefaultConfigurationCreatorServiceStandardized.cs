@@ -1060,7 +1060,7 @@ public abstract class DefaultConfigurationCreatorServiceStandardized : DefaultCo
         foreach (var (tenantId, retryCount) in tenantsToRetry)
         {
             // AB#7249: the retry no longer stops after MaxRetries. Reaching the budget is reported ONCE (log,
-            // lifecycle record, hook) so an operator hears about it, but the tenant keeps being retried at the
+            // hook) so an operator hears about it, but the tenant keeps being retried at the
             // capped backoff: a hard stop left it "not enabled" for good whenever the outage — e.g. an AKS
             // node-pool upgrade with a MongoDB primary election — outlasted the ~5 minutes the budget covered.
             if (retryCount >= MaxRetries && _failedTenantRegistry.TryMarkExhaustionReported(tenantId))
@@ -1070,10 +1070,7 @@ public abstract class DefaultConfigurationCreatorServiceStandardized : DefaultCo
                     "capped interval; check the tenant if this persists",
                     tenantId, retryCount);
                 await OnTenantRetriesExhaustedAsync(tenantId, retryCount).ConfigureAwait(false);
-                await TryUpdateLifecycleAsync(tenantId,
-                    s => s.MarkFailedAsync(tenantId,
-                        $"Tenant startup still failing after {retryCount} retries; retrying continues."))
-                    .ConfigureAwait(false);
+
             }
 
             try

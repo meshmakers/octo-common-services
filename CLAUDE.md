@@ -458,8 +458,8 @@ pass the DI instance explicitly, Identity/Asset-Repo and the rest inherit it). `
   longer exists (`TenantException.IsTenantNotFound`) or a delete in progress. The durable store keeps its own
   10-attempt budget; the in-memory queue does not.
 - **`FailedTenantRegistry`** (deferred-start failures) uses the same backoff and no longer removes a tenant after
-  10 retries: reaching the budget is reported **once** (`OnTenantRetriesExhaustedAsync`, lifecycle `MarkFailed`,
-  error log) and the retry carries on at the capped interval.
+  10 retries: reaching the budget is reported **once** (`OnTenantRetriesExhaustedAsync`, error log; the durable
+  lifecycle record is deliberately NOT set to Failed, since the retry continues and nothing would reset it) and the retry carries on at the capped interval.
 - **Logs** (tenant id, attempt, next delay): `Tenant 'x' is queued for background setup retry: attempt n failed,
   next retry in …`, `Retrying failed setup of tenant 'x' (attempt n)`, and on success `Setup of tenant 'x'
   succeeded after n failed attempt(s)`.
@@ -471,8 +471,9 @@ pass the DI instance explicitly, Identity/Asset-Repo and the rest inherit it). `
   tags `octo.tenant.id` and `octo.tenant_setup.phase` (`setup` | `start`). Series exist only while the tenant is
   failing. The Dash0 alert rule on them lives in `meshmakers-infrastructure`.
 - Tests: `tests/Infrastructure.Tests/Services/TenantSetupRetryTests.cs` (backoff, store down, startup loop with a
-  failing tenant that is enabled after MongoDB returns without restart, health, metrics, registry). Tests that build
-  a creator must pass a fresh `new TenantSetupRetryTracker()`, otherwise they share `Default`.
+  failing tenant that is enabled after MongoDB returns without restart, health, metrics, registry). Tests use one
+  isolated `new TenantSetupRetryTracker()` per test (shared across the creator instances of that test when it
+  exercises a retry), otherwise they share `Default`; registries get explicit `Options.Create(new TenantSetupRetryOptions())`.
 
 **`Active` requires a real identity seed.** `CheckSetupIdentityDataAsync` used to mark a tenant Active as
 soon as `CreateIdentityDataCommandRequest` answered `Success`. That consumer only creates ApiScopes,

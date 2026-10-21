@@ -257,7 +257,7 @@ public class TenantSetupRetryTests
 
     private TenantSetupHealthCheck CreateHealthCheck(FailedTenantRegistry? registry = null,
         TenantSetupRetryOptions? options = null)
-        => new(_tracker, registry ?? new FailedTenantRegistry(timeProvider: _time),
+        => new(_tracker, registry ?? new FailedTenantRegistry(Options.Create(new TenantSetupRetryOptions()), _time),
             Options.Create(options ?? new TenantSetupRetryOptions()), _time);
 
     [Fact]
@@ -312,7 +312,7 @@ public class TenantSetupRetryTests
     [Fact]
     public async Task Health_CoversTenantsWhoseDeferredStartFailed()
     {
-        var registry = new FailedTenantRegistry(timeProvider: _time);
+        var registry = new FailedTenantRegistry(Options.Create(new TenantSetupRetryOptions()), _time);
         registry.Add("sbeg");
         _time.Advance(TimeSpan.FromMinutes(11));
 
@@ -324,7 +324,7 @@ public class TenantSetupRetryTests
     [Fact]
     public void Metrics_PublishOneSeriesPerFailingTenant_AndDropItOnRecovery()
     {
-        var registry = new FailedTenantRegistry(timeProvider: _time);
+        var registry = new FailedTenantRegistry(Options.Create(new TenantSetupRetryOptions()), _time);
         registry.Add("start-failed");
         _tracker.RecordFailure("sbeg", "timeout");
         _time.Advance(TimeSpan.FromSeconds(90));
@@ -354,7 +354,7 @@ public class TenantSetupRetryTests
     [Fact]
     public void Registry_BacksOffExponentially_AndOnlyReportsDueTenants()
     {
-        var registry = new FailedTenantRegistry(timeProvider: _time);
+        var registry = new FailedTenantRegistry(Options.Create(new TenantSetupRetryOptions()), _time);
         registry.Add("sbeg");
 
         Assert.Empty(registry.GetDue());
@@ -371,7 +371,7 @@ public class TenantSetupRetryTests
     [Fact]
     public void Registry_ReportsExhaustionOnlyOncePerRegistration()
     {
-        var registry = new FailedTenantRegistry(timeProvider: _time);
+        var registry = new FailedTenantRegistry(Options.Create(new TenantSetupRetryOptions()), _time);
         registry.Add("sbeg");
 
         Assert.True(registry.TryMarkExhaustionReported("sbeg"));
@@ -385,7 +385,7 @@ public class TenantSetupRetryTests
     [Fact]
     public async Task DeferredStartRetry_KeepsRetrying_PastTheFormerTenAttemptLimit()
     {
-        var registry = new FailedTenantRegistry(timeProvider: _time);
+        var registry = new FailedTenantRegistry(Options.Create(new TenantSetupRetryOptions()), _time);
         registry.Add("sbeg");
         var sut = new StartFailingCreator(registry, _tracker);
 

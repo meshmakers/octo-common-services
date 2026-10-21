@@ -25,6 +25,7 @@ public class FailedTenantRegistry
 {
     private readonly ConcurrentDictionary<string, FailedTenantEntry> _failedTenants = new(StringComparer.Ordinal);
     private readonly ConcurrentDictionary<string, bool> _exhaustionReported = new(StringComparer.Ordinal);
+    private static readonly TenantSetupRetryOptions DefaultOptions = new();
     private readonly TimeProvider _timeProvider;
     private readonly IOptions<TenantSetupRetryOptions>? _options;
 
@@ -35,7 +36,7 @@ public class FailedTenantRegistry
         _timeProvider = timeProvider ?? TimeProvider.System;
     }
 
-    private TenantSetupRetryOptions Options => _options?.Value ?? TenantSetupRetryTracker.Default.Options;
+    private TenantSetupRetryOptions Options => _options?.Value ?? DefaultOptions;
 
     public void Add(string tenantId)
     {
