@@ -134,7 +134,8 @@ public class DefaultConfigurationCreatorServiceDisableTests
                 A.Fake<ICommandClient<CreateIdentityDataCommandRequest>>(),
                 identityDataVersionKey: "test-id-data-version",
                 expectedIdentityDataVersion: 1,
-                serviceEnabledKey: enabledKey)
+                serviceEnabledKey: enabledKey,
+                setupRetryTracker: new TenantSetupRetryTracker())
         {
             _blocker = blocker;
             _hookFailure = hookFailure;

@@ -111,6 +111,10 @@ internal class ObservabilityBuilder(
             // crosses no layer, and a rename on the engine side then fails the build here instead
             // of silently dropping every measurement (the AB#5430 failure mode).
             .AddMeter(SecretDiagnostics.MeterName)
+            // Tenant setup retry (AB#7249) - octo.tenant_setup.failed / .pending_seconds from
+            // TenantSetupMetrics in Infrastructure. A string, not a reference: Observability does not depend
+            // on Infrastructure; TenantSetupRetryTests pins the constant it must equal.
+            .AddMeter("Meshmakers.Octo.TenantSetup")
             .AddPrometheusExporter();
 
             // AB#5430: metrics had a Prometheus scrape endpoint and nothing else, while tracing

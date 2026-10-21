@@ -443,6 +443,37 @@ unchanged, because the whole path is a no-op when the store is null.
 > `RetryPendingTenantSetupsAsync()`, otherwise its queue is never drained.
 > `DefaultConfigurationCreatorServiceStandardized` does this alongside its own reconcile pass.
 
+**In-memory retry that needs no MongoDB (AB#7249).** The durable store above is optional (only Identity and
+Asset-Repo wired it) and best-effort: during a MongoDB primary election its own write times out and is swallowed.
+Staging-1, 2026-10-21: the communication controller logged "this tenant will be retried in the background" for
+`sbeg` and `eegroider`, but wired no store, so nothing was ever retried and their adapters stayed offline until a
+manual pod restart. `SetupAsync` therefore **always** queues a failed tenant in `TenantSetupRetryTracker`
+(`src/Infrastructure/Services/`, a process-wide singleton; the creator falls back to
+`TenantSetupRetryTracker.Default`, so a service benefits **without any wiring** — comm controller and bot-services
+pass the DI instance explicitly, Identity/Asset-Repo and the rest inherit it). `RetryPendingTenantSetupsAsync`
+(driven every 30 s by `FailedTenantRetryBackgroundService`) first drains this queue, then the durable store.
+
+- **Backoff, no give-up**: 30 s, 60 s, 120 s, 240 s, then 300 s forever (`TenantSetupRetryOptions`, section
+  `TenantSetupRetry`: `InitialDelay`, `MaxDelay`, `DegradedAfter`). The only terminal case is a tenant that no
+  longer exists (`TenantException.IsTenantNotFound`) or a delete in progress. The durable store keeps its own
+  10-attempt budget; the in-memory queue does not.
+- **`FailedTenantRegistry`** (deferred-start failures) uses the same backoff and no longer removes a tenant after
+  10 retries: reaching the budget is reported **once** (`OnTenantRetriesExhaustedAsync`, lifecycle `MarkFailed`,
+  error log) and the retry carries on at the capped interval.
+- **Logs** (tenant id, attempt, next delay): `Tenant 'x' is queued for background setup retry: attempt n failed,
+  next retry in …`, `Retrying failed setup of tenant 'x' (attempt n)`, and on success `Setup of tenant 'x'
+  succeeded after n failed attempt(s)`.
+- **Health**: `TenantSetupHealthCheck` (`/health`, check name `TenantSetup`) is `Degraded` when a tenant has been
+  failing longer than `DegradedAfter` (default 10 min), naming the tenants. It is **not** tagged `ready`: a service
+  that serves its healthy tenants must stay in the load balancer.
+- **Metrics** (meter `Meshmakers.Octo.TenantSetup`, registered in `ObservabilityBuilder`): gauges
+  `octo.tenant_setup.failed` (1 per failing tenant) and `octo.tenant_setup.pending_seconds` (age of the failure),
+  tags `octo.tenant.id` and `octo.tenant_setup.phase` (`setup` | `start`). Series exist only while the tenant is
+  failing. The Dash0 alert rule on them lives in `meshmakers-infrastructure`.
+- Tests: `tests/Infrastructure.Tests/Services/TenantSetupRetryTests.cs` (backoff, store down, startup loop with a
+  failing tenant that is enabled after MongoDB returns without restart, health, metrics, registry). Tests that build
+  a creator must pass a fresh `new TenantSetupRetryTracker()`, otherwise they share `Default`.
+
 **`Active` requires a real identity seed.** `CheckSetupIdentityDataAsync` used to mark a tenant Active as
 soon as `CreateIdentityDataCommandRequest` answered `Success`. That consumer only creates ApiScopes,
 ApiResources and Clients — **not roles or groups** — so a tenant whose Identity-side setup never ran was

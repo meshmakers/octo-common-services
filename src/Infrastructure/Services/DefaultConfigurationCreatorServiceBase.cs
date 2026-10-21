@@ -23,7 +23,8 @@ public abstract class DefaultConfigurationCreatorServiceBase(
     IBlueprintService? blueprintService = null,
     IEnumerable<IBlueprintEmbeddedSource>? embeddedBlueprintSources = null,
     ITenantSetupRetryStore? tenantSetupRetryStore = null,
-    ITenantLifecycleStore? tenantLifecycleStore = null)
+    ITenantLifecycleStore? tenantLifecycleStore = null,
+    TenantSetupRetryTracker? setupRetryTracker = null)
     : IDefaultConfigurationCreatorService
 {
     private static readonly ConcurrentDictionary<string, bool> TenantsInHandling = new();
@@ -53,6 +54,15 @@ public abstract class DefaultConfigurationCreatorServiceBase(
     ///     Standardized settle sweep, which clears a deleted tenant's re-seeded entries (AB#4829).
     /// </summary>
     protected ITenantSetupRetryStore? TenantSetupRetryStore { get; } = tenantSetupRetryStore;
+
+    /// <summary>
+    ///     In-memory retry queue (AB#7249). Always present — it falls back to the process-wide
+    ///     <see cref="TenantSetupRetryTracker.Default"/> — so a failed setup is retried even when the
+    ///     service wires no durable <see cref="ITenantSetupRetryStore"/> or the store write fails while
+    ///     MongoDB is down, which is exactly when setups fail.
+    /// </summary>
+    protected TenantSetupRetryTracker SetupRetryTracker { get; } =
+        setupRetryTracker ?? TenantSetupRetryTracker.Default;
 
     /// <inheritdoc />
     public bool DeferTenantStart { get; set; }
@@ -96,6 +106,7 @@ public abstract class DefaultConfigurationCreatorServiceBase(
             {
                 logger.LogInformation("Setup of tenant '{TenantId}' skipped: a delete is in progress.",
                     tenantId);
+                SetupRetryTracker.Remove(tenantId);
                 return;
             }
 
@@ -115,13 +126,32 @@ public abstract class DefaultConfigurationCreatorServiceBase(
                 await RefreshTenantStateAsync(tenantId).ConfigureAwait(false);
             }
 
-            // Setup completed — drop any durable retry entry from an earlier failure (AB#4690).
+            // Setup completed — leave the in-memory retry queue (AB#7249) and drop any durable retry entry
+            // from an earlier failure (AB#4690).
+            var recovered = SetupRetryTracker.Remove(tenantId);
+            if (recovered is not null)
+            {
+                logger.LogInformation(
+                    "Setup of tenant '{TenantId}' succeeded after {Attempts} failed attempt(s); the tenant has been " +
+                    "failing since {FirstFailedAt:O}",
+                    tenantId, recovered.Attempts, recovered.FirstFailedAt);
+            }
+
             await TryUpdateSetupRetryAsync(tenantId, s => s.ClearAsync(ServiceId, tenantId))
                 .ConfigureAwait(false);
         }
         catch (Exception ex)
         {
             logger.LogError(ex, "Setup tenant failed: '{TenantId}'", tenantId);
+
+            // AB#7249: queue the retry in memory FIRST and unconditionally. The durable store below is optional
+            // and best-effort, and its write times out during the very MongoDB outage that made this setup
+            // fail; the retry the log line promises must not hinge on it.
+            var queued = SetupRetryTracker.RecordFailure(tenantId, ex.Message);
+            logger.LogWarning(
+                "Tenant '{TenantId}' is queued for background setup retry: attempt {Attempt} failed, next retry in " +
+                "{NextDelay} (not before {NextAttemptAt:O})",
+                tenantId, queued.Attempts, queued.NextAttemptAt - queued.LastFailedAt, queued.NextAttemptAt);
 
             // Record the failure durably so RetryFailedTenantsAsync can drive this tenant to completion.
             // Without it, a tenant whose setup fails once (e.g. its database is briefly unreachable right
@@ -195,6 +225,46 @@ public abstract class DefaultConfigurationCreatorServiceBase(
     ///     forever. No-op when the store is not wired.
     /// </summary>
     protected async Task RetryPendingTenantSetupsAsync()
+    {
+        await RetryInMemorySetupsAsync().ConfigureAwait(false);
+        await RetryDurableSetupsAsync().ConfigureAwait(false);
+    }
+
+    /// <summary>
+    ///     Drives the in-memory retry queue (AB#7249): re-runs <see cref="SetupAsync"/> for every tenant whose
+    ///     exponential backoff has elapsed. <see cref="SetupAsync"/> itself removes the tenant on success and
+    ///     re-queues it with a longer delay on failure, so this never gives up; a tenant that no longer exists is
+    ///     the only terminal case. Needs no store and no MongoDB write.
+    /// </summary>
+    private async Task RetryInMemorySetupsAsync()
+    {
+        foreach (var entry in SetupRetryTracker.GetDue().Take(MaxSetupRetriesPerTick))
+        {
+            try
+            {
+                logger.LogInformation(
+                    "Retrying failed setup of tenant '{TenantId}' (attempt {Attempt}). Failing since {FirstFailedAt:O}. " +
+                    "Last error: {LastError}",
+                    entry.TenantId, entry.Attempts + 1, entry.FirstFailedAt, entry.LastError);
+
+                await SetupAsync(entry.TenantId).ConfigureAwait(false);
+            }
+            catch (TenantException ex) when (ex.IsTenantNotFound)
+            {
+                logger.LogInformation(
+                    "Dropping in-memory setup retry for tenant '{TenantId}': the tenant no longer exists.",
+                    entry.TenantId);
+                SetupRetryTracker.Remove(entry.TenantId);
+            }
+            catch (Exception ex)
+            {
+                // SetupAsync already re-queued the tenant with the next, longer delay and logged it.
+                logger.LogWarning(ex, "Setup retry for tenant '{TenantId}' failed again.", entry.TenantId);
+            }
+        }
+    }
+
+    private async Task RetryDurableSetupsAsync()
     {
         if (TenantSetupRetryStore is null)
         {
