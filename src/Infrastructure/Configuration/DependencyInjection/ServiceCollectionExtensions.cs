@@ -15,6 +15,7 @@ using Meshmakers.Octo.Services.Infrastructure.DistributionEventHub;
 using Meshmakers.Octo.Services.Infrastructure.Services;
 using Microsoft.AspNetCore.Cors.Infrastructure;
 using Microsoft.Extensions.DependencyInjection.Extensions;
+using Microsoft.Extensions.Options;
 
 // ReSharper disable once CheckNamespace
 namespace Microsoft.Extensions.DependencyInjection;
@@ -90,10 +91,32 @@ public static class ServiceCollectionExtensions
         services.AddInitializationService<TenantStartupInitializationService>();
 
         // Background retry for tenants that failed during deferred startup
-        services.AddSingleton<FailedTenantRegistry>();
+        services.AddTenantSetupRetry();
         services.AddHostedService<FailedTenantRetryBackgroundService>();
 
         return builder;
+    }
+
+    /// <summary>
+    ///     Tenant setup retry (AB#7249): options from the section <c>TenantSetupRetry</c>, the process-wide in-memory
+    ///     queue (<see cref="TenantSetupRetryTracker.Default" />), the deferred-start registry, metrics (meter
+    ///     <c>Meshmakers.Octo.TenantSetup</c>) and a health check that turns Degraded when a tenant stays
+    ///     "not enabled" for longer than <see cref="TenantSetupRetryOptions.DegradedAfter" />. Deliberately NOT tagged
+    ///     "ready": a service that serves its healthy tenants must stay in the load balancer.
+    /// </summary>
+    internal static IServiceCollection AddTenantSetupRetry(this IServiceCollection services)
+    {
+        services.AddOptions<TenantSetupRetryOptions>().BindConfiguration(TenantSetupRetryOptions.SectionName);
+        services.AddSingleton(sp =>
+        {
+            var tracker = TenantSetupRetryTracker.Default;
+            tracker.Configure(sp.GetRequiredService<IOptions<TenantSetupRetryOptions>>().Value);
+            return tracker;
+        });
+        services.AddSingleton<FailedTenantRegistry>();
+        services.AddSingleton<TenantSetupMetrics>();
+        services.AddHealthChecks().AddCheck<TenantSetupHealthCheck>("TenantSetup");
+        return services;
     }
 
     /// <summary>

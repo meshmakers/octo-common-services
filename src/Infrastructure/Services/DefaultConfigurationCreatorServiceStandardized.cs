@@ -71,6 +71,7 @@ public abstract class DefaultConfigurationCreatorServiceStandardized : DefaultCo
     /// <param name="runtimeRepositoryProvider">The runtime repository provider for getting schema versions</param>
     /// <param name="serviceEnabledKey">The configuration key if the service is enabled for a tenant</param>
     /// <param name="autoEnable">When true, all tenants are automatically enabled</param>
+    /// <param name="setupRetryTracker">In-memory retry queue for failed setups (AB#7249); defaults to the process-wide instance</param>
     /// <param name="failedTenantRegistry">Optional registry for tracking tenants that failed during startup for background retry</param>
     /// <param name="blueprintService">
     ///     Optional <see cref="IBlueprintService"/> used by <see cref="ApplyServiceManagedBlueprintsAsync"/>.
@@ -98,9 +99,10 @@ public abstract class DefaultConfigurationCreatorServiceStandardized : DefaultCo
         IBlueprintService? blueprintService = null,
         IEnumerable<IBlueprintEmbeddedSource>? embeddedBlueprintSources = null,
         ITenantLifecycleStore? tenantLifecycleStore = null,
-        ITenantSetupRetryStore? tenantSetupRetryStore = null)
+        ITenantSetupRetryStore? tenantSetupRetryStore = null,
+        TenantSetupRetryTracker? setupRetryTracker = null)
         : base(logger, blueprintService, embeddedBlueprintSources, tenantSetupRetryStore,
-            tenantLifecycleStore)
+            tenantLifecycleStore, setupRetryTracker)
     {
         _logger = logger;
         _systemContext = systemContext;
@@ -1047,29 +1049,34 @@ public abstract class DefaultConfigurationCreatorServiceStandardized : DefaultCo
             return;
         }
 
-        var tenantsToRetry = _failedTenantRegistry.GetAll();
+        var tenantsToRetry = _failedTenantRegistry.GetDue();
+        if (tenantsToRetry.Count == 0)
+        {
+            return;
+        }
+
         _logger.LogInformation("Retrying startup for {Count} failed tenant(s)", tenantsToRetry.Count);
 
         foreach (var (tenantId, retryCount) in tenantsToRetry)
         {
-            if (retryCount >= MaxRetries)
+            // AB#7249: the retry no longer stops after MaxRetries. Reaching the budget is reported ONCE (log,
+            // hook) so an operator hears about it, but the tenant keeps being retried at the
+            // capped backoff: a hard stop left it "not enabled" for good whenever the outage — e.g. an AKS
+            // node-pool upgrade with a MongoDB primary election — outlasted the ~5 minutes the budget covered.
+            if (retryCount >= MaxRetries && _failedTenantRegistry.TryMarkExhaustionReported(tenantId))
             {
                 _logger.LogError(
-                    "Giving up on tenant '{TenantId}' after {RetryCount} retries. Manual intervention required",
+                    "Tenant '{TenantId}' still fails to start after {RetryCount} retries. Retrying continues at the " +
+                    "capped interval; check the tenant if this persists",
                     tenantId, retryCount);
-                _failedTenantRegistry.Remove(tenantId);
                 await OnTenantRetriesExhaustedAsync(tenantId, retryCount).ConfigureAwait(false);
-                await TryUpdateLifecycleAsync(tenantId,
-                    s => s.MarkFailedAsync(tenantId,
-                        $"Tenant startup gave up after {retryCount} retries; manual intervention required."))
-                    .ConfigureAwait(false);
-                continue;
+
             }
 
             try
             {
-                _logger.LogInformation("Retrying startup for tenant '{TenantId}' (attempt {Attempt}/{MaxRetries})",
-                    tenantId, retryCount + 1, MaxRetries);
+                _logger.LogInformation("Retrying startup for tenant '{TenantId}' (attempt {Attempt})",
+                    tenantId, retryCount + 1);
                 await StartTenantAsync(tenantId).ConfigureAwait(false);
                 _failedTenantRegistry.Remove(tenantId);
                 _logger.LogInformation("Retry succeeded for tenant '{TenantId}'", tenantId);
@@ -1079,8 +1086,8 @@ public abstract class DefaultConfigurationCreatorServiceStandardized : DefaultCo
             {
                 var newCount = _failedTenantRegistry.IncrementRetryCount(tenantId);
                 _logger.LogWarning(ex,
-                    "Retry failed for tenant '{TenantId}' (attempt {Attempt}/{MaxRetries})",
-                    tenantId, newCount, MaxRetries);
+                    "Retry failed for tenant '{TenantId}' (attempt {Attempt}); next retry follows with backoff",
+                    tenantId, newCount);
                 await OnTenantStartFailedAsync(tenantId, ex).ConfigureAwait(false);
             }
         }

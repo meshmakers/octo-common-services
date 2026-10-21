@@ -156,7 +156,8 @@ public class DefaultConfigurationCreatorServiceDeletingSweepTests
                 identityDataVersionKey: "test-id-data-version",
                 expectedIdentityDataVersion: 1,
                 tenantLifecycleStore: lifecycleStore,
-                tenantSetupRetryStore: retryStore)
+                tenantSetupRetryStore: retryStore,
+                setupRetryTracker: new TenantSetupRetryTracker())
         {
         }
 

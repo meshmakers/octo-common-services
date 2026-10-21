@@ -278,9 +278,9 @@ public class DefaultConfigurationCreatorServiceSetupRetryTests
         private readonly Func<string, Task> _setupTenant;
 
         public RetryTestCreator(ITenantSetupRetryStore? store, Func<string, Task>? setupTenant = null,
-            ITenantLifecycleStore? lifecycleStore = null)
+            ITenantLifecycleStore? lifecycleStore = null, TenantSetupRetryTracker? tracker = null)
             : base(NullLogger<DefaultConfigurationCreatorServiceBase>.Instance, tenantSetupRetryStore: store,
-                tenantLifecycleStore: lifecycleStore)
+                tenantLifecycleStore: lifecycleStore, setupRetryTracker: tracker ?? new TenantSetupRetryTracker())
         {
             _setupTenant = setupTenant ?? (_ => Task.CompletedTask);
         }

@@ -27,8 +27,13 @@ namespace Meshmakers.Octo.Services.Infrastructure.Initialization;
 /// </remarks>
 internal class FailedTenantRetryBackgroundService(
     IServiceScopeFactory serviceScopeFactory,
-    ILogger<FailedTenantRetryBackgroundService> logger) : BackgroundService
+    ILogger<FailedTenantRetryBackgroundService> logger,
+    // Resolved here so the tenant-setup metrics exist from startup and the tracker is configured before
+    // its first use (AB#7249). Not used otherwise.
+    TenantSetupMetrics tenantSetupMetrics) : BackgroundService
 {
+    private readonly TenantSetupMetrics _tenantSetupMetrics = tenantSetupMetrics;
+
     private static readonly TimeSpan InitialDelay = TimeSpan.FromSeconds(30);
     private static readonly TimeSpan RetryInterval = TimeSpan.FromSeconds(30);
 

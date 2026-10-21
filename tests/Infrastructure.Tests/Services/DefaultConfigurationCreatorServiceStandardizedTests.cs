@@ -381,7 +381,8 @@ public class DefaultConfigurationCreatorServiceStandardizedTests
                 expectedIdentityDataVersion: 1,
                 blueprintService: blueprintService,
                 embeddedBlueprintSources: embeddedSources,
-                tenantLifecycleStore: lifecycleStore)
+                tenantLifecycleStore: lifecycleStore,
+                setupRetryTracker: new TenantSetupRetryTracker())
         {
             _prefix = prefix;
         }
@@ -438,7 +439,8 @@ public class DefaultConfigurationCreatorServiceStandardizedTests
                 identityDataVersionKey: "test-id-data-version",
                 expectedIdentityDataVersion: 1,
                 blueprintService: blueprintService,
-                embeddedBlueprintSources: embeddedSources)
+                embeddedBlueprintSources: embeddedSources,
+                setupRetryTracker: new TenantSetupRetryTracker())
         {
         }
 

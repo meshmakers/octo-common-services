@@ -37,4 +37,24 @@ public class MeterRegistrationTests
         Assert.True(SecretDiagnostics.Decrypts.Enabled);
         Assert.True(SecretDiagnostics.PlaintextReads.Enabled);
     }
+
+    /// <summary>
+    ///     AB#7249: octo.tenant_setup.failed / .pending_seconds (TenantSetupMetrics in Infrastructure, meter name
+    ///     pinned there by a test) reach the exporters. Observability does not reference Infrastructure, so the
+    ///     meter is created here under the same name.
+    /// </summary>
+    [Fact]
+    public void TenantSetupMeter_IsRegistered()
+    {
+        var builder = Host.CreateApplicationBuilder();
+        builder.AddObservability();
+
+        using var host = builder.Build();
+        _ = host.Services.GetRequiredService<MeterProvider>();
+
+        using var meter = new System.Diagnostics.Metrics.Meter("Meshmakers.Octo.TenantSetup");
+        var counter = meter.CreateCounter<int>("octo.tenant_setup.probe");
+
+        Assert.True(counter.Enabled);
+    }
 }
