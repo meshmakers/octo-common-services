@@ -49,22 +49,22 @@ internal class HostedInitializer : IHostedService
         catch
         {
             // A failed start (e.g. the system tenant, fail-fast by design) gets no StopAsync call from the host.
-            await StopRetryLoopAsync().ConfigureAwait(false);
+            await StopRetryLoopAsync(cancellationToken).ConfigureAwait(false);
             throw;
         }
     }
 
     public Task StopAsync(CancellationToken cancellationToken)
     {
-        return StopRetryLoopAsync();
+        return StopRetryLoopAsync(cancellationToken);
     }
 
-    private async Task StopRetryLoopAsync()
+    private async Task StopRetryLoopAsync(CancellationToken cancellationToken)
     {
         var loop = Interlocked.Exchange(ref _retryLoop, null);
         if (loop is not null)
         {
-            await loop.StopAsync().ConfigureAwait(false);
+            await loop.StopAsync(cancellationToken).ConfigureAwait(false);
         }
     }
 }

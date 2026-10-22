@@ -158,6 +158,25 @@ public class FailedTenantRetryLoopTests
     }
 
     [Fact]
+    public async Task StopAsync_ReturnsAtTheHostDeadline_EvenWhenARetryTickIsStuck()
+    {
+        var stuck = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var entered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        A.CallTo(() => _creator.RetryFailedTenantsAsync()).Invokes(() => entered.TrySetResult()).Returns(stuck.Task);
+        using var sp = BuildProvider(A.Fake<IAsyncInitializationService>());
+        var hosted = NewInitializer(sp);
+        await hosted.StartAsync(TestContext.Current.CancellationToken);
+
+        _time.Advance(Tick);
+        await entered.Task.WaitAsync(TimeSpan.FromSeconds(10), TestContext.Current.CancellationToken);
+
+        using var deadline = new CancellationTokenSource(TimeSpan.FromMilliseconds(200));
+        await hosted.StopAsync(deadline.Token).WaitAsync(TimeSpan.FromSeconds(10), TestContext.Current.CancellationToken);
+
+        stuck.SetResult(); // the stuck tick finishes later; nothing may blow up
+    }
+
+    [Fact]
     public async Task WithoutTheInfrastructureRegistrations_TheInitializerRunsAsBefore()
     {
         var pass = A.Fake<IAsyncInitializationService>();

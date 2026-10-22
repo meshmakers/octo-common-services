@@ -475,8 +475,9 @@ pass the DI instance explicitly, Identity/Asset-Repo and the rest inherit it). `
   loop registered behind it only started once the slowest tenant was done (test-2, 2026-10-22: announced "+30 s",
   actual ~5 min). `HostedInitializer` now starts the loop (if `AddOctoServiceInfrastructure` registered it) **before**
   the initialization services run and stops it in `StopAsync`. The first tick is 30 s after the start, then every 30 s
-  (`PeriodicTimer` over `TimeProvider`), so a retry runs at most one tick (30 s) after the `not before` time in the
-  log line. Consumers need no change. Test: `FailedTenantRetryLoopTests` (fake time, retry due before the pass ends
+  (`PeriodicTimer` over `TimeProvider`), so a due retry waits at most for the next tick (30 s after the `not before` time in the
+  log line, as long as the previous tick has finished: a tick retries tenants one after the other, so a slow tenant delays
+  the rest — unchanged). `StopAsync` waits for a running tick only until the host's shutdown deadline. Consumers need no change. Test: `FailedTenantRetryLoopTests` (fake time, retry due before the pass ends
   runs while the pass is still running).
 - **System tenant: fail-fast stays (AB#7271 decision).** If `SetupAsync` of the system tenant (`octosystem`) fails,
   `DefaultConfigurationInitializationService` still throws, `HostedInitializer` fails the host start (and stops the
