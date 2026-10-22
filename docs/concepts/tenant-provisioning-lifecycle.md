@@ -27,7 +27,7 @@ The process works on the happy path but its **coordination and retry state lives
 |---|---|---|
 | 1 | **Delete drops the tenant DBs asynchronously, outside the transaction**, and `Create` only does a binary "does the DB exist?" check — it cannot tell a genuine name clash from a DB that is mid-drop. A `Create` shortly after `Delete` fails with `Tenant database 'X' does already exist`, or worse, the in-flight drop later wipes a freshly-created DB. | `TenantContext.DropTenantDatabaseAsync` (`octo-construction-kit-engine-mongodb/.../TenantContext.cs:744`), guard at `TenantContext.cs:497`, `TenantsController.cs:372-405` (see the race comment at `:385-391`) |
 | 2 | The saga concurrency guard is a **static in-memory `ConcurrentDictionary` (`TenantsInHandling`)**. On "already in work" the message is **silently dropped** (no retry, no error, no DLQ). It is **per-pod**, so two pods can provision the same tenant in parallel and the second lifecycle message is lost. | `PosCreatePosUpdateTenantConsumer.cs` (`octo-common-services`) |
-| 3 | Retry/self-healing state (`_pendingIdentityDataTenantIds`, `FailedTenantRegistry`) is **in-memory only**. `FailedTenantRetryBackgroundService` drains it every 30 s, but on **pod restart the pending set is lost** → a half-provisioned tenant is never driven to completion. | `DefaultConfigurationCreatorServiceStandardized.cs:44`, `FailedTenantRegistry.cs`, `FailedTenantRetryBackgroundService.cs` |
+| 3 | Retry/self-healing state (`_pendingIdentityDataTenantIds`, `FailedTenantRegistry`) is **in-memory only**. `FailedTenantRetryLoop` drains it every 30 s, but on **pod restart the pending set is lost** → a half-provisioned tenant is never driven to completion. | `DefaultConfigurationCreatorServiceStandardized.cs:44`, `FailedTenantRegistry.cs`, `FailedTenantRetryLoop.cs` |
 
 Secondary (error-surface) issue: the `errorCode=13 requires authentication` read against a half-provisioned identity DB is an uncaught `MongoCommandException` and surfaces to the operator as a generic `InternalServerError` (`AdminProvisioningController.cs:228`), while the no-roles case is already handled cleanly as 503 (`:263`).
 
@@ -59,7 +59,7 @@ Grounded inventory of the current infrastructure:
 | **Correlation ID** on every tenant op | ✅ present | `PosCreateTenant(TenantId, CorrelationId, Timestamp)`, `TenantDeletionHandle.CorrelationId`. Reuse as the saga key. |
 | Pre/Post lifecycle broadcast events | ✅ present | `DistributedTenantNotifications` — natural hooks to create/advance saga records. |
 | Consumer-side idempotency (existence checks) | ✅ present | `CreateIdentityDataCommandRequestConsumer` inserts only if absent; blueprint seed + role-restore are idempotent. |
-| Background retry loop (PeriodicTimer) | ✅ present | `FailedTenantRetryBackgroundService` — generalize into the reconciler instead of building new infra. |
+| Background retry loop (PeriodicTimer) | ✅ present | `FailedTenantRetryLoop` — generalize into the reconciler instead of building new infra. |
 | **Persistent lifecycle state** | ❌ missing | `RtTenant` has no state enum; no saga collection. **Build.** |
 | **Distributed single-flight lease** | ❌ missing | Replace `TenantsInHandling` `ConcurrentDictionary`. **Build.** |
 | **Delete tombstone / drop-completion tracking** | ❌ missing | Drop is fire-and-forget with no record. **Build.** |
@@ -168,7 +168,7 @@ Only the pod whose conditional update wins processes the tenant; others skip. A 
   - no record → normal create; write the record in `Creating` **before** touching databases.
 - `Create` no longer relies on a binary DB-existence probe for correctness; the authoritative signal is the lifecycle state.
 
-### 4.6 Reconciler loop (generalizes `FailedTenantRetryBackgroundService`)
+### 4.6 Reconciler loop (generalizes `FailedTenantRetryLoop`)
 
 A `BackgroundService` (hosted where tenant lifecycle is owned) that every N seconds — and opportunistically on Pre/Post lifecycle events — does:
 

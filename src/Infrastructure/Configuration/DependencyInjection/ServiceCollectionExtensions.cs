@@ -90,9 +90,11 @@ public static class ServiceCollectionExtensions
         services.AddInitializationService<EventHubStartupService>();
         services.AddInitializationService<TenantStartupInitializationService>();
 
-        // Background retry for tenants that failed during deferred startup
+        // Background retry for tenants that failed during setup or deferred startup. Not a hosted service:
+        // HostedInitializer starts it BEFORE the startup pass so retries are not held back by the slowest tenant
+        // (AB#7271).
         services.AddTenantSetupRetry();
-        services.AddHostedService<FailedTenantRetryBackgroundService>();
+        services.AddSingleton<FailedTenantRetryLoop>();
 
         return builder;
     }

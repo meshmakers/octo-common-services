@@ -433,7 +433,7 @@ first and sequentially, since child setup may depend on it.
 
 **Durable per-service retry.** `SetupAsync` records a failure in `ITenantSetupRetryStore`
 (`octo-construction-kit-engine-mongodb`, keyed by `ServiceId` + tenant) and clears the entry on success.
-`RetryFailedTenantsAsync` — driven every 30 s by `FailedTenantRetryBackgroundService`, which every
+`RetryFailedTenantsAsync` — driven every 30 s by `FailedTenantRetryLoop` (started by `HostedInitializer`, see below), which every
 service already registers — claims one pending tenant at a time behind a Mongo lease and re-runs
 `SetupAsync`, up to 10 attempts with a 60 s minimum interval. Wiring is opt-in per service: pass
 `tenantSetupRetryStore` to the base constructor (Identity and Asset-Repo do). Services that do not are
@@ -451,7 +451,7 @@ manual pod restart. `SetupAsync` therefore **always** queues a failed tenant in 
 (`src/Infrastructure/Services/`, a process-wide singleton; the creator falls back to
 `TenantSetupRetryTracker.Default`, so a service benefits **without any wiring** — comm controller and bot-services
 pass the DI instance explicitly, Identity/Asset-Repo and the rest inherit it). `RetryPendingTenantSetupsAsync`
-(driven every 30 s by `FailedTenantRetryBackgroundService`) first drains this queue, then the durable store.
+(driven every 30 s by `FailedTenantRetryLoop`) first drains this queue, then the durable store.
 
 - **Backoff, no give-up**: 30 s, 60 s, 120 s, 240 s, then 300 s forever (`TenantSetupRetryOptions`, section
   `TenantSetupRetry`: `InitialDelay`, `MaxDelay`, `DegradedAfter`). The only terminal case is a tenant that no
@@ -470,6 +470,24 @@ pass the DI instance explicitly, Identity/Asset-Repo and the rest inherit it). `
   `octo.tenant_setup.failed` (1 per failing tenant) and `octo.tenant_setup.pending_seconds` (age of the failure),
   tags `octo.tenant.id` and `octo.tenant_setup.phase` (`setup` | `start`). Series exist only while the tenant is
   failing. The Dash0 alert rule on them lives in `meshmakers-infrastructure`.
+- **The retry loop runs during the startup pass (AB#7271).** `FailedTenantRetryLoop` is not a hosted service any more:
+  hosted services start sequentially and `HostedInitializer.StartAsync` blocks for the whole pass (all tenants), so a
+  loop registered behind it only started once the slowest tenant was done (test-2, 2026-10-22: announced "+30 s",
+  actual ~5 min). `HostedInitializer` now starts the loop (if `AddOctoServiceInfrastructure` registered it) **before**
+  the initialization services run and stops it in `StopAsync`. The first tick is 30 s after the start, then every 30 s
+  (`PeriodicTimer` over `TimeProvider`), so a retry runs at most one tick (30 s) after the `not before` time in the
+  log line. Consumers need no change. Test: `FailedTenantRetryLoopTests` (fake time, retry due before the pass ends
+  runs while the pass is still running).
+- **System tenant: fail-fast stays (AB#7271 decision).** If `SetupAsync` of the system tenant (`octosystem`) fails,
+  `DefaultConfigurationInitializationService` still throws, `HostedInitializer` fails the host start (and stops the
+  retry loop, since the host does not call `StopAsync` of a service whose start failed) and the container restarts.
+  Reasons: without the system tenant nothing works (no tenant list, no identity, no CK cache), so there is nothing a
+  retrying process could serve meanwhile and a half-started process would answer `/health` with a misleading state;
+  Kubernetes backoff heals it reliably (measured on test-2, MongoDB outage 2026-10-22: ~1 min, one restart); an
+  in-process retry would have to hold the initialization pass open (and keep the pod not Ready) or continue with
+  the remaining initialization services without the system tenant — both riskier than a restart and neither
+  adds anything over the container restart. Child tenants are different: their failure never stops the host, they
+  are retried in-process (above).
 - Tests: `tests/Infrastructure.Tests/Services/TenantSetupRetryTests.cs` (backoff, store down, startup loop with a
   failing tenant that is enabled after MongoDB returns without restart, health, metrics, registry). Tests use one
   isolated `new TenantSetupRetryTracker()` per test (shared across the creator instances of that test when it
