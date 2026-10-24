@@ -36,12 +36,19 @@ internal sealed class CkMethodBusConsumer(
             {
                 // Swallowed on purpose: rethrowing would let the bus retry re-execute the method. The caller
                 // runs into METHOD_TIMEOUT instead (at-most-once).
-                logger.LogError(e,
+                // the exception can quote the response: a sensitive (or unknown) result is masked in it (AB#7007)
+                var logged = response.ResultJson is not null && IsResultSensitive(request.MethodId)
+                    ? CkMethodRedactor.ForToken(request).WithResult(response.ResultJson).Redact(e)
+                    : e;
+                logger.LogError(logged,
                     "CK method {MethodId} invocation {InvocationId}: sending the response failed",
                     request.MethodId, request.InvocationId);
             }
         };
     }
+
+    private bool IsResultSensitive(string methodId) =>
+        invoker is not CkMethodHandlerInvoker concrete || concrete.IsResultSensitive(methodId);
 
     /// <param name="request">The request.</param>
     /// <param name="delivery">

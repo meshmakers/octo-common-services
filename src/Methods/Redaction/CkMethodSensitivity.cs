@@ -25,11 +25,45 @@ public interface ICkMethodSensitivityResolver
     /// <param name="ckTypeId">Concrete CK type of the target (<c>Model/Type</c>).</param>
     /// <param name="qualifiedMethodId">Qualified id of the method on its declaring element.</param>
     IReadOnlySet<string>? GetSensitiveParameters(string tenantId, string ckTypeId, string qualifiedMethodId);
+
+    /// <summary>
+    ///     <c>true</c> when the result of the method is marked <c>sensitive</c> in the CK model <b>or</b> when the method is
+    ///     not known (fail-closed, like <see cref="GetSensitiveParameters" />). Never throws. The pipeline then hands the
+    ///     filters a redacted view of the response (<c>ResultJson</c> replaced by <c>"***"</c>); the caller still gets the
+    ///     real result.
+    /// </summary>
+    /// <param name="tenantId">Tenant of the request.</param>
+    /// <param name="ckTypeId">Concrete CK type of the target (<c>Model/Type</c>).</param>
+    /// <param name="qualifiedMethodId">Qualified id of the method on its declaring element.</param>
+    /// <remarks>
+    ///     The default implementation answers <c>true</c> (fail-closed), so an implementation written before this member
+    ///     existed keeps compiling and redacts every result until it overrides it.
+    /// </remarks>
+    bool IsResultSensitive(string tenantId, string ckTypeId, string qualifiedMethodId) => true;
 }
 
 internal sealed class CkMethodSensitivityResolver(ICkMethodAuthorizationDefinitionSource? source)
     : ICkMethodSensitivityResolver
 {
+    public bool IsResultSensitive(string tenantId, string ckTypeId, string qualifiedMethodId)
+    {
+        if (source == null)
+        {
+            return true;
+        }
+
+        try
+        {
+            var definition = source.Find(tenantId, ckTypeId, qualifiedMethodId);
+            return definition == null || definition.Result?.Sensitive == true;
+        }
+        catch (Exception)
+        {
+            // a fault in the source must not reveal anything: unknown, so the result is redacted
+            return true;
+        }
+    }
+
     public IReadOnlySet<string>? GetSensitiveParameters(string tenantId, string ckTypeId, string qualifiedMethodId)
     {
         if (source == null)
@@ -51,6 +85,36 @@ internal sealed class CkMethodSensitivityResolver(ICkMethodAuthorizationDefiniti
             return null;
         }
     }
+}
+
+/// <summary>
+///     Redaction of the response view that the pipeline hands to filters (AB#7007): the mirror of
+///     <see cref="CkMethodRequestRedaction" />. The raw response is kept by the terminal step and goes to the caller.
+/// </summary>
+internal static class CkMethodResponseRedaction
+{
+    /// <summary>The placeholder of a redacted result: a JSON string, so <c>ResultJson</c> stays valid JSON.</summary>
+    public static readonly string MaskedResultJson = $"\"{CkMethodRedactor.Mask}\"";
+
+    /// <summary>
+    ///     The raw response with <c>ResultJson</c> replaced by <see cref="MaskedResultJson" /> when the result is sensitive
+    ///     and present. Error responses, <c>Success</c>, <c>Operation</c> and ids are untouched.
+    /// </summary>
+    public static CkMethodResponse CreateView(CkMethodResponse raw, bool resultSensitive) =>
+        resultSensitive && raw.ResultJson is not null ? raw with { ResultJson = MaskedResultJson } : raw;
+
+    /// <summary>
+    ///     Maps the response the outermost filter passed back to the one the caller must get: a successful response that
+    ///     still carries the placeholder gets the raw result back; a response a filter changed (another result, a failed
+    ///     response) is kept as it is.
+    /// </summary>
+    /// <param name="raw">The response the transport produced; <c>null</c> when the transport did not run (a filter answered).</param>
+    /// <param name="passed">The response the filter chain returned.</param>
+    public static CkMethodResponse Restore(CkMethodResponse? raw, CkMethodResponse passed) =>
+        raw is { ResultJson: not null } && passed is { Success: true, Operation: null } &&
+        string.Equals(passed.ResultJson, MaskedResultJson, StringComparison.Ordinal)
+            ? passed with { ResultJson = raw.ResultJson }
+            : passed;
 }
 
 /// <summary>Redaction of the request view that the pipeline hands to filters (the raw request goes to the transport only).</summary>

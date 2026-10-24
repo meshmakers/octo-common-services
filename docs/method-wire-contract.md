@@ -131,4 +131,5 @@ The plain `GetCommandResponseAsync` overload addresses a different (temporary, e
 ## Security notes
 
 The bus is internal and not authenticated per message: `caller` is informational and a forged value must have no effect;
-authorization re-validates `callerAccessToken` (F3.4). Sensitive members are `parametersJson` and `callerAccessToken`.
+authorization re-validates `callerAccessToken` (F3.4). Sensitive members are `parametersJson` and `callerAccessToken`, and `resultJson` of a response whose CK result is marked `sensitive`. The
+redacted view of the response exists only inside the calling process (the invocation filters); the envelope on the bus is unchanged.

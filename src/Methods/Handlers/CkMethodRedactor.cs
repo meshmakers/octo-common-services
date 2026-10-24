@@ -73,6 +73,33 @@ internal sealed class CkMethodRedactor
     }
 
     /// <summary>
+    ///     A redactor that additionally masks the values of <paramref name="resultJson" />, the serialized result of a
+    ///     sensitive method (AB#7007): every string, number and boolean in it, in the plain and escaped forms, and the
+    ///     whole JSON text. Used where the host forwards the response and an exception may quote it.
+    /// </summary>
+    public CkMethodRedactor WithResult(string? resultJson)
+    {
+        if (string.IsNullOrEmpty(resultJson))
+        {
+            return this;
+        }
+
+        var secrets = new List<string> { resultJson };
+        try
+        {
+            using var document = JsonDocument.Parse(resultJson);
+            CollectSecrets(document.RootElement, secrets);
+        }
+        catch (JsonException)
+        {
+            // not JSON: the whole text is masked
+        }
+
+        return new CkMethodRedactor(_secrets.Concat(secrets.Where(s => s.Length > 0).SelectMany(SecretForms))
+            .Distinct(StringComparer.Ordinal).OrderByDescending(s => s.Length).ToArray());
+    }
+
+    /// <summary>
     ///     The texts under which a decoded secret can show up in a message: the plain value, its JSON-escaped forms
     ///     (System.Text.Json default and relaxed encoder, Newtonsoft.Json, and every combination of the optional
     ///     escapes: non-ASCII and HTML-sensitive characters as <c>\uXXXX</c> in either hex case, escaped slash, long

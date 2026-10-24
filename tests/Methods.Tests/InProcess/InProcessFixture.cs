@@ -80,4 +80,7 @@ internal sealed class DefinitionSensitivity(CkMethodDto? definition) : ICkMethod
             ? null
             : (definition.Parameters ?? []).Where(p => p.Sensitive).Select(p => p.Name)
                 .ToHashSet(StringComparer.OrdinalIgnoreCase);
+
+    public bool IsResultSensitive(string tenantId, string ckTypeId, string qualifiedMethodId) =>
+        definition == null || definition.Result?.Sensitive == true;
 }

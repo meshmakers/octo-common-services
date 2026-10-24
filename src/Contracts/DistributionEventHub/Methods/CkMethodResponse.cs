@@ -53,7 +53,9 @@ public sealed record CkMethodResponse
     public CkMethodError? Error { get; init; }
 
     /// <summary>
-    ///     Method result as camelCase JSON, if the method declares a result and ran synchronously.
+    ///     Method result as camelCase JSON, if the method declares a result and ran synchronously. <b>CONTAINS A
+    ///     SENSITIVE VALUE</b> when the CK result is marked <c>sensitive</c> — never log it. Invocation filters see a
+    ///     redacted view of it (the string <c>"***"</c>); only the caller gets the real value.
     /// </summary>
     public string? ResultJson { get; init; }
 
@@ -100,6 +102,15 @@ public sealed record CkMethodResponse
     /// <param name="error">The error</param>
     public static CkMethodResponse Failed(Guid invocationId, string handlerInstanceId, CkMethodError error) =>
         new() { InvocationId = invocationId, HandlerInstanceId = handlerInstanceId, Success = false, Error = error };
+
+    /// <summary>
+    ///     Redacting string representation (the record is sealed, so no derived record can regenerate a
+    ///     <c>PrintMembers</c> that prints the result): never contains <see cref="ResultJson" />. Only ids, the outcome
+    ///     and the error code are printed.
+    /// </summary>
+    public override string ToString() =>
+        $"CkMethodResponse {{ {InvocationId} success={Success} error={Error?.Code ?? "-"} " +
+        $"operation={Operation?.OperationId ?? "-"} hasResult={ResultJson is not null} }}";
 }
 
 /// <summary>

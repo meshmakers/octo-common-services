@@ -731,6 +731,12 @@ and registry (F3.2/F3.3) and the pipeline handler (AB#6879) are other stories. D
 - **Sensitive data**: the host never logs `ParametersJson` or the token (`CkMethodRequest.ToString()` redacts, the host logs ids
   only). `CkMethodRedactor` additionally masks the values of CK `sensitive: true` parameters and the caller token in the
   message, stack trace and `ToString()` of an exception a handler throws before the host logs it. Tests: `CkMethodHandlerInvokerTests`.
+  **Sensitive result (AB#7007)**: `CkMethodResponse.ToString()` never prints `ResultJson` (ids, success, error code, operation id and
+  `hasResult` only); the host never puts the result into a log line, an exception message, an activity tag or a metric label. A
+  failure while the host *serializes* the result (`CkMethodResultSerializationException`, thrown by the adapter) is logged with its
+  inner exception only for a non-sensitive result; for a CK result marked `sensitive` (`CkMethodRegistration.SensitiveResult`) only the
+  fault type is logged. A failing `respond` of the bus consumer is logged through `CkMethodRedactor.WithResult(resultJson)` (masks every
+  value of the result, plain and escaped) when the result is sensitive or the method is not registered. Tests: `RedactedResponseViewTests`.
 - **Event hub requirement (AB#6891)**: the endpoint readiness, delivery info, fault suppression and mandatory send come from
   `Meshmakers.Octo.Common.DistributionEventHub` (opt-in primitives, see its `CLAUDE.md` "Shared Command Endpoints"). This repo
   needs the event hub release that contains them. The migration of the older exclusive command queues is a separate story.
@@ -830,9 +836,18 @@ tests `tests/Methods.Tests/InProcess/`. Guide: `docs/method-handler-sdk.md` sect
   idempotency fingerprint over the view would equal for different passwords). The sensitivity comes from
   `ICkMethodSensitivityResolver` (registered by `AddCkMethodInvocationPipeline`; reads `ICkMethodAuthorizationDefinitionSource`, else the CK
   cache). `CkMethodRedactor.For(sensitiveNames|null, request)` masks the same values (plain, JSON-escaped in all common encoder variants, JSON-in-JSON, percent-encoded; AB#7015, `SecretForms`) in exceptions the pipeline and the dispatcher log
-  (a bus exception that quotes the payload). Not covered: sensitive **results** (the meta-model has no flag for them), pipeline
-  handlers (OD-9, AB#6918), and what a handler itself writes. There is no `ActivitySource`/metric in `src/Methods` yet; the canary test
-  listens to all activity sources so a later one cannot leak unnoticed.
+  (a bus exception that quotes the payload).
+  **Redacted response view (AB#7007; `CkMethodResponseRedaction` in `CkMethodSensitivity.cs`)**: the mirror of the request side. When
+  the CK result of the method is `sensitive` (`ICkMethodSensitivityResolver.IsResultSensitive`; fail-closed `true` for an unknown method,
+  a missing source or a faulting source), the terminal step keeps the raw response and hands the filters a view whose `ResultJson` is
+  the JSON string `"***"` (still valid JSON; only a present result is masked, error and accepted responses and `Success`/`Operation`/ids
+  are untouched). The outermost step restores the raw `ResultJson` when the response that comes back from the chain still carries the
+  placeholder, so the **caller gets the real result**; a filter that returns another response (failed, another result) keeps its
+  change, and a filter that answers without calling `next` is returned as is. The view exists only in-process; the wire envelope and
+  `ContractVersion` are unchanged. Consequence for F3.5: an idempotency store behind the filters holds the masked result, so how a
+  replay answers is decided there. Not covered: per-attribute masking inside a record result (the marker is whole-result), pipeline
+  handlers (they refuse a sensitive result, see the controller), and what a handler itself writes. The `CK method handle` span carries only ids and the
+  transport name, never a result. The canary tests listen to all activity sources, so a new source cannot leak a result unnoticed.
 
 ### Method dispatcher (AB#6905, F3.3)
 

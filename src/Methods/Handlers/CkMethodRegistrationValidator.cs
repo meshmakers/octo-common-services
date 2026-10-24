@@ -31,6 +31,7 @@ internal sealed class CkMethodRegistrationValidator(ICkMethodDefinitionSource de
         registration.Definition = method;
         registration.SensitiveParameters = (method.Parameters ?? []).Where(p => p.Sensitive).Select(p => p.Name)
             .ToHashSet(StringComparer.OrdinalIgnoreCase);
+        registration.SensitiveResult = method.Result?.Sensitive == true;
     }
 
     private static void CheckParameters(CkMethodRegistration registration, CkMethodDto method)
