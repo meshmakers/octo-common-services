@@ -35,7 +35,11 @@ public interface ICkMethodSensitivityResolver
     /// <param name="tenantId">Tenant of the request.</param>
     /// <param name="ckTypeId">Concrete CK type of the target (<c>Model/Type</c>).</param>
     /// <param name="qualifiedMethodId">Qualified id of the method on its declaring element.</param>
-    bool IsResultSensitive(string tenantId, string ckTypeId, string qualifiedMethodId);
+    /// <remarks>
+    ///     The default implementation answers <c>true</c> (fail-closed), so an implementation written before this member
+    ///     existed keeps compiling and redacts every result until it overrides it.
+    /// </remarks>
+    bool IsResultSensitive(string tenantId, string ckTypeId, string qualifiedMethodId) => true;
 }
 
 internal sealed class CkMethodSensitivityResolver(ICkMethodAuthorizationDefinitionSource? source)

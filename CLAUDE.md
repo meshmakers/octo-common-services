@@ -846,8 +846,8 @@ tests `tests/Methods.Tests/InProcess/`. Guide: `docs/method-handler-sdk.md` sect
   change, and a filter that answers without calling `next` is returned as is. The view exists only in-process; the wire envelope and
   `ContractVersion` are unchanged. Consequence for F3.5: an idempotency store behind the filters holds the masked result, so how a
   replay answers is decided there. Not covered: per-attribute masking inside a record result (the marker is whole-result), pipeline
-  handlers (they refuse a sensitive result, see the controller), and what a handler itself writes. There is no `ActivitySource`/metric in `src/Methods` yet; the canary test
-  listens to all activity sources so a later one cannot leak unnoticed.
+  handlers (they refuse a sensitive result, see the controller), and what a handler itself writes. The `CK method handle` span carries only ids and the
+  transport name, never a result. The canary tests listen to all activity sources, so a new source cannot leak a result unnoticed.
 
 ### Method dispatcher (AB#6905, F3.3)
 
