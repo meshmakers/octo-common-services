@@ -172,13 +172,33 @@ internal sealed class CkMethodHandlerInvoker(
         {
             // The id in the log is the id the caller got in the error parameters. Secrets a handler put into its
             // exception message are masked; the stack trace never goes on the wire.
-            logger.LogError(redactor.Redact(e),
+            logger.LogError(LoggedException(registration, redactor, e),
                 "CK method {MethodId} invocation {InvocationId} failed (correlation {CorrelationId})",
                 request.MethodId, request.InvocationId, correlationId);
             return Failed(request, CkMethodErrorCodes.MethodHandlerFailed,
                 (CkMethodErrorParameters.CorrelationId, correlationId.ToString()));
         }
     }
+
+    /// <summary>
+    ///     The exception as it may be logged. The fault of a result serialization quotes the result value more often than
+    ///     not; of a <b>sensitive</b> result only the type of the fault is logged (AB#7007), never its message or stack.
+    ///     Everything else is masked as before.
+    /// </summary>
+    private static Exception LoggedException(CkMethodRegistration registration, CkMethodRedactor redactor, Exception e) =>
+        e is CkMethodResultSerializationException serialization
+            ? registration.SensitiveResult
+                ? new InvalidOperationException(
+                    "The method result could not be serialized (" + serialization.InnerException?.GetType().FullName +
+                    "); details are withheld because the result is sensitive.")
+                : redactor.Redact(serialization.InnerException ?? serialization)
+            : redactor.Redact(e);
+
+    /// <summary>
+    ///     <c>true</c> when the result of the method is sensitive; fail-closed for a method that is not registered here.
+    /// </summary>
+    internal bool IsResultSensitive(string methodId) =>
+        !registrations.Handlers.TryGetValue(methodId, out var registration) || registration.SensitiveResult;
 
     private CkMethodResponse DeclaredFailure(CkMethodRequest request, CkMethodRegistration registration,
         CkMethodFailure failure, Guid correlationId)

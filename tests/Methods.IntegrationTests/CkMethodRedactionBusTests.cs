@@ -38,6 +38,10 @@ public sealed class CkMethodRedactionBusTests(RabbitMqFixture rabbitMq) : IAsync
 
     private const string TokenCanary = "CANARY-TOKEN-456";
     private const string MethodId = "Sample.Accounts/Account.ChangePassword-1";
+    private const string SecretMethodId = "Sample.Accounts/Account.IssueApiKey-1";
+
+    /// <summary>The value the sensitive result of <see cref="SecretMethodId" /> carries (AB#7007).</summary>
+    private const string ResultCanary = "CANARY-RESULT-789-\"q\\b+&<>/-\u00c4";
     private const string Tenant = "meshtest";
     private const string Target = "65f0c0ffee65f0c0ffee65f0";
 
@@ -121,6 +125,27 @@ public sealed class CkMethodRedactionBusTests(RabbitMqFixture rabbitMq) : IAsync
         }
     }
 
+    public sealed record IssueApiKeyParameters;
+
+    public sealed record IssueApiKeyResult
+    {
+        public required string ApiKey { get; init; }
+    }
+
+    public sealed class IssueApiKeyHandler : ICkMethodHandler<IssueApiKeyParameters, IssueApiKeyResult>
+    {
+        public Task<CkMethodOutcome<IssueApiKeyResult>> HandleAsync(CkMethodContext<IssueApiKeyParameters> context,
+            CancellationToken cancellationToken) =>
+            Task.FromResult<CkMethodOutcome<IssueApiKeyResult>>(new IssueApiKeyResult { ApiKey = ResultCanary });
+    }
+
+    private static readonly CkMethodDto SecretDefinition = new()
+    {
+        MethodId = "IssueApiKey-1",
+        Result = new CkMethodResultDto { ValueType = AttributeValueTypesDto.String, Sensitive = true },
+        Authorization = new CkMethodAuthorizationDto { Roles = ["R"] }
+    };
+
     private static readonly JsonSerializerOptions RelaxedEscaping = new()
     {
         Encoder = System.Text.Encodings.Web.JavaScriptEncoder.UnsafeRelaxedJsonEscaping
@@ -141,7 +166,8 @@ public sealed class CkMethodRedactionBusTests(RabbitMqFixture rabbitMq) : IAsync
     {
         public IReadOnlyList<string> TenantIds { get; } = ["octosystem"];
 
-        public CkMethodDto? Find(string qualifiedMethodId) => qualifiedMethodId == MethodId ? Definition : null;
+        public CkMethodDto? Find(string qualifiedMethodId) =>
+            qualifiedMethodId == MethodId ? Definition : qualifiedMethodId == SecretMethodId ? SecretDefinition : null;
 
         public CkMethodDto? Find(string tenantId, string ckTypeId, string qualifiedMethodId) => Find(qualifiedMethodId);
     }
@@ -183,7 +209,11 @@ public sealed class CkMethodRedactionBusTests(RabbitMqFixture rabbitMq) : IAsync
         services.AddCkMethodDispatcher();
         if (inProcess)
         {
-            services.AddCkInProcessMethodHandlers(m => m.Handle<ChangePasswordHandler>(MethodId));
+            services.AddCkInProcessMethodHandlers(m =>
+            {
+                m.Handle<ChangePasswordHandler>(MethodId);
+                m.Handle<IssueApiKeyHandler>(SecretMethodId);
+            });
         }
 
         var provider = await StartHubAsync(services);
@@ -200,7 +230,11 @@ public sealed class CkMethodRedactionBusTests(RabbitMqFixture rabbitMq) : IAsync
             c.AutomaticallyStartBusDuringStartup = false;
             c.AddCkMethodHandlerDiscovery();
         });
-        services.AddCkMethodHandlers("HandlerA", m => m.Handle<ChangePasswordHandler>(MethodId));
+        services.AddCkMethodHandlers("HandlerA", m =>
+        {
+            m.Handle<ChangePasswordHandler>(MethodId);
+            m.Handle<IssueApiKeyHandler>(SecretMethodId);
+        });
         var provider = await StartHubAsync(services);
         foreach (var hosted in provider.GetServices<IHostedService>().Where(h => h is CkMethodHandlerHeartbeatService))
         {
@@ -240,11 +274,11 @@ public sealed class CkMethodRedactionBusTests(RabbitMqFixture rabbitMq) : IAsync
         return services;
     }
 
-    private static CkMethodRequest NewRequest(string parametersJson, TimeSpan timeout) => new(Tenant)
+    private static CkMethodRequest NewRequest(string parametersJson, TimeSpan timeout, string methodId = MethodId) => new(Tenant)
     {
         InvocationId = Guid.NewGuid(),
         CorrelationId = Guid.NewGuid(),
-        MethodId = MethodId,
+        MethodId = methodId,
         CkTypeId = "Sample.Accounts/Account",
         TargetRtId = Target,
         ParametersJson = parametersJson,
@@ -253,12 +287,12 @@ public sealed class CkMethodRedactionBusTests(RabbitMqFixture rabbitMq) : IAsync
     };
 
     private static Task<CkMethodResponse> CallAsync(ICkMethodDispatcher dispatcher, string parametersJson,
-        TimeSpan? timeout = null)
+        TimeSpan? timeout = null, string methodId = MethodId)
     {
         using (CkMethodPrincipalScope.Begin(new CkMethodPrincipal("65f0c0ffee65f0c0ffee65f1", ["R"],
                    [CkMethodAuthorizationOptions.ApiScope])))
         {
-            return dispatcher.InvokeAsync(NewRequest(parametersJson, timeout ?? TimeSpan.FromSeconds(10)),
+            return dispatcher.InvokeAsync(NewRequest(parametersJson, timeout ?? TimeSpan.FromSeconds(10), methodId),
                 TestContext.Current.CancellationToken);
         }
     }
@@ -342,6 +376,34 @@ public sealed class CkMethodRedactionBusTests(RabbitMqFixture rabbitMq) : IAsync
                                         c.Text.Contains(TokenCanary, StringComparison.Ordinal)).ToList();
         Assert.True(leaks.Count == 0,
             "canary found in: " + string.Join(" | ", leaks.Select(l => $"{l.Kind}: {Truncate(l.Text)}")));
+    }
+
+    /// <summary>
+    ///     AB#7007: the result of a method marked <c>sensitive</c> reaches the caller, byte for byte, and appears in no log
+    ///     line, no audit record of the outermost filter and no activity, over the real bus and in-process.
+    /// </summary>
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task SensitiveResult_ReachesTheCaller_ButNeverLogsAuditOrActivities(bool inProcess)
+    {
+        var dispatcher = await StartAsync(inProcess);
+
+        var response = await CallAsync(dispatcher, "{}", methodId: SecretMethodId);
+
+        Assert.True(response.Success, response.Error?.Code);
+        Assert.Equal(ResultCanary, JsonDocument.Parse(response.ResultJson!).RootElement.GetProperty("apiKey").GetString());
+        await Task.Delay(500, TestContext.Current.CancellationToken);
+        _sink.Add("response-text", response.ToString());
+
+        var captured = _sink.Snapshot();
+        Assert.Contains(captured, c => c.Kind == "audit-response"); // the scan looked at the audit view
+        Assert.Contains(captured, c => c.Kind == "log");
+        var forms = Forms(ResultCanary);
+        var leaks = captured.Where(c => forms.Any(f => c.Text.Contains(f, StringComparison.Ordinal))).ToList();
+        Assert.True(leaks.Count == 0,
+            "result found in: " + string.Join(" | ", leaks.Select(l => $"{l.Kind}: {Truncate(l.Text)}")));
+        Assert.Contains(captured, c => c.Kind == "audit-response" && c.Text.Contains("***", StringComparison.Ordinal));
     }
 
     private static string Truncate(string text) => text.Length > 300 ? text[..300] : text;

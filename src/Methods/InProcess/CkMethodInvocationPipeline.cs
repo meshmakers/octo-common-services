@@ -109,14 +109,18 @@ internal sealed class CkMethodInvocationPipeline(
         }
 
         var sensitive = sensitivity.GetSensitiveParameters(request.TenantId, request.CkTypeId, request.MethodId);
+        var resultSensitive = sensitivity.IsResultSensitive(request.TenantId, request.CkTypeId, request.MethodId);
         var view = CkMethodRequestRedaction.CreateView(request, sensitive);
+        // The response mirrors the request side: the filters only ever see a redacted view (AB#7007), the raw response is
+        // kept here and goes to the caller.
+        CkMethodResponse? rawResponse = null;
         var context = new CkMethodInvocationContext(transportName, view, cancellationToken);
         // The filters only ever see the redacted view; the terminal step puts the raw values back for the transport.
         CkMethodInvocationDelegate chain = r =>
         {
             if (CkMethodRequestRedaction.TryRestore(request, view, r, sensitive, out var restored, out var member))
             {
-                return transport(restored);
+                return TransportAsync(restored);
             }
 
             // a filter handed on the placeholder for a sensitive member the request does not carry: never call the
@@ -130,6 +134,13 @@ internal sealed class CkMethodInvocationPipeline(
                     (CkMethodErrorParameters.Field, member ?? string.Empty),
                     (CkMethodErrorParameters.Reason, "redacted placeholder without a value in the request"))));
         };
+        async Task<CkMethodResponse> TransportAsync(CkMethodRequest r)
+        {
+            var raw = await transport(r).ConfigureAwait(false);
+            rawResponse = raw;
+            return CkMethodResponseRedaction.CreateView(raw, resultSensitive);
+        }
+
         for (var i = _filters.Length - 1; i >= 0; i--)
         {
             var filter = _filters[i];
@@ -139,7 +150,8 @@ internal sealed class CkMethodInvocationPipeline(
 
         try
         {
-            return await chain(view).ConfigureAwait(false);
+            var passed = await chain(view).ConfigureAwait(false);
+            return CkMethodResponseRedaction.Restore(rawResponse, passed);
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {

@@ -34,6 +34,9 @@ internal sealed class CkMethodRegistration
     /// <summary>Names (as in the CK model) of the parameters that carry <c>sensitive: true</c>.</summary>
     public IReadOnlySet<string> SensitiveParameters { get; set; } = new HashSet<string>();
 
+    /// <summary><c>true</c> when the method's result carries <c>sensitive: true</c> (AB#7007).</summary>
+    public bool SensitiveResult { get; set; }
+
     public static CkMethodRegistration Create(string methodId, Type handlerType)
     {
         // validates the id early (throws ArgumentException for malformed ids)

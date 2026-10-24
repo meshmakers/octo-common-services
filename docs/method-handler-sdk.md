@@ -166,8 +166,13 @@ before the host logs it. Do not log `context.Parameters` yourself; the generated
 Filters and the audit trail never see those values either (AB#6914): the invocation context hands every filter a **redacted view** of the
 request. Sensitive parameter values are `"***"`, the caller token is `null`, a payload that cannot be parsed is `{}`, and a method that is
 not known is redacted completely. Only the transport (and so the handler) gets the raw values. A validation error names the parameter
-(`field`) and never echoes its value; exceptions logged by the pipeline and the dispatcher are masked the same way. Limits: result values
-are not redacted (the meta-model has no flag for results), and a method that is implemented as a pipeline is a separate decision (OD-9).
+(`field`) and never echoes its value; exceptions logged by the pipeline and the dispatcher are masked the same way.
+
+The same holds for the **result** of a method whose CK result is marked `sensitive` (AB#7007): every filter sees
+`ResultJson == "\"***\""` (a JSON string, so it stays valid JSON; a method that is not known is redacted completely), the caller gets the real
+result, and the host never writes it into a log line, an exception message, an activity tag or a metric label. `CkMethodResponse.ToString()`
+never prints the result. Error responses are not touched. Limits: a record result is masked as a whole, and a method that is implemented as a pipeline
+refuses a sensitive result (the pipeline execution stores its output).
 
 The masking of exception text covers every form in which a serializer or a URL can write a value (AB#7015), not only the decoded text:
 the plain value, the JSON-escaped forms (System.Text.Json default and relaxed encoder, Newtonsoft.Json: `\"`, `\\`, `\uXXXX` for quote,
@@ -267,6 +272,11 @@ sensitive member the filter gives another value is an explicit replacement and i
 sensitive member that the request does not carry cannot be restored: the call is refused with `METHOD_VALIDATION_FAILED` (`field` = the
 member) and the handler is not called. (A filter cannot tell the placeholder from a real value `"***"` of a sensitive parameter; the raw
 value wins.) It follows that a filter cannot fingerprint the real parameter values.
+
+The response mirrors this (AB#7007): the filters get the response of the transport with `ResultJson` replaced by `"***"` when the CK result is
+`sensitive` (or the method is unknown), and the real response goes back to the caller as long as the filters pass the view through. A
+filter that returns a different response (for example a failed one) keeps its change; a filter that answers without calling `next` is returned
+as is.
 
 A filter refuses with a normal failed `CkMethodResponse` (for example `METHOD_FORBIDDEN`), may continue with a modified request
 (`next(request with { IdempotencyKey = ... })`) and must not log `ParametersJson` or the token. An exception escaping a filter is
