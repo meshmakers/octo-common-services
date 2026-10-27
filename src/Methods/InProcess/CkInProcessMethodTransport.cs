@@ -53,6 +53,7 @@ internal sealed class CkInProcessMethodTransport : ICkInProcessMethodTransport
     private readonly CkInProcessMethodRegistrations _registrations;
     private readonly TimeProvider _timeProvider;
     private readonly ICkMethodPrincipalProvider? _principalProvider;
+    private readonly IOptions<CkMethodDispatcherOptions>? _dispatcherOptions;
 
     public CkInProcessMethodTransport(
         IServiceScopeFactory scopeFactory,
@@ -70,6 +71,7 @@ internal sealed class CkInProcessMethodTransport : ICkInProcessMethodTransport
         _registrations = registrations;
         _pipeline = pipeline;
         _principalProvider = principalProvider;
+        _dispatcherOptions = dispatcherOptions;
         _timeProvider = timeProvider;
         // The instance id of the envelope is the id of this in-process host; it is never announced.
         var instance = new CkMethodHandlerInstance(registrations, options, timeProvider);
@@ -93,7 +95,17 @@ internal sealed class CkInProcessMethodTransport : ICkInProcessMethodTransport
 
     private async Task<CkMethodResponse> RunAsync(CkMethodRequest request, CancellationToken cancellationToken)
     {
-        var remaining = request.DeadlineUtc - _timeProvider.GetUtcNow().UtcDateTime;
+        // The platform maximum applies to the wait as well (AB#7665): a handler that ignores its token is answered
+        // METHOD_TIMEOUT at the clamped deadline, and the handler context shows the clamped deadline.
+        var now = _timeProvider.GetUtcNow().UtcDateTime;
+        var clamped = CkMethodDeadline.Clamp(request.DeadlineUtc, now,
+            CkMethodDeadline.MaxOf(_dispatcherOptions?.Value ?? new CkMethodDispatcherOptions()));
+        if (clamped != request.DeadlineUtc)
+        {
+            request = request with { DeadlineUtc = clamped };
+        }
+
+        var remaining = request.DeadlineUtc - now;
         // The handler runs detached from the caller's ExecutionContext (OD-8): see CkDetachedExecution.
         // The principal is read here, in the caller's flow, before the handler is detached from it: the calling process
         // (the gateway) authenticated the caller, so nothing is re-validated and the handler gets that principal.

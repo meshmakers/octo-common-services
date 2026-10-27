@@ -97,6 +97,8 @@ internal sealed class CkMethodHandlerInvoker(
         if (clamped != request.DeadlineUtc)
         {
             effectiveDeadline = clamped;
+            // the handler context (DeadlineUtc, RemainingTime) shows the deadline that is enforced
+            request = request with { DeadlineUtc = clamped };
             logger.LogInformation(
                 "CK method {MethodId} invocation {InvocationId} tenant {TenantId}: deadline {DeadlineUtc:O} is beyond the platform maximum of {MaxTimeout}, clamped",
                 request.MethodId, request.InvocationId, request.TenantId, request.DeadlineUtc, maxTimeout);
