@@ -21,6 +21,7 @@ public static class CkMethodDispatcherServiceCollectionExtensions
     public static IServiceCollection AddCkMethodDispatcher(this IServiceCollection services)
     {
         services.AddOptions<CkMethodDispatcherOptions>().BindConfiguration(CkMethodDispatcherOptions.SectionName);
+        services.AddOptions<CkMethodLimitsOptions>().BindConfiguration(CkMethodLimitsOptions.SectionName);
         services.TryAddSingleton(TimeProvider.System);
         services.AddCkMethodInvocationPipeline();
         services.TryAddSingleton<CkMethodHandlerRegistry>();

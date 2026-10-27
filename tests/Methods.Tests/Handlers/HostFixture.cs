@@ -31,7 +31,8 @@ internal sealed class HostFixture
     public static HostFixture With<THandler>(THandler handler, CkMethodDto? definition = null,
         string methodId = TestData.MethodId, ICkMethodCallerTokenValidator? tokenValidator = null,
         CkMethodPrincipal? principal = null, ICkMethodAuthorizationEvaluator? evaluator = null,
-        bool withoutValidator = false)
+        bool withoutValidator = false, CkMethodLimitsOptions? limits = null,
+        CkMethodDispatcherOptions? dispatcherOptions = null)
         where THandler : class, ICkMethodHandler
     {
         var fixture = new HostFixture();
@@ -58,7 +59,9 @@ internal sealed class HostFixture
             fixture.Registrations, fixture.Instance, fixture.Time,
             new FakeLogger<CkMethodHandlerInvoker>(fixture.Logs),
             evaluator ?? new CkMethodAuthorizationEvaluator(Options.Create(new CkMethodAuthorizationOptions())),
-            tokenValidator: withoutValidator ? null : tokenValidator ?? new FixedPrincipalValidator(principal ?? Administrator));
+            tokenValidator: withoutValidator ? null : tokenValidator ?? new FixedPrincipalValidator(principal ?? Administrator),
+            limits: limits is null ? null : Options.Create(limits),
+            dispatcherOptions: dispatcherOptions is null ? null : Options.Create(dispatcherOptions));
         fixture.Invoker = invoker;
         fixture.BusConsumer = new CkMethodBusConsumer(invoker, fixture.Instance, fixture.Time,
             new FakeLogger<CkMethodBusConsumer>(fixture.Logs));

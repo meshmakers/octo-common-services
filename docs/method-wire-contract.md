@@ -90,9 +90,10 @@ fails when this table lacks a code or a well-known parameter.
 | `METHOD_OUTCOME_UNKNOWN` | unknown | `methodId` | Possible duplicate delivery, not executed again. Check state before calling again. |
 | `METHOD_NOT_SUPPORTED_BY_HANDLER_VERSION` | no | `methodId`, `supportedVersion` | Reserved: handler does not support the method version. |
 | `METHOD_CONTRACT_VERSION_UNSUPPORTED` | no | `requestedVersion`, `supportedVersion` | Message uses a newer wire contract version than the receiver understands. Wait for the rolling update. |
+| `METHOD_PARAMETERS_TOO_LARGE` | no | `methodId`, `maxBytes`, `actualBytes` | The UTF-8 byte length of `ParametersJson` is above the limit of the service (`Methods:MaxParametersBytes`, default 1 MiB = 1048576; exactly the limit passes). The gateway refuses before it validates the parameters, the host re-checks before it deserializes them. Do not retry unchanged. |
 
 Well-known parameter names (`CkMethodErrorParameters`, camelCase): `methodId`, `correlationId`, `field`, `reason`,
-`timeoutSeconds`, `requestedVersion`, `supportedVersion`. `reason` values are short kebab-case tokens such as
+`timeoutSeconds`, `requestedVersion`, `supportedVersion`, `maxBytes`, `actualBytes`. `reason` values are short kebab-case tokens such as
 `no-live-handler` or `pipeline-not-deployed`. `METHOD_FORBIDDEN` carries `not-authorized` (method authorization) or, from a remote handler
 host that validates the caller token, `token-missing`, `token-expired`, `token-invalid`, `tenant-not-allowed` or `audience-mismatch`
 (see `method-handler-sdk.md`, section 4a).

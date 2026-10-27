@@ -69,6 +69,12 @@ public static partial class CkMethodErrorCodes
     public const string MethodContractVersionUnsupported = "METHOD_CONTRACT_VERSION_UNSUPPORTED";
 
     /// <summary>
+    ///     The parameters of the call (<see cref="CkMethodRequest.ParametersJson" />) are larger than the limit of the
+    ///     service (<c>Methods:MaxParametersBytes</c>, default 1 MiB). The method was not executed.
+    /// </summary>
+    public const string MethodParametersTooLarge = "METHOD_PARAMETERS_TOO_LARGE";
+
+    /// <summary>
     ///     Documentation of every platform code: meaning, whether the method ran, the parameters the code carries and
     ///     what a caller should do. The single source for the documentation table.
     /// </summary>
@@ -109,7 +115,11 @@ public static partial class CkMethodErrorCodes
         new(MethodContractVersionUnsupported, CkMethodExecutionState.NotExecuted,
             "The message uses a newer wire contract version than the receiver understands.",
             [CkMethodErrorParameters.RequestedVersion, CkMethodErrorParameters.SupportedVersion],
-            "Wait for the rolling update to finish, then retry.")
+            "Wait for the rolling update to finish, then retry."),
+        new(MethodParametersTooLarge, CkMethodExecutionState.NotExecuted,
+            "The parameters are larger than the limit of the service (UTF-8 bytes of the parameter JSON, option Methods:MaxParametersBytes, default 1 MiB).",
+            [CkMethodErrorParameters.MethodId, CkMethodErrorParameters.MaxBytes, CkMethodErrorParameters.ActualBytes],
+            "Do not retry unchanged; send fewer or smaller parameters (large content belongs in a file, not in a parameter).")
     ];
 
     /// <summary>
@@ -197,4 +207,10 @@ public static class CkMethodErrorParameters
 
     /// <summary>Highest version the receiver supports.</summary>
     public const string SupportedVersion = "supportedVersion";
+
+    /// <summary>The limit for the parameters, in UTF-8 bytes.</summary>
+    public const string MaxBytes = "maxBytes";
+
+    /// <summary>The UTF-8 byte length of the parameters that were refused.</summary>
+    public const string ActualBytes = "actualBytes";
 }
