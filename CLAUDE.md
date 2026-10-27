@@ -388,6 +388,23 @@ deleted, re-create it first") without telling an unrelated caller which of the t
 mentions that a tenant created moments ago may take up to one TTL of the hierarchy cache (60 s) to
 be recognized. The body is written best-effort (`Response.HasStarted` guard).
 
+## Tenant role policies: scope plus role in one place (AB#7319)
+
+`services.AddOctoTenantRoleAuthorization()` and `options.AddTenantRolePolicy(policyName, roleName)`
+(`src/Infrastructure/Authorization/TenantRoleAuthorizationExtensions.cs`) define "scope `octo_api` full access
+**plus** a role of the tenant in the token". Lifted from the asset repository's `TenantAdministrationPolicy`
+(AB#4497); use it for every operation that administers the tenant itself (capability enable/disable, tenant
+administration) instead of a local `RequireAssertion`. The role is probed as raw `role` claim and as the
+inbound-mapped `ClaimTypes.Role` (`TenantRoleAuthorizationHandler.HasTenantRole`).
+
+- A refused role check is a `403` with the JSON body `{"message": "..."}` (AB#5227 shape) naming the role:
+  `ForbiddenReasonAuthorizationResultHandler` replaces `IAuthorizationMiddlewareResultHandler` and writes the reason
+  of a failed `TenantRoleRequirement`; every other outcome stays with the framework default. A host that already
+  registers its own result handler must chain it.
+- Fail closed: a host that adds the policy but not `AddOctoTenantRoleAuthorization()` has no handler for the
+  requirement and refuses every request.
+- Tests: `tests/Infrastructure.Tests/Authorization/TenantRoleAuthorizationTests.cs`.
+
 ## Tenant Setup — Failure Handling (AB#4690)
 
 `DefaultConfigurationCreatorServiceBase.SetupAsync` is the entry point every service uses to provision a
