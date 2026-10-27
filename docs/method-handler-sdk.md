@@ -150,7 +150,7 @@ keys cannot be loaded at all (identity service down and nothing cached) the call
 
 **Not covered.** The in-process transport does not validate a token: it runs in the process that already authenticated the caller and
 hands the principal of that process (`CkMethodPrincipalScope`) to the handler as `CallerPrincipal`. A remote service that does not call
-`AddCkMethodCallerTokenValidation` gets `CallerPrincipal == null` and no validation. A handler that receives the raw token can replay it
+`AddCkMethodCallerTokenValidation` has no validated caller, so the host refuses every call (`METHOD_FORBIDDEN`, see "The host enforces the declared authorization"). A handler that receives the raw token can replay it
 against the APIs until it expires (about an hour by default); an unauthenticated handler announcement on the bus is a separate
 decision (AB#7039). Switching the validation off (`Methods:Token:DisableValidation`) is a test configuration; the service refuses to
 start outside the `Development` environment. Nothing from the token (value, claims, key id) is ever logged or put into an error.
@@ -446,3 +446,20 @@ no consumer, consumer gone, mid-flight stop, timeout, derived type, replicas).
 Several instances of a service (replicaCount > 1) all register the same method endpoint; the broker delivers each call to exactly one of
 them. Nothing has to be configured. Proof, a rolling-update caveat (a queue with different arguments blocks the start of the new build,
 never the old replicas) and the measured dispatch overhead (p95 about 1 ms on loopback) are in `docs/method-performance.md`.
+
+
+#### The host enforces the declared authorization (AB#7664)
+
+The handler host does not rely on the calling process: **after** the caller token was validated and **before** the parameters are read, the
+host evaluates the `authorization` of the method definition against the caller principal with the same `ICkMethodAuthorizationEvaluator`
+as the gateway (no second implementation). This happens for the remote (bus) host and for the in-process host, so a valid tenant token that
+is published straight on the method bus cannot reach a handler whose roles, scopes or `allowSelf` it does not meet. The refusal is the
+`METHOD_FORBIDDEN` / `not-authorized` envelope of the gateway: it does not name the rule, is identical for an existing and a missing target,
+and the handler and the target are not touched. Consequences:
+
+* A registration without a definition (the CK cache has no such method) is refused (default-deny).
+* A remote host needs the caller token validation (`AddCkMethodCallerTokenValidation`); without a validated caller every call is refused.
+* The in-process host uses the principal of the calling process (`CkMethodPrincipalScope`); a call without one is refused.
+* `AddCkMethodHandlers` / `AddCkInProcessMethodHandlers` register the evaluator (`TryAdd`) and the `Methods:Authorization` options
+  (`AdministratorRoles`); a service can replace the evaluator before the call.
+* A handler need not (and should not) repeat the declared check; it may still apply finer rules on its own data.

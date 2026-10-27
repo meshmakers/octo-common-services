@@ -62,7 +62,8 @@ internal sealed class CkInProcessMethodTransport : ICkInProcessMethodTransport
         TimeProvider timeProvider,
         ILoggerFactory loggerFactory,
         IEnumerable<ICkInProcessAmbientStateProbe>? probes = null,
-        ICkMethodPrincipalProvider? principalProvider = null)
+        ICkMethodPrincipalProvider? principalProvider = null,
+        ICkMethodAuthorizationEvaluator? authorizationEvaluator = null)
     {
         _registrations = registrations;
         _pipeline = pipeline;
@@ -72,6 +73,8 @@ internal sealed class CkInProcessMethodTransport : ICkInProcessMethodTransport
         var instance = new CkMethodHandlerInstance(registrations, options, timeProvider);
         _invoker = new CkMethodHandlerInvoker(scopeFactory, registrations, instance, timeProvider,
             loggerFactory.CreateLogger<CkMethodHandlerInvoker>(),
+            authorizationEvaluator ?? throw new InvalidOperationException(
+                "ICkMethodAuthorizationEvaluator is not registered; call AddCkMethodAuthorization()."),
             new CkInProcessEntryGuard(probes ?? []));
     }
 

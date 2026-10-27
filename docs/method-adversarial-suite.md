@@ -20,7 +20,7 @@ The bus suite has three parties on one broker: the **handler host** (token valid
 (dispatcher, authorization filter band 200, audit probe band 100; the HTTP principal is in `CkMethodPrincipalScope`) and the
 **attacker**, a bus participant without any filter that publishes crafted `CkMethodRequest`s straight to the method queue.
 
-A gap is pinned twice: a `..._Gap_`/`..._Limitation_` test asserts today's behaviour (it turns red when the gap is closed) and a
+A gap is pinned twice (F-1 is fixed; its pin was removed): a `..._Gap_`/`..._Limitation_` test asserts today's behaviour (it turns red when the gap is closed) and a
 skipped test asserts the expected behaviour (enable it then). A new transport, filter or handler host adds its cases here.
 
 ## Cases and observed results
@@ -49,13 +49,13 @@ nothing dispatched.
 | C13 | handler answers with a `METHOD_`-prefixed code that is no platform code | handler SDK, bus + in-process | METHOD_HANDLER_FAILED, code never forwarded; **responder code forwarded by the GraphQL error (F-3)** | none |
 | C14 | canary (sensitive parameter, token, claim value) over gateway, bus, host and all attacks | logs, audit view, activities, responses | no plaintext found | none |
 | C15 | valid message of A replayed with the Caller DTO of administrator B; for another tenant | bus / handler host | runs as A, never as B; other tenant tenant-not-allowed | none |
-| C16 | valid token without the declared role published on the bus | bus / handler host | **handler runs (F-1)** | F-1 |
+| C16 | valid token without the declared role published on the bus | bus / handler host | **REFUSED**: METHOD_FORBIDDEN / not-authorized, handler not called (F-1 fixed, AB#7664) | none |
 
-## Findings (not fixed in this story; for Odin / Gerald)
+## Findings (F-1 fixed by AB#7664; F-2 and F-3 open)
 
 | Id | Finding | Severity | Status |
 |----|---------|----------|--------|
-| F-1 | The remote handler host authenticates the caller but does not re-check the declared authorization (roles, scopes, allowSelf, default-deny). Declared authorization runs in the calling process only. A bus participant with publish rights and any valid tenant token can reach a role-protected handler. `methodHandlers.md` makes the check a handler duty. Test: `C16_Gap_...` (pin), `C16_RemoteHost_RefusesACallerWithoutTheDeclaredRole` (skipped) | medium (needs bus publish rights and a valid token) | open, decision needed |
+| F-1 | The remote handler host authenticated the caller but did not re-check the declared authorization. **Fixed (AB#7664):** the host (remote and in-process) evaluates the definition with the gateway's `ICkMethodAuthorizationEvaluator` before the parameters are read; a registration without a definition is refused. Tests: `C16_RemoteHost_RefusesACallerWithoutTheDeclaredRole`, `CkMethodHostAuthorizationTests` | medium (needed bus publish rights and a valid token) | fixed |
 | F-2 | No limit for the size of method parameters in gateway, validator, bus or host; no documented code | low to medium (resource use) | open |
 | F-3 | The GraphQL error forwards any code a responder writes, including unknown `METHOD_` codes | low (needs a rogue responder on the queue) | open |
 

@@ -62,6 +62,7 @@ internal static class AdversarialTokens
     public const string Audience = "octo-methods";
     public const string UserA = "65f0c0ffee65f0c0ffee65a1";
     public const string UserB = "65f0c0ffee65f0c0ffee65b2";
+    public const string DefaultRole = "Reporting";
 
     public static string Create(AdversarialKey key, string subject = UserA, string tenant = Tenant,
         string? audience = Audience, bool scope = true, DateTime? expires = null, string issuer = AdversarialIdentity.Authority,
@@ -72,7 +73,7 @@ internal static class AdversarialTokens
             ["sub"] = subject,
             ["client_id"] = "studio",
             ["tenant_id"] = tenant,
-            ["role"] = roles ?? ["Reporting"]
+            ["role"] = roles ?? [DefaultRole]
         };
         if (scope)
         {

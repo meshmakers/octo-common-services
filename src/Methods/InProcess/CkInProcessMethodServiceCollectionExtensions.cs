@@ -39,6 +39,8 @@ public static class CkInProcessMethodServiceCollectionExtensions
         services.TryAddSingleton<ICkMethodDefinitionSource, CkCacheMethodDefinitionSource>();
         services.TryAddSingleton<CkMethodRegistrationValidator>();
         services.AddCkMethodInvocationPipeline();
+        services.AddOptions<CkMethodAuthorizationOptions>().BindConfiguration(CkMethodAuthorizationOptions.SectionName);
+        services.TryAddSingleton<ICkMethodAuthorizationEvaluator, CkMethodAuthorizationEvaluator>();
         services.TryAddSingleton<CkInProcessMethodTransport>();
         services.TryAddSingleton<ICkInProcessMethodTransport>(sp => sp.GetRequiredService<CkInProcessMethodTransport>());
         if (services.All(d => d.ImplementationType != typeof(CkInProcessMethodValidationService)))

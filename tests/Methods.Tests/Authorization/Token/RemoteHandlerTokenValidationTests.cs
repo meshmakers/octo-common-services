@@ -14,12 +14,13 @@ namespace Meshmakers.Octo.Services.Methods.Tests.Authorization.Token;
 public class RemoteHandlerTokenValidationTests
 {
     private static (HostFixture Host, ChangePasswordHandler Handler, ValidatorFixture Token) Build(
-        bool validate = true)
+        bool validate = true, bool allowAnyCaller = false)
     {
         var token = new ValidatorFixture();
         var handler = new ChangePasswordHandler();
-        var host = HostFixture.With(handler, TestData.Definition(),
-            tokenValidator: validate ? token.Validator : null);
+        var host = HostFixture.With(handler, TestData.DefinitionWithRoles("UserManagement"),
+            tokenValidator: validate ? token.Validator : null, withoutValidator: !validate,
+            evaluator: allowAnyCaller ? new AllowAnyCallerEvaluator() : null);
         return (host, handler, token);
     }
 
@@ -60,7 +61,7 @@ public class RemoteHandlerTokenValidationTests
     [Fact]
     public async Task ServiceToken_RunsTheHandler_WithTheClientAsSubject()
     {
-        var (host, handler, token) = Build();
+        var (host, handler, token) = Build(allowAnyCaller: true);
         using var _ = token;
 
         var response = await host.Invoker.InvokeAsync(Request(host, TokenFactory.Create(token.Key, user: false)),
@@ -171,15 +172,15 @@ public class RemoteHandlerTokenValidationTests
     }
 
     [Fact]
-    public async Task WithoutOptIn_NoTokenIsValidated_AndThePrincipalIsNull()
+    public async Task WithoutOptIn_NoTokenIsValidated_AndTheCallerIsRefused()
     {
         var (host, handler, token) = Build(validate: false);
         using var _ = token;
 
         var response = await host.Invoker.InvokeAsync(Request(host, null), TestContext.Current.CancellationToken);
 
-        Assert.True(response.Success);
-        Assert.Null(handler.LastContext!.CallerPrincipal);
+        // no validated caller, so the declared authorization cannot be met (AB#7664): refused, handler never runs
+        AssertForbidden(response, CkMethodAuthorizationErrors.ReasonNotAuthorized, handler);
         Assert.Equal(0, token.Identity.Requests);
     }
 
@@ -231,7 +232,7 @@ public class RemoteHandlerTokenValidationTests
         var services = new ServiceCollection();
         services.AddScoped(_ => handler);
         services.AddSingleton<ICkMethodCallerTokenValidator>(spy);
-        var inProcess = InProcessFixture.Build<ChangePasswordHandler>(services, TestData.Definition());
+        var inProcess = InProcessFixture.Build<ChangePasswordHandler>(services, TestData.DefinitionWithRoles("UserManagement"));
         var gateway = new CkMethodPrincipal("gateway-user", ["UserManagement"], ["octo_api"]);
         var request = TestData.Request(inProcess.InSeconds(15)) with { CallerAccessToken = null };
 
@@ -247,16 +248,18 @@ public class RemoteHandlerTokenValidationTests
     }
 
     [Fact]
-    public async Task InProcess_WithoutAGatewayPrincipal_LeavesThePrincipalNull()
+    public async Task InProcess_WithoutAGatewayPrincipal_IsRefused()
     {
         var handler = new ChangePasswordHandler();
-        var inProcess = InProcessFixture.With(handler, TestData.Definition());
+        var services = new ServiceCollection();
+        services.AddScoped(_ => handler);
+        services.AddSingleton<ICkMethodPrincipalProvider>(new NoPrincipalProvider());
+        var inProcess = InProcessFixture.Build<ChangePasswordHandler>(services, TestData.Definition());
 
         var response = await inProcess.Transport.InvokeAsync(TestData.Request(inProcess.InSeconds(15)),
             TestContext.Current.CancellationToken);
 
-        Assert.True(response.Success);
-        Assert.Null(handler.LastContext!.CallerPrincipal);
+        AssertForbidden(response, CkMethodAuthorizationErrors.ReasonNotAuthorized, handler);
     }
 
     // ---- registration --------------------------------------------------------------------------------------------
@@ -360,4 +363,12 @@ public class RemoteHandlerTokenValidationTests
 
         Assert.True(result.IsValid);
     }
+}
+
+/// <summary>For tests of the principal's propagation only: the authorization rules are covered elsewhere.</summary>
+internal sealed class AllowAnyCallerEvaluator : ICkMethodAuthorizationEvaluator
+{
+    public CkMethodAuthorizationDecision Evaluate(Meshmakers.Octo.ConstructionKit.Contracts.DataTransferObjects.CkMethodAuthorizationDto? declaration,
+        Meshmakers.Octo.ConstructionKit.Contracts.DataTransferObjects.CkMethodKindDto kind, string? targetRtId,
+        CkMethodPrincipal? principal) => CkMethodAuthorizationDecision.Allow;
 }

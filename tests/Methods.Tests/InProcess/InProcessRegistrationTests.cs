@@ -1,3 +1,5 @@
+using Meshmakers.Octo.Services.Contracts.DistributionEventHub.Methods;
+using Meshmakers.Octo.Services.Methods.Authorization;
 using Meshmakers.Octo.Services.Methods.Handlers;
 using Meshmakers.Octo.Services.Methods.Tests.Handlers;
 using Microsoft.Extensions.DependencyInjection;
@@ -27,9 +29,15 @@ public class InProcessRegistrationTests
         services.AddCkInProcessMethodHandlers(m => m.Handle<ChangePasswordHandler>(TestData.MethodId));
         await using var provider = services.BuildServiceProvider();
         var transport = provider.GetRequiredService<ICkInProcessMethodTransport>();
+        provider.GetRequiredService<CkInProcessMethodRegistrations>().Handlers[TestData.MethodId].Definition =
+            TestData.Definition();
 
-        var response = await transport.InvokeAsync(
-            TestData.Request(DateTime.UtcNow.AddSeconds(15)), TestContext.Current.CancellationToken);
+        CkMethodResponse response;
+        using (CkMethodPrincipalScope.Begin(HostFixture.Administrator))
+        {
+            response = await transport.InvokeAsync(
+                TestData.Request(DateTime.UtcNow.AddSeconds(15)), TestContext.Current.CancellationToken);
+        }
 
         Assert.True(response.Success);
         Assert.Empty(Fake.GetCalls(hub));
@@ -53,8 +61,14 @@ public class InProcessRegistrationTests
         services.AddSingleton(A.Fake<IEventHubControl>());
         services.AddCkInProcessMethodHandlers(m => m.Handle<ChangePasswordHandler>(TestData.MethodId));
         await using var provider = services.BuildServiceProvider();
-        var inProcess = await provider.GetRequiredService<ICkInProcessMethodTransport>().InvokeAsync(
-            TestData.Request(DateTime.UtcNow.AddSeconds(15)), TestContext.Current.CancellationToken);
+        provider.GetRequiredService<CkInProcessMethodRegistrations>().Handlers[TestData.MethodId].Definition =
+            TestData.Definition();
+        CkMethodResponse inProcess;
+        using (CkMethodPrincipalScope.Begin(HostFixture.Administrator))
+        {
+            inProcess = await provider.GetRequiredService<ICkInProcessMethodTransport>().InvokeAsync(
+                TestData.Request(DateTime.UtcNow.AddSeconds(15)), TestContext.Current.CancellationToken);
+        }
         var remoteHost = HostFixture.With(new ChangePasswordHandler(), TestData.Definition(), OtherMethodId);
         var remoteResponse = await remoteHost.Invoker.InvokeAsync(
             TestData.Request(remoteHost.InSeconds(15)) with { MethodId = OtherMethodId },

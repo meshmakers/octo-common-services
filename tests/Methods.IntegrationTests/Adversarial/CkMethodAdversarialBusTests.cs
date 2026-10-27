@@ -175,8 +175,14 @@ public sealed class CkMethodAdversarialBusTests(RabbitMqFixture rabbitMq) : IAsy
     // ---------------------------------------------------------------------------------------------------------------
 
     /// <summary>The remote handler host with token validation and a configured audience, plus the attacker.</summary>
-    private async Task StartRemoteHostAsync(CkMethodAuthorizationDto? authorization = null)
+    /// <summary>
+    ///     The remote host. The host enforces the declared authorization (AB#7664): without an explicit one the method
+    ///     declares the role the default token carries, unless <paramref name="declareNothing" /> keeps the definition
+    ///     without any <c>authorization</c> (default-deny).
+    /// </summary>
+    private async Task StartRemoteHostAsync(CkMethodAuthorizationDto? authorization = null, bool declareNothing = false)
     {
+        authorization ??= declareNothing ? null : new CkMethodAuthorizationDto { Roles = [AdversarialTokens.DefaultRole] };
         var definition = new DefinitionSource(Definition(authorization));
         var identity = new AdversarialIdentity(_key);
         var services = BaseServices();
@@ -218,7 +224,7 @@ public sealed class CkMethodAdversarialBusTests(RabbitMqFixture rabbitMq) : IAsy
         var definition = new DefinitionSource(Definition(authorization));
         if (!inProcess)
         {
-            await StartRemoteHostAsync(authorization);
+            await StartRemoteHostAsync(authorization, declareNothing: authorization == null);
         }
 
         var services = BaseServices();
@@ -325,7 +331,8 @@ public sealed class CkMethodAdversarialBusTests(RabbitMqFixture rabbitMq) : IAsy
         {
             // the gateway forwards the real token of its HTTP caller; the Caller DTO is whatever the sender wrote: here a
             // forged administrator
-            var token = AdversarialTokens.Create(_key, subject: principal?.Subject ?? AdversarialTokens.UserA);
+            var token = AdversarialTokens.Create(_key, subject: principal?.Subject ?? AdversarialTokens.UserA,
+                roles: principal?.Roles.ToArray());
             return await dispatcher.InvokeAsync(Raw(token, ForgedAdmin(), deadline, parametersJson, target: target),
                 TestContext.Current.CancellationToken);
         }
@@ -788,39 +795,37 @@ public sealed class CkMethodAdversarialBusTests(RabbitMqFixture rabbitMq) : IAsy
     }
 
     // ---------------------------------------------------------------------------------------------------------------
-    // C16: the declared authorization is not re-checked in a remote handler host
+    // C16: the remote handler host enforces the declared authorization (F-1 of AB#6915, fixed by AB#7664)
     // ---------------------------------------------------------------------------------------------------------------
 
     /// <summary>
-    ///     FINDING F-1 (see AB#6915): the declared authorization (roles, scopes, allowSelf, default-deny) is enforced by
-    ///     the gateway gate and by the pipeline filter of the <b>calling</b> process. The remote handler host validates who
-    ///     the caller is (AB#6913) but not whether the caller may call: a participant of the bus with the valid token of
-    ///     any user of the tenant can publish straight to the method queue and the handler runs for a method whose roles
-    ///     the user does not hold. This test pins the observation; <see cref="C16_RemoteHost_RefusesACallerWithoutTheDeclaredRole" />
-    ///     is the expected behaviour.
+    ///     A participant of the bus with the valid token of any user of the tenant publishes straight to the method queue
+    ///     for a method whose roles the user does not hold: the host refuses with the gateway's envelope and the handler
+    ///     does not run.
     /// </summary>
     [Fact]
-    public async Task C16_Gap_ATokenWithoutTheDeclaredRole_PublishedOnTheBus_ReachesTheHandler()
-    {
-        await StartRemoteHostAsync(new CkMethodAuthorizationDto { Roles = ["AssetManagement"] });
-
-        var response = await SendRawAsync(Raw(AdversarialTokens.Create(_key, roles: ["Reporting"])));
-
-        Record("C16", "token WITHOUT the declared role published on the bus (declared roles: AssetManagement) - FINDING F-1", response, _probe);
-        Assert.True(response.Success);
-        Assert.Equal(1, _probe.Calls);
-    }
-
-    [Fact(Skip = "AB#6915 finding F-1: the remote handler host does not enforce the declared authorization on CallerPrincipal; enable when it does")]
     public async Task C16_RemoteHost_RefusesACallerWithoutTheDeclaredRole()
     {
         await StartRemoteHostAsync(new CkMethodAuthorizationDto { Roles = ["AssetManagement"] });
 
         var response = await SendRawAsync(Raw(AdversarialTokens.Create(_key, roles: ["Reporting"])));
 
+        Record("C16", "token WITHOUT the declared role published on the bus (declared roles: AssetManagement)", response, _probe);
         Assert.False(response.Success);
         Assert.Equal(CkMethodErrorCodes.MethodForbidden, response.Error!.Code);
+        Assert.Equal(CkMethodAuthorizationErrors.ReasonNotAuthorized, response.Error.Parameters[CkMethodErrorParameters.Reason]);
         Assert.Equal(0, _probe.Calls);
+    }
+
+    [Fact]
+    public async Task C16_RemoteHost_RunsTheHandlerForACallerWithTheDeclaredRole()
+    {
+        await StartRemoteHostAsync(new CkMethodAuthorizationDto { Roles = ["AssetManagement"] });
+
+        var response = await SendRawAsync(Raw(AdversarialTokens.Create(_key, roles: ["AssetManagement"])));
+
+        Assert.True(response.Success);
+        Assert.Equal(1, _probe.Calls);
     }
 
     // ---------------------------------------------------------------------------------------------------------------

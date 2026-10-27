@@ -41,6 +41,14 @@ internal static class TestData
             DeadlineUtc = deadlineUtc
         };
 
+    /// <summary>The definition of <see cref="Definition" /> with a declared authorization (<c>roles</c>, any-of).</summary>
+    public static CkMethodDto DefinitionWithRoles(params string[] roles)
+    {
+        var definition = Definition();
+        definition.Authorization = new CkMethodAuthorizationDto { Roles = roles.ToList() };
+        return definition;
+    }
+
     /// <summary>The CK definition the generated records above belong to.</summary>
     public static CkMethodDto Definition(bool withResult = true, params string[] errors) => new()
     {

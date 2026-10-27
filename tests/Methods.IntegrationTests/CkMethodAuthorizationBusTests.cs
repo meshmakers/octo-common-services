@@ -169,6 +169,7 @@ public sealed class CkMethodAuthorizationBusTests(RabbitMqFixture rabbitMq) : IA
             c.AutomaticallyStartBusDuringStartup = false;
             c.AddCkMethodHandlerDiscovery();
         });
+        services.AddSingleton<Meshmakers.Octo.Services.Methods.Authorization.ICkMethodAuthorizationEvaluator, AllowAnyCallerEvaluator>();
         services.AddCkMethodHandlers("HandlerA", m => m.Handle<ChangePasswordHandler>(MethodId));
         var provider = await StartHubAsync(services);
         foreach (var hosted in provider.GetServices<IHostedService>().Where(h => h is CkMethodHandlerHeartbeatService))

@@ -224,6 +224,7 @@ public sealed class CkMethodHandlerBusTests(RabbitMqFixture rabbitMq) : IAsyncLi
             c.AutomaticallyStartBusDuringStartup = false;
             c.AddCkMethodHandlerDiscovery();
         });
+        services.AddSingleton<Meshmakers.Octo.Services.Methods.Authorization.ICkMethodAuthorizationEvaluator, AllowAnyCallerEvaluator>();
         services.AddCkMethodHandlers(serviceName, m => m.Handle<ChangePasswordHandler>(MethodId));
         if (heartbeat is { } interval)
         {

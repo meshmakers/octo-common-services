@@ -209,6 +209,7 @@ public sealed class CkMethodRedactionBusTests(RabbitMqFixture rabbitMq) : IAsync
         services.AddCkMethodDispatcher();
         if (inProcess)
         {
+            services.AddSingleton<Meshmakers.Octo.Services.Methods.Authorization.ICkMethodAuthorizationEvaluator, AllowAnyCallerEvaluator>();
             services.AddCkInProcessMethodHandlers(m =>
             {
                 m.Handle<ChangePasswordHandler>(MethodId);
@@ -230,6 +231,7 @@ public sealed class CkMethodRedactionBusTests(RabbitMqFixture rabbitMq) : IAsync
             c.AutomaticallyStartBusDuringStartup = false;
             c.AddCkMethodHandlerDiscovery();
         });
+        services.AddSingleton<Meshmakers.Octo.Services.Methods.Authorization.ICkMethodAuthorizationEvaluator, AllowAnyCallerEvaluator>();
         services.AddCkMethodHandlers("HandlerA", m =>
         {
             m.Handle<ChangePasswordHandler>(MethodId);
