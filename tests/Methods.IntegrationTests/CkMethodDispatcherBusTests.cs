@@ -231,6 +231,7 @@ public sealed class CkMethodDispatcherBusTests(RabbitMqFixture rabbitMq) : IAsyn
             c.AutomaticallyStartBusDuringStartup = false;
             c.AddCkMethodHandlerDiscovery();
         });
+        services.AddSingleton<Meshmakers.Octo.Services.Methods.Authorization.ICkMethodAuthorizationEvaluator, AllowAnyCallerEvaluator>();
         services.AddCkMethodHandlers(serviceName, m => m.Handle<ChangePasswordHandler>(MethodId));
         if (heartbeat is { } interval)
         {
@@ -264,6 +265,7 @@ public sealed class CkMethodDispatcherBusTests(RabbitMqFixture rabbitMq) : IAsyn
         services.AddCkMethodDispatcher();
         if (inProcess)
         {
+            services.AddSingleton<Meshmakers.Octo.Services.Methods.Authorization.ICkMethodAuthorizationEvaluator, AllowAnyCallerEvaluator>();
             services.AddCkInProcessMethodHandlers(m => m.Handle<ChangePasswordHandler>(MethodId));
             if (probe != null)
             {

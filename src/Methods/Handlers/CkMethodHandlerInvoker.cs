@@ -13,6 +13,7 @@ internal sealed class CkMethodHandlerInvoker(
     CkMethodHandlerInstance instance,
     TimeProvider timeProvider,
     ILogger<CkMethodHandlerInvoker> logger,
+    ICkMethodAuthorizationEvaluator authorizationEvaluator,
     ICkMethodEntryGuard? entryGuard = null,
     ICkMethodCallerTokenValidator? tokenValidator = null) : ICkMethodHandlerInvoker
 {
@@ -25,7 +26,8 @@ internal sealed class CkMethodHandlerInvoker(
 
     /// <summary>
     ///     The remote (bus) path: when the host opted in to caller token validation, the forwarded token is validated
-    ///     before the handler runs.
+    ///     before the handler runs; the validated principal (none without validation) must then be allowed by the declared
+    ///     authorization of the method.
     /// </summary>
     public Task<CkMethodResponse> InvokeAsync(CkMethodRequest request, CancellationToken cancellationToken = default) =>
         InvokeCoreAsync(request, null, cancellationToken);
@@ -105,6 +107,24 @@ internal sealed class CkMethodHandlerInvoker(
                 }
 
                 callerPrincipal = validated;
+            }
+
+            // The declared authorization (roles, scopes, allowSelf, default-deny) is enforced here on every path that
+            // reaches a handler, with the one evaluator the gateway uses (AB#7664). A registration without a definition
+            // cannot be verified and is refused. The refusal is the envelope of the gateway: it does not say which rule
+            // failed and the target is never read.
+            var definition = registration.Definition;
+            var decision = definition is null
+                ? CkMethodAuthorizationDecision.Deny(CkMethodDenial.UnknownMethod)
+                : authorizationEvaluator.Evaluate(definition.Authorization, definition.Kind, request.TargetRtId,
+                    callerPrincipal);
+            if (!decision.Allowed)
+            {
+                logger.LogInformation(
+                    "CK method {MethodId} invocation {InvocationId} tenant {TenantId} NOT executed: caller refused by the declared authorization ({Denial})",
+                    request.MethodId, request.InvocationId, request.TenantId, decision.Denial);
+                return CkMethodResponse.Failed(request.InvocationId, instance.InstanceId,
+                    CkMethodAuthorizationErrors.Forbidden(request.MethodId));
             }
 
             object parameters;

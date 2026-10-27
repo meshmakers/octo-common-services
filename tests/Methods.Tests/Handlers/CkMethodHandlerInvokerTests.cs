@@ -1,3 +1,4 @@
+using Meshmakers.Octo.Services.Methods.Authorization;
 using Meshmakers.Octo.Services.Contracts.DistributionEventHub.Methods;
 using Meshmakers.Octo.Services.Methods.Handlers;
 using Microsoft.Extensions.DependencyInjection;
@@ -326,7 +327,9 @@ public class CkMethodHandlerInvokerTests
         var invoker = new CkMethodHandlerInvoker(
             provider.GetRequiredService<IServiceScopeFactory>(),
             host.Registrations, host.Instance, host.Time,
-            new Microsoft.Extensions.Logging.Testing.FakeLogger<CkMethodHandlerInvoker>());
+            new Microsoft.Extensions.Logging.Testing.FakeLogger<CkMethodHandlerInvoker>(),
+            new CkMethodAuthorizationEvaluator(Microsoft.Extensions.Options.Options.Create(new CkMethodAuthorizationOptions())),
+            tokenValidator: new FixedPrincipalValidator(HostFixture.Administrator));
 
         await invoker.InvokeAsync(TestData.Request(host.InSeconds(15)), TestContext.Current.CancellationToken);
         await invoker.InvokeAsync(TestData.Request(host.InSeconds(15)), TestContext.Current.CancellationToken);

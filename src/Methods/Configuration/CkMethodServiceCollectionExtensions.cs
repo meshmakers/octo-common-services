@@ -1,6 +1,7 @@
 using Meshmakers.Octo.Common.DistributionEventHub.Configuration;
 using Meshmakers.Octo.Services.Contracts.DistributionEventHub.Methods;
 using Meshmakers.Octo.Services.Methods;
+using Meshmakers.Octo.Services.Methods.Authorization;
 using Meshmakers.Octo.Services.Methods.Handlers;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 
@@ -33,6 +34,9 @@ public static class CkMethodServiceCollectionExtensions
         services.TryAddSingleton<ICkMethodDefinitionSource, CkCacheMethodDefinitionSource>();
         services.TryAddSingleton<CkMethodRegistrationValidator>();
         services.TryAddSingleton<CkMethodHandlerInstance>();
+        // the host enforces the declared authorization with the evaluator the gateway uses (AB#7664)
+        services.AddOptions<CkMethodAuthorizationOptions>().BindConfiguration(CkMethodAuthorizationOptions.SectionName);
+        services.TryAddSingleton<ICkMethodAuthorizationEvaluator, CkMethodAuthorizationEvaluator>();
         services.TryAddSingleton<CkMethodHandlerInvoker>();
         services.TryAddSingleton<ICkMethodHandlerInvoker>(sp => sp.GetRequiredService<CkMethodHandlerInvoker>());
         services.TryAddSingleton<CkMethodBusConsumer>();

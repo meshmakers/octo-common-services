@@ -1,3 +1,4 @@
+using Meshmakers.Octo.Services.Methods.Authorization;
 using Meshmakers.Octo.ConstructionKit.Contracts.DataTransferObjects;
 using Meshmakers.Octo.Services.Methods.Handlers;
 using Meshmakers.Octo.Services.Methods.Tests.Handlers;
@@ -59,17 +60,37 @@ internal sealed class InProcessFixture
             new CkMethodRegistrationValidator(new FixedDefinitionSource(definition)).Validate(fixture.Registrations);
             Assert.NotNull(registration.Definition);
         }
+        else
+        {
+            // a bare definition (no authorization): default-deny admits an administrator (AB#7664)
+            registration.Definition = new CkMethodDto { MethodId = methodId };
+        }
 
         fixture.Pipeline = new CkMethodInvocationPipeline(filters, new DefinitionSensitivity(definition), loggers.CreateLogger<CkMethodInvocationPipeline>());
         fixture.Transport = new CkInProcessMethodTransport(provider.GetRequiredService<IServiceScopeFactory>(),
             fixture.Registrations, fixture.Pipeline, Options.Create(new CkMethodHandlerOptions()), fixture.Time,
-            loggers, probes);
+            loggers, probes,
+            provider.GetService<ICkMethodPrincipalProvider>() ?? new AdministratorProvider(),
+            new CkMethodAuthorizationEvaluator(Options.Create(new CkMethodAuthorizationOptions())));
         return fixture;
     }
 
     public DateTime InSeconds(int seconds) => Time.GetUtcNow().UtcDateTime.AddSeconds(seconds);
 
     public string AllLogText() => string.Join("\n", Logs.GetSnapshot().Select(r => r.Message + "\n" + r.Exception));
+}
+
+/// <summary>The default caller of the in-process tests: the ambient principal, else an administrator.</summary>
+internal sealed class AdministratorProvider : ICkMethodPrincipalProvider
+{
+    public CkMethodPrincipal? GetPrincipal(CkMethodInvocationContext context) =>
+        CkMethodPrincipalScope.CurrentPrincipal ?? HostFixture.Administrator;
+}
+
+/// <summary>A caller that never established a principal.</summary>
+internal sealed class NoPrincipalProvider : ICkMethodPrincipalProvider
+{
+    public CkMethodPrincipal? GetPrincipal(CkMethodInvocationContext context) => null;
 }
 
 /// <summary>Sensitive parameters read from a fixed definition (<c>null</c> definition: method unknown, fail-closed).</summary>

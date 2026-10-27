@@ -121,6 +121,7 @@ public sealed class CkMethodQueueArgumentsBusTests(RabbitMqFixture rabbitMq, ITe
                 c.AutomaticallyStartBusDuringStartup = false;
                 c.AddCkMethodHandlerDiscovery();
             });
+            services.AddSingleton<Meshmakers.Octo.Services.Methods.Authorization.ICkMethodAuthorizationEvaluator, AllowAnyCallerEvaluator>();
             services.AddCkMethodHandlers("S", m => m.Handle<Handler>(MethodId));
         }
         else

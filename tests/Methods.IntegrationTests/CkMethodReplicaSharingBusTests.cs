@@ -178,6 +178,7 @@ public sealed class CkMethodReplicaSharingBusTests(RabbitMqFixture rabbitMq, ITe
             c.AutomaticallyStartBusDuringStartup = false;
             c.AddCkMethodHandlerDiscovery();
         });
+        services.AddSingleton<Meshmakers.Octo.Services.Methods.Authorization.ICkMethodAuthorizationEvaluator, AllowAnyCallerEvaluator>();
         services.AddCkMethodHandlers("ReplicaService", m => m.Handle<Handler>(MethodId));
         return await StartAsync(services);
     }

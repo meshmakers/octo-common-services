@@ -16,6 +16,10 @@ internal sealed class HostFixture
 
     public FakeLogCollector Logs { get; } = new();
 
+    /// <summary>An administrator with the API scope: passes a method that declares no roles (default-deny admits it).</summary>
+    public static CkMethodPrincipal Administrator { get; } = new("0123456789abcdef01234567",
+        [CkMethodAuthorizationOptions.DefaultAdministratorRoles.First()], [CkMethodAuthorizationOptions.ApiScope]);
+
     public CkMethodHandlerRegistrations Registrations { get; } = new();
 
     public CkMethodHandlerInstance Instance { get; private set; } = null!;
@@ -25,7 +29,9 @@ internal sealed class HostFixture
     public CkMethodBusConsumer BusConsumer { get; private set; } = null!;
 
     public static HostFixture With<THandler>(THandler handler, CkMethodDto? definition = null,
-        string methodId = TestData.MethodId, ICkMethodCallerTokenValidator? tokenValidator = null)
+        string methodId = TestData.MethodId, ICkMethodCallerTokenValidator? tokenValidator = null,
+        CkMethodPrincipal? principal = null, ICkMethodAuthorizationEvaluator? evaluator = null,
+        bool withoutValidator = false)
         where THandler : class, ICkMethodHandler
     {
         var fixture = new HostFixture();
@@ -40,12 +46,19 @@ internal sealed class HostFixture
             new CkMethodRegistrationValidator(new FixedDefinitionSource(definition)).Validate(fixture.Registrations);
             Assert.NotNull(registration.Definition);
         }
+        else
+        {
+            // a bare definition (no authorization): default-deny admits an administrator (AB#7664)
+            registration.Definition = new CkMethodDto { MethodId = methodId };
+        }
 
         fixture.Instance = new CkMethodHandlerInstance(fixture.Registrations,
             Options.Create(new CkMethodHandlerOptions()), fixture.Time);
         var invoker = new CkMethodHandlerInvoker(provider.GetRequiredService<IServiceScopeFactory>(),
             fixture.Registrations, fixture.Instance, fixture.Time,
-            new FakeLogger<CkMethodHandlerInvoker>(fixture.Logs), tokenValidator: tokenValidator);
+            new FakeLogger<CkMethodHandlerInvoker>(fixture.Logs),
+            evaluator ?? new CkMethodAuthorizationEvaluator(Options.Create(new CkMethodAuthorizationOptions())),
+            tokenValidator: withoutValidator ? null : tokenValidator ?? new FixedPrincipalValidator(principal ?? Administrator));
         fixture.Invoker = invoker;
         fixture.BusConsumer = new CkMethodBusConsumer(invoker, fixture.Instance, fixture.Time,
             new FakeLogger<CkMethodBusConsumer>(fixture.Logs));
@@ -55,6 +68,12 @@ internal sealed class HostFixture
     public DateTime InSeconds(int seconds) => Time.GetUtcNow().UtcDateTime.AddSeconds(seconds);
 
     public string AllLogText() => string.Join("\n", Logs.GetSnapshot().Select(r => r.Message + "\n" + r.Exception));
+}
+
+internal sealed class FixedPrincipalValidator(CkMethodPrincipal principal) : ICkMethodCallerTokenValidator
+{
+    public ValueTask<CkMethodTokenValidationResult> ValidateAsync(string? accessToken, string expectedTenantId,
+        CancellationToken cancellationToken = default) => ValueTask.FromResult(CkMethodTokenValidationResult.Valid(principal));
 }
 
 internal sealed class FixedDefinitionSource(CkMethodDto? definition, params string[] tenants) : ICkMethodDefinitionSource

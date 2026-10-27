@@ -47,7 +47,7 @@ public class CkMethodAuthorizationFilterTests
             Audit = new TraceFilter(CkMethodInvocationFilterOrder.Audit, Trace, "audit");
             Idempotency = new TraceFilter(CkMethodInvocationFilterOrder.Idempotency, Trace, "idempotency");
             // registered in "any order": inner first, outer last
-            Host = InProcessFixture.With(Handler, TestData.Definition(), TestData.MethodId,
+            Host = InProcessFixture.With(Handler, definition ?? TestData.Definition(), TestData.MethodId,
                 [Idempotency, NewFilter(definition), Audit, .. extraFilters]);
         }
 
