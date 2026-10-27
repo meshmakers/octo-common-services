@@ -397,7 +397,8 @@ be recognized. The body is written best-effort (`Response.HasStarted` guard).
 administration) instead of a local `RequireAssertion`. The role is probed as raw `role` claim and as the
 inbound-mapped `ClaimTypes.Role` (`TenantRoleAuthorizationHandler.HasTenantRole`).
 
-- A refused role check is a `403` with the JSON body `{"message": "..."}` (AB#5227 shape) naming the role:
+- Scope and role are ONE requirement (`TenantRoleRequirement`), checked scope first. A refusal is a `403` with the JSON body
+  `{"message": "..."}` (AB#5227 shape) naming whichever is missing (the scope `octo_api`, else the role):
   `ForbiddenReasonAuthorizationResultHandler` replaces `IAuthorizationMiddlewareResultHandler` and writes the reason
   of a failed `TenantRoleRequirement`; every other outcome stays with the framework default. A host that already
   registers its own result handler must chain it.
