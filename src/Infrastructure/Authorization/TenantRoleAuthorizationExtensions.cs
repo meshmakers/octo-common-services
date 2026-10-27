@@ -20,9 +20,7 @@ public static class TenantRoleAuthorizationExtensions
     public static AuthorizationOptions AddTenantRolePolicy(this AuthorizationOptions options, string policyName,
         string roleName)
     {
-        options.AddPolicy(policyName, policy => policy
-            .RequireClaim(InfrastructureCommon.ClaimScope, CommonConstants.OctoApiFullAccess)
-            .AddRequirements(new TenantRoleRequirement(roleName)));
+        options.AddPolicy(policyName, policy => policy.AddRequirements(new TenantRoleRequirement(roleName)));
         return options;
     }
 

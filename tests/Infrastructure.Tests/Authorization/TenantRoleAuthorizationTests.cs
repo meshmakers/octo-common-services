@@ -87,11 +87,56 @@ public class TenantRoleAuthorizationTests
     }
 
     [Fact]
-    public async Task RoleWithoutScope_IsRefused()
+    public async Task RoleWithoutScope_IsRefusedWithTheScopeReason()
     {
         await using var sp = CreateServices();
         var result = await AuthorizeAsync(sp, User(CommonConstants.OctoApiReadOnly, ("role", "TenantManagement")));
+
         Assert.False(result.Succeeded);
+        var message = Assert.Single(result.Failure!.FailureReasons).Message;
+        Assert.Contains(CommonConstants.OctoApiFullAccess, message);
+        Assert.DoesNotContain("role", message);
+    }
+
+    [Fact]
+    public async Task ReadOnlyScopeWithoutRole_NamesTheScope_NotTheRole()
+    {
+        await using var sp = CreateServices();
+        var result = await AuthorizeAsync(sp, User(CommonConstants.OctoApiReadOnly));
+
+        var message = Assert.Single(result.Failure!.FailureReasons).Message;
+        Assert.Contains($"scope '{CommonConstants.OctoApiFullAccess}'", message);
+        Assert.DoesNotContain("TenantManagement", message);
+    }
+
+    [Fact]
+    public async Task NoScopeClaimAtAll_IsRefusedWithTheScopeReason()
+    {
+        await using var sp = CreateServices();
+        var result = await AuthorizeAsync(sp, User(null, ("role", "TenantManagement")));
+
+        Assert.Contains($"scope '{CommonConstants.OctoApiFullAccess}'", Assert.Single(result.Failure!.FailureReasons).Message);
+    }
+
+    [Fact]
+    public async Task ResultHandler_WritesTheScopeReasonIntoTheBody_WhenOnlyTheRoleIsPresent()
+    {
+        await using var sp = CreateServices();
+        var result = await AuthorizeAsync(sp, User(CommonConstants.OctoApiReadOnly, ("role", "TenantManagement")));
+        var context = new DefaultHttpContext();
+        using var body = new MemoryStream();
+        context.Response.Body = body;
+
+        await sp.GetRequiredService<IAuthorizationMiddlewareResultHandler>().HandleAsync(
+            _ => Task.CompletedTask,
+            context,
+            new AuthorizationPolicyBuilder().RequireAssertion(_ => false).Build(),
+            PolicyAuthorizationResult.Forbid(result.Failure));
+
+        Assert.Equal(StatusCodes.Status403Forbidden, context.Response.StatusCode);
+        body.Position = 0;
+        using var json = await JsonDocument.ParseAsync(body, cancellationToken: TestContext.Current.CancellationToken);
+        Assert.Contains(CommonConstants.OctoApiFullAccess, json.RootElement.GetProperty("message").GetString());
     }
 
     [Fact]
