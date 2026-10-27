@@ -867,6 +867,18 @@ tests `tests/Methods.Tests/InProcess/`. Guide: `docs/method-handler-sdk.md` sect
   handlers (they refuse a sensitive result, see the controller), and what a handler itself writes. The `CK method handle` span carries only ids and the
   transport name, never a result. The canary tests listen to all activity sources, so a new source cannot leak a result unnoticed.
 
+- **Adversarial suite (AB#6915, F3.4b exit)**: a repeatable attack suite over the real method path, recorded results and the
+  list of findings and accepted limitations in `docs/method-adversarial-suite.md`. Code: `tests/Methods.IntegrationTests/Adversarial/`
+  (`CkMethodAdversarialBusTests`, trait `Category=Adversarial`; private RabbitMQ container, a fake identity service, no shared
+  stack). Three parties on one broker: a remote handler host with caller token validation, a gateway (dispatcher + authorization
+  filter + audit probe) and an attacker that publishes crafted requests straight to the method queue. **One command**:
+  `dotnet test tests/Methods.IntegrationTests -c DebugL --filter "Category=Adversarial"` (Docker needed); the run writes the
+  result table to `adversarial-results.md` next to the test assembly. A case that documents a gap is pinned by a `C..._Gap_`/
+  `_Limitation_` test (current behaviour) plus a skipped test with the expected behaviour; when a gap is closed the pin turns
+  red, the skipped test is enabled. The asset-repo half (HTTP token layer, gateway, GraphQL) is in
+  `octo-asset-repo-services/tests/**/Adversarial`, see its CLAUDE.md. A new method path (filter, transport, handler host) gets
+  its cases added here before it ships.
+
 ### Method dispatcher (AB#6905, F3.3)
 
 `ICkMethodDispatcher` (`src/Methods/Dispatching/`, registration `AddCkMethodDispatcher()` + `AddCkMethodHandlerRegistryFeed()` in the
