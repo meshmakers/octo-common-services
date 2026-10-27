@@ -18,6 +18,9 @@
         <InternalsVisibleTo Include="Methods.Tests" />
         <InternalsVisibleTo Include="Methods.IntegrationTests" />
         <InternalsVisibleTo Include="DynamicProxyGenAssembly2" />
+        <!-- AB#7664/AB#7665: the asset repository tests give their in-process test handlers a definition (the host refuses a registration without one) -->
+        <InternalsVisibleTo Include="AssetRepositoryServices.UnitTests" />
+        <InternalsVisibleTo Include="Meshmakers.Octo.Backend.AssetRepositoryServices.IntegrationTests" />
     </ItemGroup>
 
     <ItemGroup>
