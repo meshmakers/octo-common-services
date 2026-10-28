@@ -430,4 +430,99 @@ public class CkMethodHandlerInvokerTests
             Assert.True(response.Success);
         }
     }
+
+    // ---- AB#7665: parameter size limit (F-2) and deadline clamp (L-4) ----
+
+    private static string ParamsOfBytes(int bytes)
+    {
+        // {"currentPassword":"x","newPassword":"<padding>"} with a total UTF-8 length of exactly <bytes>
+        const string prefix = "{\"currentPassword\":\"x\",\"newPassword\":\"";
+        const string suffix = "\"}";
+        return prefix + new string('p', bytes - prefix.Length - suffix.Length) + suffix;
+    }
+
+    [Fact]
+    public async Task ParametersAboveTheLimit_AreRefused_BeforeAnythingIsRead_AndTheHandlerDoesNotRun()
+    {
+        var handler = Handler();
+        var host = HostFixture.With(handler, TestData.Definition(), limits: new CkMethodLimitsOptions { MaxParametersBytes = 2000 });
+
+        var response = await Invoke(host, TestData.Request(host.InSeconds(15), parametersJson: ParamsOfBytes(2001)));
+
+        Assert.False(response.Success);
+        Assert.Equal(CkMethodErrorCodes.MethodParametersTooLarge, response.Error!.Code);
+        Assert.Equal("2000", response.Error.Parameters[CkMethodErrorParameters.MaxBytes]);
+        Assert.Equal("2001", response.Error.Parameters[CkMethodErrorParameters.ActualBytes]);
+        Assert.Equal(0, handler.Calls);
+    }
+
+    [Fact]
+    public async Task ParametersOfExactlyTheLimit_Pass()
+    {
+        var handler = Handler();
+        var host = HostFixture.With(handler, TestData.Definition(), limits: new CkMethodLimitsOptions { MaxParametersBytes = 2000 });
+
+        var response = await Invoke(host, TestData.Request(host.InSeconds(15), parametersJson: ParamsOfBytes(2000)));
+
+        Assert.True(response.Success, response.Error?.Code);
+        Assert.Equal(1, handler.Calls);
+    }
+
+    [Fact]
+    public async Task TheLimitCountsUtf8Bytes_NotCharacters()
+    {
+        var handler = Handler();
+        var host = HostFixture.With(handler, TestData.Definition(), limits: new CkMethodLimitsOptions { MaxParametersBytes = 2000 });
+        // 1000 two-byte characters in the padding: 1000 chars but far above 2000 bytes with the JSON around them
+        var json = "{\"currentPassword\":\"x\",\"newPassword\":\"" + new string('\u00e4', 1000) + "\"}";
+
+        var response = await Invoke(host, TestData.Request(host.InSeconds(15), parametersJson: json));
+
+        Assert.Equal(CkMethodErrorCodes.MethodParametersTooLarge, response.Error!.Code);
+        Assert.Equal(0, handler.Calls);
+    }
+
+    [Fact]
+    public async Task WithoutConfiguration_TheDefaultLimitIs1MiB()
+    {
+        var handler = Handler();
+        var host = HostFixture.With(handler, TestData.Definition());
+
+        var over = await Invoke(host, TestData.Request(host.InSeconds(15), parametersJson: ParamsOfBytes(1024 * 1024 + 1)));
+        var exact = await Invoke(host, TestData.Request(host.InSeconds(15), parametersJson: ParamsOfBytes(1024 * 1024)));
+
+        Assert.Equal(CkMethodErrorCodes.MethodParametersTooLarge, over.Error!.Code);
+        Assert.Equal("1048576", over.Error.Parameters[CkMethodErrorParameters.MaxBytes]);
+        Assert.True(exact.Success, exact.Error?.Code);
+    }
+
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task FarFutureDeadline_IsClampedToThePlatformMaximum_AndTheHandlerIsCancelledThere(bool maxValue)
+    {
+        var started = new TaskCompletionSource();
+        var handler = Handler(async (_, ct) =>
+        {
+            started.SetResult();
+            await Task.Delay(Timeout.Infinite, ct);
+            return new UserChangePasswordResult();
+        });
+        var host = HostFixture.With(handler, TestData.Definition(),
+            dispatcherOptions: new CkMethodDispatcherOptions { MaxTimeout = TimeSpan.FromMinutes(10) });
+        var deadline = maxValue
+            ? DateTime.SpecifyKind(DateTime.MaxValue, DateTimeKind.Utc)
+            : host.Time.GetUtcNow().UtcDateTime.AddDays(30);
+
+        var invocation = Invoke(host, TestData.Request(deadline));
+        await started.Task;
+        host.Time.Advance(TimeSpan.FromMinutes(9));
+        Assert.False(invocation.IsCompleted);
+        host.Time.Advance(TimeSpan.FromMinutes(2));
+        var response = await invocation;
+
+        Assert.Equal(CkMethodErrorCodes.MethodTimeout, response.Error!.Code);
+        Assert.Contains(host.Logs.GetSnapshot(), r => r.Level == Microsoft.Extensions.Logging.LogLevel.Information &&
+                                                       r.Message.Contains("clamped"));
+    }
 }

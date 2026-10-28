@@ -180,7 +180,8 @@ public sealed class CkMethodAdversarialBusTests(RabbitMqFixture rabbitMq) : IAsy
     ///     declares the role the default token carries, unless <paramref name="declareNothing" /> keeps the definition
     ///     without any <c>authorization</c> (default-deny).
     /// </summary>
-    private async Task StartRemoteHostAsync(CkMethodAuthorizationDto? authorization = null, bool declareNothing = false)
+    private async Task StartRemoteHostAsync(CkMethodAuthorizationDto? authorization = null, bool declareNothing = false,
+        int? maxParametersBytes = null)
     {
         authorization ??= declareNothing ? null : new CkMethodAuthorizationDto { Roles = [AdversarialTokens.DefaultRole] };
         var definition = new DefinitionSource(Definition(authorization));
@@ -202,6 +203,11 @@ public sealed class CkMethodAdversarialBusTests(RabbitMqFixture rabbitMq) : IAsy
             c.AddCkMethodHandlerDiscovery();
         });
         services.AddCkMethodHandlers("HandlerA", m => m.Handle<AdvHandler>(MethodId));
+        if (maxParametersBytes is { } limit)
+        {
+            services.Configure<CkMethodLimitsOptions>(o => o.MaxParametersBytes = limit);
+        }
+
         var host = await StartHubAsync(services);
         foreach (var hosted in host.GetServices<IHostedService>().Where(h => h is CkMethodHandlerHeartbeatService))
         {
@@ -688,24 +694,10 @@ public sealed class CkMethodAdversarialBusTests(RabbitMqFixture rabbitMq) : IAsy
     private const int HugeNoteBytes = 8 * 1024 * 1024;
 
     /// <summary>
-    ///     GAP (AB#6915 finding F-2): the method path has no limit for the size of the parameters. This characterization
-    ///     test pins what is observed today, so that a later limit makes it fail and
-    ///     <see cref="C12_ParametersFarAboveTheLimit_AreRefused_AndNotExecuted" /> is un-skipped.
+    ///     F-2 (AB#6915, fixed by AB#7665): a message above the limit published straight on the bus is refused by the
+    ///     host with <c>METHOD_PARAMETERS_TOO_LARGE</c>; the parameters are not deserialized and the handler does not run.
     /// </summary>
     [Fact]
-    public async Task C12_Gap_ParametersOf8MiB_AreAcceptedAndExecuted_BecauseThereIsNoSizeLimit()
-    {
-        await StartRemoteHostAsync();
-
-        var response = await SendRawAsync(Raw(AdversarialTokens.Create(_key),
-            parametersJson: Params(note: new string('n', HugeNoteBytes))));
-
-        Record("C12", "parameter payload of 8 MiB (no size limit exists) - GAP F-2", response, _probe);
-        Assert.True(response.Success, response.Error?.Code);
-        Assert.Equal(HugeNoteBytes, _probe.NoteLength);
-    }
-
-    [Fact(Skip = "AB#6915 finding F-2: the method path has no parameter size limit and no documented code; enable when the limit exists")]
     public async Task C12_ParametersFarAboveTheLimit_AreRefused_AndNotExecuted()
     {
         await StartRemoteHostAsync();
@@ -713,9 +705,32 @@ public sealed class CkMethodAdversarialBusTests(RabbitMqFixture rabbitMq) : IAsy
         var response = await SendRawAsync(Raw(AdversarialTokens.Create(_key),
             parametersJson: Params(note: new string('n', HugeNoteBytes))));
 
+        Record("C12", "parameter payload of 8 MiB published on the bus", response, _probe);
         Assert.False(response.Success);
-        Assert.Equal(CkMethodErrorCodes.MethodValidationFailed, response.Error!.Code);
+        Assert.Equal(CkMethodErrorCodes.MethodParametersTooLarge, response.Error!.Code);
+        Assert.Equal("1048576", response.Error.Parameters[CkMethodErrorParameters.MaxBytes]);
         Assert.Equal(0, _probe.Calls);
+        Assert.Equal(0, _probe.NoteLength);
+    }
+
+    /// <summary>A service configured with its own limit refuses just above it and accepts exactly at it.</summary>
+    [Fact]
+    public async Task C12_AServiceWithItsOwnLimit_RefusesAboveAndAcceptsExactlyAtIt()
+    {
+        const int limit = 4096;
+        await StartRemoteHostAsync(maxParametersBytes: limit);
+        var token = AdversarialTokens.Create(_key);
+        var overhead = System.Text.Encoding.UTF8.GetByteCount(Params(note: ""));
+
+        var over = await SendRawAsync(Raw(token, parametersJson: Params(note: new string('n', limit - overhead + 1))));
+        Assert.Equal(CkMethodErrorCodes.MethodParametersTooLarge, over.Error!.Code);
+        Assert.Equal(limit.ToString(), over.Error.Parameters[CkMethodErrorParameters.MaxBytes]);
+        Assert.Equal((limit + 1).ToString(), over.Error.Parameters[CkMethodErrorParameters.ActualBytes]);
+        Assert.Equal(0, _probe.Calls);
+
+        var exact = await SendRawAsync(Raw(token, parametersJson: Params(note: new string('n', limit - overhead))));
+        Assert.True(exact.Success, exact.Error?.Code);
+        Assert.Equal(limit - overhead, _probe.NoteLength);
     }
 
     // ---------------------------------------------------------------------------------------------------------------

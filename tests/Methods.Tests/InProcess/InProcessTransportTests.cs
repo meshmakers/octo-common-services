@@ -162,6 +162,32 @@ public class InProcessTransportTests
     }
 
     [Fact]
+    public async Task FarFutureDeadline_HandlerThatIgnoresItsToken_StillAnswersTimeoutAtThePlatformMaximum()
+    {
+        var never = new TaskCompletionSource<CkMethodOutcome<UserChangePasswordResult>>();
+        var seen = new TaskCompletionSource<DateTime>();
+        var host = InProcessFixture.With(
+            Handler((context, _) =>
+            {
+                seen.SetResult(context.DeadlineUtc);
+                return never.Task;
+            }), TestData.Definition(errors: Declared));
+        var start = host.Time.GetUtcNow().UtcDateTime;
+        var call = host.Transport.InvokeAsync(TestData.Request(DateTime.SpecifyKind(DateTime.MaxValue, DateTimeKind.Utc)),
+            TestContext.Current.CancellationToken);
+
+        var deadlineSeenByHandler = await seen.Task.WaitAsync(TimeSpan.FromSeconds(10), TestContext.Current.CancellationToken);
+        host.Time.Advance(TimeSpan.FromMinutes(9));
+        Assert.False(call.IsCompleted);
+        host.Time.Advance(TimeSpan.FromMinutes(2));
+        var response = await call.WaitAsync(TimeSpan.FromSeconds(10), TestContext.Current.CancellationToken);
+
+        Assert.Equal(CkMethodErrorCodes.MethodTimeout, response.Error!.Code);
+        Assert.Equal(start.AddMinutes(10), deadlineSeenByHandler);
+        never.SetResult(new UserChangePasswordResult());
+    }
+
+    [Fact]
     public async Task UnsupportedContractVersion_EqualsTheBusPath()
     {
         var (bus, local) = await RunBoth(() => Handler(),

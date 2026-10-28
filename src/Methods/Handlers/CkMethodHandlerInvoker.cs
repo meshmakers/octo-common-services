@@ -4,6 +4,7 @@ using Meshmakers.Octo.Services.Contracts.DistributionEventHub.Methods;
 using Meshmakers.Octo.Services.Methods.Authorization;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Options;
 
 namespace Meshmakers.Octo.Services.Methods.Handlers;
 
@@ -15,7 +16,9 @@ internal sealed class CkMethodHandlerInvoker(
     ILogger<CkMethodHandlerInvoker> logger,
     ICkMethodAuthorizationEvaluator authorizationEvaluator,
     ICkMethodEntryGuard? entryGuard = null,
-    ICkMethodCallerTokenValidator? tokenValidator = null) : ICkMethodHandlerInvoker
+    ICkMethodCallerTokenValidator? tokenValidator = null,
+    IOptions<CkMethodLimitsOptions>? limits = null,
+    IOptions<CkMethodDispatcherOptions>? dispatcherOptions = null) : ICkMethodHandlerInvoker
 {
     // CancellationTokenSource rejects delays above int.MaxValue ms (~24.8 days)
     private static readonly TimeSpan MaxCancellationDelay = TimeSpan.FromMilliseconds(int.MaxValue - 1);
@@ -75,10 +78,36 @@ internal sealed class CkMethodHandlerInvoker(
             return TimeoutResponse(request, registration);
         }
 
+        // The size is checked before the token is validated and long before the parameters are deserialized (AB#7665).
+        if (CkMethodParameterLimit.Exceeds(request.ParametersJson, limits?.Value, out var actualBytes))
+        {
+            logger.LogWarning(
+                "CK method {MethodId} invocation {InvocationId} tenant {TenantId} NOT executed: parameters of {ActualBytes} bytes exceed the limit of {MaxBytes} bytes",
+                request.MethodId, request.InvocationId, request.TenantId, actualBytes,
+                (limits?.Value ?? new CkMethodLimitsOptions()).EffectiveMaxParametersBytes);
+            return CkMethodResponse.Failed(request.InvocationId, instance.InstanceId,
+                CkMethodParameterLimit.TooLarge(request.MethodId, limits?.Value, actualBytes));
+        }
+
+        // A message published straight on the queue skips the dispatcher: the host applies the platform maximum itself
+        // (the same helper and option as the dispatcher, AB#7665).
+        var effectiveDeadline = request.DeadlineUtc;
+        var maxTimeout = CkMethodDeadline.MaxOf(dispatcherOptions?.Value ?? new CkMethodDispatcherOptions());
+        var clamped = CkMethodDeadline.Clamp(request.DeadlineUtc, now, maxTimeout);
+        if (clamped != request.DeadlineUtc)
+        {
+            effectiveDeadline = clamped;
+            // the handler context (DeadlineUtc, RemainingTime) shows the deadline that is enforced
+            request = request with { DeadlineUtc = clamped };
+            logger.LogInformation(
+                "CK method {MethodId} invocation {InvocationId} tenant {TenantId}: deadline {DeadlineUtc:O} is beyond the platform maximum of {MaxTimeout}, clamped",
+                request.MethodId, request.InvocationId, request.TenantId, request.DeadlineUtc, maxTimeout);
+        }
+
         var correlationId = request.CorrelationId ?? request.InvocationId;
         var redactor = CkMethodRedactor.For(registration, request);
         var stopwatch = Stopwatch.StartNew();
-        var remaining = request.DeadlineUtc - now;
+        var remaining = effectiveDeadline - now;
         using var deadline = new CancellationTokenSource(
             remaining > MaxCancellationDelay ? MaxCancellationDelay : remaining, timeProvider);
         using var linked = CancellationTokenSource.CreateLinkedTokenSource(deadline.Token, cancellationToken);
