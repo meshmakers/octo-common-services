@@ -40,6 +40,20 @@ public interface ICkMethodSensitivityResolver
     ///     existed keeps compiling and redacts every result until it overrides it.
     /// </remarks>
     bool IsResultSensitive(string tenantId, string ckTypeId, string qualifiedMethodId) => true;
+
+    /// <summary>
+    ///     <c>true</c> only when the method is known and declares <c>execution.idempotent: true</c> in the CK model. Unknown
+    ///     method, absent flag or a fault in the source answer <c>false</c> (fail-safe: the idempotency store is used).
+    ///     Never throws. A keyed call to an idempotent method skips the idempotency store (AB#7896).
+    /// </summary>
+    /// <param name="tenantId">Tenant of the request.</param>
+    /// <param name="ckTypeId">Concrete CK type of the target (<c>Model/Type</c>).</param>
+    /// <param name="qualifiedMethodId">Qualified id of the method on its declaring element.</param>
+    /// <remarks>
+    ///     The default implementation answers <c>false</c>, so an implementation written before this member existed keeps
+    ///     compiling and keeps using the store.
+    /// </remarks>
+    bool IsIdempotent(string tenantId, string ckTypeId, string qualifiedMethodId) => false;
 }
 
 internal sealed class CkMethodSensitivityResolver(ICkMethodAuthorizationDefinitionSource? source)
@@ -61,6 +75,24 @@ internal sealed class CkMethodSensitivityResolver(ICkMethodAuthorizationDefiniti
         {
             // a fault in the source must not reveal anything: unknown, so the result is redacted
             return true;
+        }
+    }
+
+    public bool IsIdempotent(string tenantId, string ckTypeId, string qualifiedMethodId)
+    {
+        if (source == null)
+        {
+            return false;
+        }
+
+        try
+        {
+            return source.Find(tenantId, ckTypeId, qualifiedMethodId)?.Execution?.Idempotent == true;
+        }
+        catch (Exception)
+        {
+            // unknown: the store stays in charge
+            return false;
         }
     }
 

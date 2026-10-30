@@ -70,4 +70,11 @@ internal static class TestData
         Result = withResult ? new CkMethodResultDto { ValueType = AttributeValueTypesDto.String } : null,
         Errors = errors.Select(e => new CkMethodErrorDto { Code = e }).ToList()
     };
+
+    /// <summary>The definition with <c>execution.idempotent</c> set (AB#7896).</summary>
+    public static CkMethodDto Idempotent(this CkMethodDto definition, bool idempotent = true)
+    {
+        definition.Execution = new CkMethodExecutionDto { Idempotent = idempotent };
+        return definition;
+    }
 }

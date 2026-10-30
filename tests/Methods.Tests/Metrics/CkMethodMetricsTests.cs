@@ -122,9 +122,9 @@ public class CkMethodMetricsTests
 
     private sealed class Rig
     {
-        public Rig()
+        public Rig(bool idempotentMethod = false)
         {
-            var definition = TestData.Definition();
+            var definition = TestData.Definition().Idempotent(idempotentMethod);
             var loggers = NullLoggerFactory.Instance;
             Time = new FakeTimeProvider(new DateTimeOffset(2026, 10, 30, 12, 0, 0, TimeSpan.Zero));
             Recorder = new CkMethodAuditRecorder(Sink, new FixedMonitor<CkMethodAuditOptions>(new CkMethodAuditOptions()),
@@ -266,6 +266,30 @@ public class CkMethodMetricsTests
             TestContext.Current.CancellationToken);
 
         Assert.Equal(1, executions);
+        var calls = capture.Calls(methodId);
+        Assert.Equal(2, calls.Count);
+        Assert.All(calls, c => Assert.Equal(CkMethodAuditOutcomes.Success, c.Tag(CkMethodMetrics.OutcomeTag)));
+    }
+
+    [Fact]
+    public async Task KeyedCallsToAnIdempotentMethod_AreCountedOncePerCall_AndBothRun()
+    {
+        using var capture = new MetricCapture();
+        var rig = new Rig(idempotentMethod: true);
+        var methodId = NewMethodId();
+        var executions = 0;
+        Func<CkMethodRequest, CkMethodResponse> answer = r =>
+        {
+            executions++;
+            return CkMethodResponse.Succeeded(r.InvocationId, "h", "\"done\"");
+        };
+
+        await rig.Call(CkMethodTransportNames.InProcess, rig.Request(methodId, "key-1"), answer,
+            TestContext.Current.CancellationToken);
+        await rig.Call(CkMethodTransportNames.InProcess, rig.Request(methodId, "key-1"), answer,
+            TestContext.Current.CancellationToken);
+
+        Assert.Equal(2, executions);
         var calls = capture.Calls(methodId);
         Assert.Equal(2, calls.Count);
         Assert.All(calls, c => Assert.Equal(CkMethodAuditOutcomes.Success, c.Tag(CkMethodMetrics.OutcomeTag)));

@@ -152,7 +152,9 @@ internal sealed class CkMethodInvocationPipeline(
     {
         // A call without a key costs nothing here; a keyed call needs the sensitivity and the fingerprint even when no
         // filter is registered, so that the missing-key refusal does not depend on which other filters exist.
-        var keyed = fingerprinter != null && !string.IsNullOrEmpty(request.IdempotencyKey);
+        // A method declared idempotent ignores the key (AB#7896): no fingerprint, no missing-key refusal.
+        var keyed = fingerprinter != null && !string.IsNullOrEmpty(request.IdempotencyKey) &&
+                    !sensitivity.IsIdempotent(request.TenantId, request.CkTypeId, request.MethodId);
         if (_filters.Length == 0 && !keyed)
         {
             return await transport(request).ConfigureAwait(false);

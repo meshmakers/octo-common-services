@@ -573,6 +573,106 @@ public class IdempotencyFilterTests
         Assert.Equal(0, rig.Memory.Count);
     }
 
+    // ---------------------------------------------------------------- execution.idempotent bypasses the store (AB#7896)
+
+    [Fact]
+    public async Task IdempotentMethod_KeyedCalls_NeverTouchTheStore_AndRunEveryTime()
+    {
+        var store = new ThrowingStore(); // a claim would fail closed, so a pass proves the store was not called
+        var rig = new Rig(TestData.Definition().Idempotent(), store);
+
+        var first = await rig.Call(rig.Request("key-1"));
+        var second = await rig.Call(rig.Request("key-1"));
+
+        Assert.True(first.Success && second.Success);
+        Assert.Equal(2, rig.Executions);
+        Assert.Equal(0, store.Calls);
+        Assert.Equal(0, rig.Memory.Count);
+    }
+
+    [Fact]
+    public async Task IdempotentMethod_AcceptsAndIgnoresTheKey_WhateverItLooksLike()
+    {
+        var rig = new Rig(TestData.Definition().Idempotent());
+        var oversized = new string('k', CkMethodIdempotencyKey.MaxKeyLength + 1);
+
+        Assert.True((await rig.Call(rig.Request(oversized))).Success);
+        Assert.True((await rig.Call(rig.Request("key with spaces \u00e4"))).Success);
+        // the same key with other parameters is not "parameters-changed": there is no fingerprint rule
+        Assert.True((await rig.Call(rig.Request("key-1", "{\"hint\":\"a\"}"))).Success);
+        Assert.True((await rig.Call(rig.Request("key-1", "{\"hint\":\"b\"}"))).Success);
+        Assert.Equal(4, rig.Executions);
+        Assert.Equal(0, rig.Memory.Count);
+    }
+
+    [Fact]
+    public async Task IdempotentMethod_NeedsNoSubject_NoFingerprintKey_AndAllowsASensitiveResult()
+    {
+        var definition = TestData.Definition().Idempotent();
+        definition.Result!.Sensitive = true;
+        // no caller subject, and no fingerprint key although the method has sensitive parameters
+        var rig = new Rig(definition, keys: Keys(null));
+        rig.Principal.Subject = null;
+
+        var response = await rig.Call(rig.Request("key-1"));
+
+        Assert.True(response.Success);
+        Assert.Equal(1, rig.Executions);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task NotIdempotentMethod_StillUsesTheStore(bool declaredFalse)
+    {
+        var definition = TestData.Definition();
+        if (declaredFalse)
+        {
+            definition.Idempotent(false);
+        }
+
+        var rig = new Rig(definition);
+
+        await rig.Call(rig.Request("key-1"));
+        var replay = await rig.Call(rig.Request("key-1"));
+
+        Assert.True(replay.Success);
+        Assert.Equal(1, rig.Executions);
+        Assert.Equal(1, rig.Memory.Count);
+    }
+
+    [Fact]
+    public async Task IdempotentMethod_FilterAloneBypasses_EvenWithoutAFingerprint()
+    {
+        var rig = new Rig(TestData.Definition().Idempotent());
+        var bare = new CkMethodInvocationPipeline([rig.Filter], rig.Sensitivity,
+            rig.Loggers.CreateLogger<CkMethodInvocationPipeline>());
+
+        Assert.True((await rig.Call(rig.Request(), pipeline: bare)).Success);
+        Assert.Equal(1, rig.Executions);
+    }
+
+    [Fact]
+    public void Resolver_IsIdempotent_OnlyWhenKnownAndDeclared()
+    {
+        static ICkMethodAuthorizationDefinitionSource Source(Func<CkMethodDto?> f) => new FuncDefinitionSource(f);
+
+        Assert.True(new CkMethodSensitivityResolver(Source(() => TestData.Definition().Idempotent()))
+            .IsIdempotent("t", "T/X", "T/X.M-1"));
+        Assert.False(new CkMethodSensitivityResolver(Source(() => TestData.Definition().Idempotent(false)))
+            .IsIdempotent("t", "T/X", "T/X.M-1"));
+        Assert.False(new CkMethodSensitivityResolver(Source(() => TestData.Definition())).IsIdempotent("t", "T/X", "T/X.M-1"));
+        Assert.False(new CkMethodSensitivityResolver(Source(() => null)).IsIdempotent("t", "T/X", "T/X.M-1"));
+        Assert.False(new CkMethodSensitivityResolver(Source(() => throw new InvalidOperationException("boom")))
+            .IsIdempotent("t", "T/X", "T/X.M-1"));
+        Assert.False(new CkMethodSensitivityResolver(null).IsIdempotent("t", "T/X", "T/X.M-1"));
+    }
+
+    private sealed class FuncDefinitionSource(Func<CkMethodDto?> find) : ICkMethodAuthorizationDefinitionSource
+    {
+        public CkMethodDto? Find(string tenantId, string ckTypeId, string qualifiedMethodId) => find();
+    }
+
     [Fact]
     public async Task AnUnauthorizedCall_NeverReachesTheStore()
     {
