@@ -1072,6 +1072,16 @@ is about 1 ms (1 or 3 replicas, Apple M4 Pro, loopback). A shared method queue m
 would fail its start with `PRECONDITION_FAILED` behind an `EndpointReadyTimeout` `TimeoutException`; the old replicas keep serving): a
 change needs a new queue name.
 
+### Measurements: redelivery and claim write cost (AB#7823, F3.5)
+
+`tests/Methods.Measurements` (+ `Methods.Measurements.Worker`, a handler replica as a child process for the hard-kill scenario) measures how
+often the broker flags a redelivery under forced failure (connection close, hard kill, graceful stop; 2 replicas) and what a claim insert /
+conditional update costs on a private single-node MongoDB replica set. **Not part of the default run**: the CI glob is `**/*Tests.csproj`
+and the project is not named `*Tests`; each test also skips unless `OCTO_METHOD_MEASURE=1`. One command (Docker, about 5 minutes):
+`OCTO_METHOD_MEASURE=1 dotnet test tests/Methods.Measurements/Methods.Measurements.csproj -c DebugL --logger "console;verbosity=detailed"`
+(build the solution first so the worker exists). Results, method and the B' reading (no unflagged duplicate observed): `docs/method-performance.md`,
+"Measurements (AB#7823)". `Methods.csproj` lists the two projects under `InternalsVisibleTo` (they start real handler hosts).
+
 ## Artifact store: nested keys and the archive copy staging location (AB#5967 / AB#6969)
 
 `src/ArtifactStorage` (package `Meshmakers.Octo.Services.ArtifactStorage`, docs: `README.md`, "Artifact storage configuration" and
