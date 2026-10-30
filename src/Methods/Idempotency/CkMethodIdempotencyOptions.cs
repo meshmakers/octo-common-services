@@ -6,7 +6,7 @@ namespace Meshmakers.Octo.Services.Methods.Idempotency;
 /// <summary>
 ///     Lifetime of an idempotency record (configuration key <c>Methods:Idempotency:Ttl</c>, OD-4 row 5). Default 24 hours,
 ///     maximum 7 days; a larger value is clamped to the maximum and logged once, zero or negative fails the start of the
-///     service. The fingerprint key options are not part of this class (AB#7819).
+///     service. The fingerprint keys are <see cref="CkMethodFingerprintOptions" /> (AB#7819).
 /// </summary>
 public sealed class CkMethodIdempotencyOptions
 {

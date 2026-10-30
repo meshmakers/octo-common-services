@@ -49,6 +49,14 @@ internal static class TestData
         return definition;
     }
 
+    /// <summary>A definition whose parameters are all non-sensitive.</summary>
+    public static CkMethodDto DefinitionWithoutSensitive() => new()
+    {
+        MethodId = "ChangePassword-1",
+        Parameters = [new CkMethodParameterDto { Name = "hint", ValueType = AttributeValueTypesDto.String, IsOptional = true }],
+        Result = new CkMethodResultDto { ValueType = AttributeValueTypesDto.String }
+    };
+
     /// <summary>The CK definition the generated records above belong to.</summary>
     public static CkMethodDto Definition(bool withResult = true, params string[] errors) => new()
     {

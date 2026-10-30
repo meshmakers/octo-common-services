@@ -329,7 +329,7 @@ refusal; the idempotency filter (300) and the transport never run for a refused 
 
 ### Idempotency store contract (F3.5, AB#7817)
 
-The filter that uses it (band 300) is a later story; this library defines the contract, the lifetime options and an in-memory store
+The filter that uses it (band 300) is a later story; this library defines the contract, the lifetime options, the fingerprint (next section) and an in-memory store
 (`src/Methods/Idempotency/`). The MongoDB store lives in the asset repository (this library has no MongoDB reference, a test pins that).
 
 * **Identity** (`CkMethodIdempotencyKey.Create(tenant, methodId, subject, key)`): tenant + qualified method id + caller **subject** + key.
@@ -352,6 +352,38 @@ The filter that uses it (band 300) is a later story; this library defines the co
   later, the first result is then replayed). Additive; the contract version does not change.
 * Registration: `AddCkMethodIdempotencyOptions()` (options, validation at start, `CkMethodIdempotencyLifetime`) and
   `AddCkMethodInMemoryIdempotencyStore()` (in-memory store unless a store is registered; its state is per process, so tests and single-replica hosts only).
+
+### Parameters fingerprint and its key (F3.5, AB#7819)
+
+A repeated idempotency key must belong to the same work. The pipeline therefore fingerprints every call that **carries a key** (a call without
+a key computes nothing) from the **raw** request, before the filters get their redacted view: `ckTypeId`, `targetRtId` and the canonical
+parameters (members sorted, numbers normalized, array order kept). The fingerprint is an HMAC-SHA-256 with a secret of the environment, so a
+database reader or a backup cannot reverse a password from it, and cannot even test a guessed one. It is available to filters as
+`context.Facts.ParametersFingerprint` (bytes and key id, for the store) and is never logged, audited or serialized.
+A filter verifies a stored fingerprint with `context.Facts.MatchesStoredFingerprint(stored)`: it accepts the current key, the previous key
+(rotation) and the unkeyed SHA-256, and is constant-time.
+
+**Configuration** (section `Methods:Idempotency:Fingerprint`, read at the start of the service, the same on every replica):
+
+| Key | Meaning |
+|---|---|
+| `Current:Id` | Public name of the key, stored with each fingerprint (`A-Z a-z 0-9 . _ -`, at most 64). |
+| `Current:Secret` | Base64 of at least 32 random bytes (`openssl rand -base64 32`). A secret, never in a checked-in file. |
+| `Previous:Id`, `Previous:Secret` | The key of the rotation before; only verifies stored fingerprints. Needs `Current`; its id differs. |
+
+As environment variables: `OCTO_Methods__Idempotency__Fingerprint__Current__Id` and `...__Secret`, `...__Previous__...`.
+A malformed or half-set key fails the start of the service; the message names the setting, never the value.
+
+**Rotation:** set the new key as `Current` (new id), move the old one to `Previous`, roll all replicas; remove `Previous` after the longest
+idempotency TTL (7 days at most).
+
+**No key configured (fail closed):** a call with an idempotency key to a method that has sensitive parameters, or to an unknown method, is refused
+before the idempotency filter and the handler run: `METHOD_VALIDATION_FAILED`, `field` `idempotencyKey`, `reason` `fingerprint-key-missing`. A method
+without sensitive parameters uses a plain SHA-256 (key id `sha256`). Authorization still comes first, so an unauthorized caller learns nothing.
+
+**Ops prerequisite (Platform Ops):** before keyed calls are enabled on a shared environment (test-2, staging-1, prod-1, prod-2), the
+environment needs the fingerprint secret as a Vault entry and a Helm secret value, shared by all asset-repository replicas, with the
+slot for the previous key. Until then keyed calls to methods with sensitive parameters are refused there.
 
 ## 8. Duplicate deliveries and failing sends
 
