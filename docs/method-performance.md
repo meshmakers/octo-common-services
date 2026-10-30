@@ -73,3 +73,11 @@ dotnet test tests/Methods.IntegrationTests/Methods.IntegrationTests.csproj -c De
 
 Needs Docker. Close other heavy processes for the strict run. Not covered: the identity service as a real replica set (no method
 handler there yet, F4.2, AB#5672; re-run when the first identity handler exists), long-running soak, and cross-node broker clusters.
+
+## Idempotency store latency (AB#7824, F3.5)
+
+A call with an idempotency key adds two writes to the dispatch path: claim (insert) and completion (update) in the tenant database
+(`MethodIdempotency`, asset-repo `MongoMethodIdempotencyStore`). Unkeyed calls are not affected. Measured on a single-node replica
+set in a container with majority write concern: claim p50 3.4 ms / p95 6.0 ms, completion p50 3.8 ms / p95 7.0 ms, **claim + complete
+p50 7.5 ms / p95 12.0 ms**. Method, repeat command and the full table: `docs/method-idempotency-store.md` in
+octo-asset-repo-services. The 20 ms dispatch budget above is for the unkeyed path; test-2 numbers follow at the Phase 3 gate (AB#7829).
