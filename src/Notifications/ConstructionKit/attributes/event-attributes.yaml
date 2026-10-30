@@ -19,4 +19,20 @@ attributes:
     valueType: Enum
     valueCkEnumId: ${this}/EventSources    
     ownership: SeedOwned
-
+  - id: EventCategory
+    description: Stable dotted identifier of the kind of event (for example Method.Invocation), so that an auditor can filter the event log by category instead of parsing the message text
+    valueType: String
+    ownership: SeedOwned
+  - id: EventDetails
+    description: Structured details of the event as key/value pairs (for example invocation id, method and outcome of a method call); values are rendered with the invariant culture and never hold credentials or parameter values
+    valueType: RecordArray
+    valueCkRecordId: ${this}/EventDetail
+    ownership: SeedOwned
+  - id: EventDetailKey
+    description: The name of one structured detail of an event
+    valueType: String
+    ownership: SeedOwned
+  - id: EventDetailValue
+    description: The value of one structured detail of an event, rendered as text
+    valueType: String
+    ownership: SeedOwned

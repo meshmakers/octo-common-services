@@ -1,3 +1,5 @@
+using System.Collections;
+using System.Globalization;
 using Meshmakers.Octo.Runtime.Contracts.AuditTrails;
 using Meshmakers.Octo.Services.Notifications.Generated.System.Notification.v2;
 using Microsoft.Extensions.DependencyInjection;
@@ -8,7 +10,8 @@ namespace Meshmakers.Octo.Services.Notifications.Services;
 
 /// <summary>
 /// <see cref="IAuditEventSink"/> implementation that persists every audit event to the
-/// platform event log via <see cref="IEventRepository"/>. Replaces the per-interface bridges
+/// platform event log via <see cref="IEventRepository"/>, including the audit event's category and its
+/// metadata as structured <c>Details</c> (System.Notification 2.7.0, AB#7821). Replaces the per-interface bridges
 /// (e.g. the old <c>EventRepositoryCkModelImportAuditTrail</c>) so a host's
 /// <see cref="Microsoft.Extensions.DependencyInjection.IServiceCollection"/> only needs one
 /// registration to surface every engine audit-trail call in the event log.
@@ -54,15 +57,17 @@ public sealed class EventRepositoryAuditEventSink : IAuditEventSink
             await using var scope = _serviceProvider.CreateAsyncScope();
             var eventRepository = scope.ServiceProvider.GetRequiredService<IEventRepository>();
             var level = MapLevel(auditEvent.Level);
+            var details = MapMetadata(auditEvent.Metadata);
             if (string.IsNullOrWhiteSpace(auditEvent.TenantId))
             {
-                await eventRepository.StoreSystemEventAsync(_defaultSource, level, auditEvent.Message)
+                await eventRepository.StoreSystemEventAsync(_defaultSource, level, auditEvent.Message,
+                        auditEvent.Category, details)
                     .ConfigureAwait(false);
             }
             else
             {
                 await eventRepository.StoreEventAsync(auditEvent.TenantId, _defaultSource, level,
-                    auditEvent.Message).ConfigureAwait(false);
+                    auditEvent.Message, auditEvent.Category, details).ConfigureAwait(false);
             }
         }
         catch (Exception ex)
@@ -73,6 +78,45 @@ public sealed class EventRepositoryAuditEventSink : IAuditEventSink
                 auditEvent.Category, auditEvent.TenantId ?? "<system>");
         }
     }
+
+    /// <summary>
+    /// Maps <see cref="AuditEvent.Metadata"/> to the event's key/value details (AB#7821): entries whose
+    /// value is <c>null</c> are skipped and values are rendered with the invariant culture (dates as
+    /// ISO 8601 round-trip, lists comma-separated), so the stored text does not depend on the server's locale.
+    /// </summary>
+    internal static IReadOnlyCollection<KeyValuePair<string, string>>? MapMetadata(
+        IReadOnlyDictionary<string, object?>? metadata)
+    {
+        if (metadata is null || metadata.Count == 0)
+        {
+            return null;
+        }
+
+        var details = new List<KeyValuePair<string, string>>(metadata.Count);
+        foreach (var (key, value) in metadata)
+        {
+            if (value is null || string.IsNullOrWhiteSpace(key))
+            {
+                continue;
+            }
+
+            var text = Render(value);
+            details.Add(new KeyValuePair<string, string>(key, text));
+        }
+
+        return details.Count == 0 ? null : details;
+    }
+
+    private static string Render(object value) => value switch
+    {
+        string s => s,
+        DateTime dt => dt.ToString("O", CultureInfo.InvariantCulture),
+        DateTimeOffset dto => dto.ToString("O", CultureInfo.InvariantCulture),
+        IFormattable f => f.ToString(null, CultureInfo.InvariantCulture),
+        // Lists (for example the missing attribute ids of an import) become one comma-separated text, not the type name.
+        IEnumerable items => string.Join(", ", items.Cast<object?>().Where(i => i is not null).Select(i => Render(i!))),
+        _ => value.ToString() ?? string.Empty,
+    };
 
     private static RtEventLevelsEnum MapLevel(AuditEventLevel level) => level switch
     {

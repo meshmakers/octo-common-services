@@ -1,0 +1,10 @@
+"$schema": "https://schemas.meshmakers.cloud/construction-kit-elements.schema.json"
+records:
+  - recordId: EventDetail
+    description: One structured detail of an event, a key and its value as text.
+    attributes:
+      - id: ${this}/EventDetailKey
+        name: Key
+      - id: ${this}/EventDetailValue
+        name: Value
+        isOptional: true

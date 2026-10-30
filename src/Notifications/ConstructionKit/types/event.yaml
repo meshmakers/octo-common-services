@@ -12,3 +12,9 @@ types:
         name: Level
       - id: ${this}/EventSource
         name: Source
+      - id: ${this}/EventCategory
+        name: Category
+        isOptional: true
+      - id: ${this}/EventDetails
+        name: Details
+        isOptional: true
