@@ -472,6 +472,31 @@ public class CkMethodDispatcherTests
     }
 
     [Fact]
+    public async Task Facts_AnInnerFilterSets_TheOuterFilterReadsAfterNext_ForTheBusSend()
+    {
+        // AB#7816: the dispatcher's bus send runs as the terminal step of the shared pipeline
+        Guid? seenByAudit = null;
+        var first = Guid.NewGuid();
+        _filters.Add(new LambdaFilter(CkMethodInvocationFilterOrder.Audit, async (ctx, next) =>
+        {
+            var response = await next(ctx.Request);
+            seenByAudit = ctx.Facts.ReplayOf;
+            return response;
+        }));
+        _filters.Add(new LambdaFilter(CkMethodInvocationFilterOrder.Idempotency, async (ctx, next) =>
+        {
+            ctx.Facts.ReplayOf = first;
+            return await next(ctx.Request);
+        }));
+        BusReturns(CkMethodResponse.Succeeded(Guid.Empty, "bus-handler"));
+
+        var response = await Dispatcher().InvokeAsync(Request(), TestContext.Current.CancellationToken);
+
+        Assert.True(response.Success);
+        Assert.Equal(first, seenByAudit);
+    }
+
+    [Fact]
     public async Task InProcessHandler_IsPreferred_BeforeAnyRegistryLookupOrBusSend()
     {
         var handler = new ChangePasswordHandler();

@@ -858,6 +858,13 @@ tests `tests/Methods.Tests/InProcess/`. Guide: `docs/method-handler-sdk.md` sect
   `ICkMethodSensitivityResolver` (registered by `AddCkMethodInvocationPipeline`; reads `ICkMethodAuthorizationDefinitionSource`, else the CK
   cache). `CkMethodRedactor.For(sensitiveNames|null, request)` masks the same values (plain, JSON-escaped in all common encoder variants, JSON-in-JSON, percent-encoded; AB#7015, `SecretForms`) in exceptions the pipeline and the dispatcher log
   (a bus exception that quotes the payload).
+  **Per-invocation facts (AB#7816; `CkMethodInvocationFacts`, `src/Methods/InProcess/CkMethodInvocationFacts.cs`, tests `InvocationFactsTests` and `CkMethodDispatcherTests.Facts_*`)**:
+  `CkMethodInvocationContext.Facts` is created by the pipeline once per call and shared by all filters of that call (the `with { Request = r }`
+  copy keeps the reference), so an inner filter hands facts to an outer one, read after `next()` returns. Members: `ReplayOf` (Guid?, set only by
+  the idempotency filter at band 300 when it answers from the store; the audit filter at 100 reads it) and `ParametersFingerprint` (opaque
+  `CkMethodParametersFingerprint`: HMAC bytes plus key id; `internal set`, filled by the pipeline in AB#7819; compared in constant time with
+  `Matches`). Never on the wire (not a member of the request or the response), never serialized; `ToString()` of the facts, the fingerprint and the
+  context print `[redacted]` instead of the value. A context a test builds by hand starts with its own empty facts.
   **Redacted response view (AB#7007; `CkMethodResponseRedaction` in `CkMethodSensitivity.cs`)**: the mirror of the request side. When
   the CK result of the method is `sensitive` (`ICkMethodSensitivityResolver.IsResultSensitive`; fail-closed `true` for an unknown method,
   a missing source or a faulting source), the terminal step keeps the raw response and hands the filters a view whose `ResultJson` is
