@@ -82,7 +82,8 @@ builder.Services.AddCkMethodHandlers("accounts-services",
 ```
 
 At startup (order 15, before the bus) every registration is checked against the CK cache of the system tenant
-(`Methods:ValidationTenantIds` to name other tenants): unknown method id, a parameter without a property on the parameters
+(`Methods:ValidationTenantIds` to name other tenants; ids are matched case-insensitively against the CK cache, so the default
+`OctoSystem` works as is): unknown method id, a parameter without a property on the parameters
 record, a scalar type mismatch, result vs. no-result handler. A mismatch **stops the service** with a message that names the
 method. The host then connects one shared command endpoint per method (competing consumers, faults suppressed), **waits until every
 endpoint accepts messages** (`EndpointHandle.WaitUntilReadyAsync`, at most `Methods:EndpointReadyTimeout`, default 30 s; the
