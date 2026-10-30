@@ -62,7 +62,10 @@ internal sealed class CkMethodHandlerRegistry(TimeProvider timeProvider) : ICkMe
             {
                 var instances = InstancesOf(Normalize(methodId));
                 var entry = instances.TryGetValue(message.InstanceId, out var existing)
-                    ? existing.Entry with { LastSeenUtc = now, ExpiresUtc = now, Withdrawn = true }
+                    ? existing.Entry with
+                    {
+                        LastSeenUtc = now, ExpiresUtc = now, Withdrawn = true, Source = CkMethodHandlerEntrySource.Announcement
+                    }
                     : new CkMethodHandlerEntry(methodId, message.ServiceName, message.InstanceId, null,
                         CkMethodContract.CurrentVersion, now, now, true, [CkMethodHandlerTenants.All]);
                 // Keeps the newest source timestamp: an older withdrawal must not let an older announcement in.
@@ -146,7 +149,7 @@ internal sealed class CkMethodHandlerRegistry(TimeProvider timeProvider) : ICkMe
 
                 var entry = new CkMethodHandlerEntry(record.MethodId, record.ServiceName, record.InstanceId,
                     record.Version, record.ContractVersion, lastSeen, record.Withdrawn ? lastSeen : expires,
-                    record.Withdrawn, record.Tenants.ToList()) { NoQueueBound = record.NoQueueBound };
+                    record.Withdrawn, record.Tenants.ToList()) { NoQueueBound = record.NoQueueBound, Source = CkMethodHandlerEntrySource.Snapshot };
                 instances[record.InstanceId] = new State(entry, record.Withdrawn ? record.WithdrawnAtSource : null);
                 restored++;
             }

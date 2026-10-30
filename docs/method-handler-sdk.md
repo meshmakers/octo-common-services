@@ -528,6 +528,22 @@ dispatcher host therefore knows its handlers, the served tenants and the contrac
   load is logged and the registry fills from heartbeats.
 * Several dispatcher replicas share the collection; an upsert never replaces a row with an older `LastSeenUtc`.
 
+**Registry diagnostics (AB#7836).** `ICkMethodHandlerRegistryDiagnostics.GetDiagnostics()` (public, read-only, registered by
+`AddCkMethodDispatcher`) tells a live handler from a restored row and reports the health of the snapshot:
+
+* **Source.** `CkMethodHandlerEntry.Source` is `Announcement` for a row received as a heartbeat, a discovery answer or a withdrawal, and
+  `Snapshot` for a row restored from the persisted snapshot and not yet confirmed by its handler. An announcement or withdrawal of the same
+  instance replaces it. The source is derived at restore time and not stored.
+* **State.** `entry.GetState(nowUtc)` is `Live`, `Expired` (heartbeat missed), `Withdrawn` or `NoQueueBound` (the broker returned a mandatory
+  send), by the same rules as `GetLiveHandlers`. A restored row is never `Live` after its `ExpiresUtc`.
+* **Snapshot.** `Enabled` (store present and `SnapshotEnabled`), the last load (time, rows read, rows restored, failed flag), the last
+  successful flush time and whether the last flush failed. A failure is a flag plus the exception **type name**, never the message (it may
+  carry connection data).
+* **Also returned.** The dispatcher instance id, every entry with source and state, and the method ids of the in-process transport
+  (`ICkInProcessMethodTransport`, transport `in-process`; they never announce); empty without such a transport.
+* **Service data only.** Ids, service name, versions, times, served tenants and flags; no parameter value, token or user data (allow-list
+  test over the result types). The GraphQL query that exposes it to system administrators is AB#7837.
+
 **A handler stopping mid-flight.** A graceful stop withdraws first and removes the endpoints; new calls fail at once with
 `METHOD_HANDLER_NOT_AVAILABLE`. A call that is running on that instance gets its cancellation token cancelled and ends as
 `METHOD_TIMEOUT` (outcome unknown) or, when the handler finished first, with its result. It is never lost silently and never run twice.

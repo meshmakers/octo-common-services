@@ -19,8 +19,64 @@ internal sealed class CkMethodHandlerSnapshotPersistence(
     CkMethodHandlerRegistry registry,
     IOptions<CkMethodDispatcherOptions> options,
     ILogger<CkMethodHandlerSnapshotPersistence> logger,
+    TimeProvider timeProvider,
     ICkMethodHandlerSnapshotStore? store = null)
 {
+    private readonly Lock _statusLock = new();
+    private CkMethodHandlerSnapshotLoadStatus? _load;
+    private DateTime? _lastFlushSuccessUtc;
+    private DateTime? _lastFlushFailureUtc;
+    private string? _lastFlushFailureType;
+    private bool _lastFlushFailed;
+
+    /// <summary>The result of the last snapshot load (AB#7836), or null when none ran. Never carries a message.</summary>
+    internal CkMethodHandlerSnapshotLoadStatus? LoadStatus
+    {
+        get { lock (_statusLock) { return _load; } }
+    }
+
+    /// <summary>The state of the last flushes (AB#7836).</summary>
+    internal CkMethodHandlerSnapshotFlushStatus FlushStatus
+    {
+        get
+        {
+            lock (_statusLock)
+            {
+                return new CkMethodHandlerSnapshotFlushStatus(_lastFlushSuccessUtc, _lastFlushFailed, _lastFlushFailureUtc,
+                    _lastFlushFailureType);
+            }
+        }
+    }
+
+    private DateTime Now => timeProvider.GetUtcNow().UtcDateTime;
+
+    private void RecordLoad(CkMethodHandlerSnapshotLoadStatus status)
+    {
+        lock (_statusLock)
+        {
+            _load = status;
+        }
+    }
+
+    private void RecordFlushSuccess()
+    {
+        lock (_statusLock)
+        {
+            _lastFlushSuccessUtc = Now;
+            _lastFlushFailed = false;
+        }
+    }
+
+    private void RecordFlushFailure(Exception exception)
+    {
+        lock (_statusLock)
+        {
+            _lastFlushFailed = true;
+            _lastFlushFailureUtc = Now;
+            _lastFlushFailureType = exception.GetType().Name; // the type only: a message may carry connection data
+        }
+    }
+
     internal bool IsEnabled => store != null && options.Value.SnapshotEnabled;
 
     internal TimeSpan FlushInterval =>
@@ -41,11 +97,13 @@ internal sealed class CkMethodHandlerSnapshotPersistence(
         {
             var rows = await store!.LoadAsync(cancellationToken).ConfigureAwait(false);
             var restored = registry.Restore(rows);
+            RecordLoad(new CkMethodHandlerSnapshotLoadStatus(Now, rows.Count, restored, false, null));
             logger.LogInformation("CK method handler registry snapshot loaded: {Restored} of {Rows} row(s) taken over",
                 restored, rows.Count);
         }
         catch (Exception e) when (e is not OperationCanceledException)
         {
+            RecordLoad(new CkMethodHandlerSnapshotLoadStatus(Now, 0, 0, true, e.GetType().Name));
             logger.LogWarning(e, "Loading the CK method handler registry snapshot failed; the registry fills from heartbeats");
         }
     }
@@ -70,6 +128,10 @@ internal sealed class CkMethodHandlerSnapshotPersistence(
             {
                 registry.Requeue(rows); // system tenant not there yet
             }
+            else
+            {
+                RecordFlushSuccess();
+            }
         }
         catch (OperationCanceledException)
         {
@@ -79,6 +141,7 @@ internal sealed class CkMethodHandlerSnapshotPersistence(
         catch (Exception e)
         {
             registry.Requeue(rows);
+            RecordFlushFailure(e);
             logger.LogWarning(e, "Writing the CK method handler registry snapshot failed; retrying with the next flush");
         }
     }
