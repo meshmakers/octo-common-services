@@ -46,6 +46,20 @@ public class MethodErrorCodesTests
             f => Assert.Contains($"`{f.GetRawConstantValue()}`", text));
     }
 
+    [Fact]
+    public void RequestInProgress_IsAPlatformCode_NotExecuted_AndDocumented()
+    {
+        // AB#7817 / OD-4 row 3
+        Assert.Equal("METHOD_REQUEST_IN_PROGRESS", CkMethodErrorCodes.MethodRequestInProgress);
+        Assert.True(CkMethodErrorCodes.IsPlatformCode(CkMethodErrorCodes.MethodRequestInProgress));
+        Assert.Contains(CkMethodErrorCodes.MethodRequestInProgress, CkMethodErrorCodes.All);
+        var info = Assert.Single(CkMethodErrorCodes.Catalog, c => c.Code == CkMethodErrorCodes.MethodRequestInProgress);
+        Assert.Equal(CkMethodExecutionState.NotExecuted, info.Execution);
+        var row = File.ReadAllLines(Path.Combine(RepoRoot(), "docs", "method-wire-contract.md"))
+            .Single(l => l.StartsWith("| `METHOD_REQUEST_IN_PROGRESS`", StringComparison.Ordinal));
+        Assert.Contains("| no |", row, StringComparison.Ordinal);
+    }
+
     [Theory]
     [InlineData("PASSWORD_TOO_SHORT", true)]
     [InlineData("E42", true)]

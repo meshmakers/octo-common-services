@@ -318,6 +318,32 @@ refusal; the idempotency filter (300) and the transport never run for a refused 
 (methodConsistency.md rule R9 in octo-documentation): this filter is the second line behind the gateway gate and the only line for callers that do not use the gateway. The evaluator
 (`ICkMethodAuthorizationEvaluator`) is a public service, so that the gateway gate uses exactly the same rules without a bus.
 
+### Idempotency store contract (F3.5, AB#7817)
+
+The filter that uses it (band 300) is a later story; this library defines the contract, the lifetime options and an in-memory store
+(`src/Methods/Idempotency/`). The MongoDB store lives in the asset repository (this library has no MongoDB reference, a test pins that).
+
+* **Identity** (`CkMethodIdempotencyKey.Create(tenant, methodId, subject, key)`): tenant + qualified method id + caller **subject** + key.
+  The subject is the one of `ICkMethodPrincipalProvider`, never `CkMethodRequest.Caller`. The target is not part of the identity (it is part of the
+  parameter fingerprint). `Id` is the SHA-256 (hex) of the four length-prefixed parts and is the only form that is stored; the raw key is not at rest.
+  A key has 1 to 128 characters.
+* **`ICkMethodIdempotencyStore`**: `ClaimAsync` takes the claim when no live record exists, atomically (of 100 concurrent claims exactly one is
+  `Claimed`, the others get the existing record); an expired record counts as absent and is taken over by a conditional replace.
+  `CompleteAsync(id, firstInvocationId, Completed | Unknown, response)` stores the outcome; `ReleaseAsync` gives the claim back. Only the owner (the
+  invocation that claimed) completes or releases, only while the record is `InProgress`. A record holds state (`InProgress | Completed | Unknown`),
+  keyed fingerprint and fingerprint key id, `FirstInvocationId`, method id, `ClaimedAt`, `LeaseUntil`, `ExpiresAt` and the stored envelope.
+* **Which outcomes burn the key (OD-4 row 4)**: only a call that was **not executed** releases its claim. An unknown outcome (timeout, outcome unknown,
+  an in-flight claim past `LeaseUntil` = deadline + response grace, which `ResolveState` reads as `Unknown`) and `METHOD_HANDLER_FAILED` burn the key:
+  the record stays, the caller uses a new key.
+* **Fails closed (row 6)**: a store that cannot decide throws (`CkMethodIdempotencyStoreException`), it never reports `Claimed` on a guess.
+* **Lifetime** `Methods:Idempotency:Ttl` (`CkMethodIdempotencyOptions`): default 24 h, maximum 7 d (a larger value is clamped and logged once as a warning),
+  zero or negative fails the start of the service. Every record carries its own `ExpiresAt` (counted from the first claim; completing does not extend it); readers
+  check it themselves, a TTL index is housekeeping only.
+* **`METHOD_REQUEST_IN_PROGRESS`**: the platform code for "the first call with this key is still running" (`NotExecuted` for this call; send the same key again
+  later, the first result is then replayed). Additive; the contract version does not change.
+* Registration: `AddCkMethodIdempotencyOptions()` (options, validation at start, `CkMethodIdempotencyLifetime`) and
+  `AddCkMethodInMemoryIdempotencyStore()` (in-memory store unless a store is registered; its state is per process, so tests and single-replica hosts only).
+
 ## 8. Duplicate deliveries and failing sends
 
 The bus consumer receives the transport delivery info (`CommandDeliveryInfo`). A **possible duplicate** (the broker redelivers
