@@ -135,13 +135,21 @@ internal sealed class CkMethodDispatcher(
     {
         try
         {
-            return (serviceProvider.GetService(typeof(ICkMethodPrincipalProvider)) as ICkMethodPrincipalProvider)
-                ?.GetPrincipal(new CkMethodInvocationContext(transport, request, cancellationToken))?.Subject;
+            if (serviceProvider.GetService(typeof(ICkMethodPrincipalProvider)) is not ICkMethodPrincipalProvider provider)
+            {
+                return null;
+            }
+
+            // a provider sees the redacted view only, like in the pipeline (AB#6914)
+            var view = CkMethodRequestRedaction.CreateView(request,
+                sensitivity.GetSensitiveParameters(request.TenantId, request.CkTypeId, request.MethodId));
+            return provider.GetPrincipal(new CkMethodInvocationContext(transport, view, cancellationToken))?.Subject;
         }
         catch (Exception e)
         {
-            logger.LogWarning(e, "CK method {MethodId}: the caller for the audit event could not be determined",
-                request.MethodId);
+            // the type only: the text of a provider's exception may quote what it was given
+            logger.LogWarning("CK method {MethodId}: the caller for the audit event could not be determined ({ExceptionType})",
+                request.MethodId, e.GetType().Name);
             return null;
         }
     }

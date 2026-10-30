@@ -66,6 +66,17 @@ public class CkMethodDispatcherAuditTests
         }
     }
 
+    private sealed class SpyPrincipals : ICkMethodPrincipalProvider
+    {
+        public CkMethodRequest? Seen;
+
+        public CkMethodPrincipal? GetPrincipal(CkMethodInvocationContext context)
+        {
+            Seen = context.Request;
+            return new CkMethodPrincipal("trusted-9", [], []);
+        }
+    }
+
     private sealed class ThrowingSensitivity : ICkMethodSensitivityResolver
     {
         public IReadOnlySet<string>? GetSensitiveParameters(string tenantId, string ckTypeId, string qualifiedMethodId) =>
@@ -141,7 +152,7 @@ public class CkMethodDispatcherAuditTests
 
     /// <summary>The real recorder, audit filter and pipeline; the bus is faked.</summary>
     private Rig Build(bool withAudit = true, ICkMethodSensitivityResolver? pipelineSensitivity = null,
-        ICkMethodAuditRecorder? recorder = null, bool inProcess = false)
+        ICkMethodAuditRecorder? recorder = null, bool inProcess = false, ICkMethodPrincipalProvider? principals = null)
     {
         var loggers = LoggerFactory.Create(b => b.AddProvider(new FakeLoggerProvider(_logs)));
         recorder ??= new CkMethodAuditRecorder(_sink, new FixedMonitor<CkMethodAuditOptions>(new CkMethodAuditOptions()),
@@ -159,7 +170,7 @@ public class CkMethodDispatcherAuditTests
         if (withAudit)
         {
             services.AddSingleton(recorder);
-            services.AddSingleton<ICkMethodPrincipalProvider>(CkMethodPrincipalScope.Instance);
+            services.AddSingleton(principals ?? CkMethodPrincipalScope.Instance);
         }
 
         if (inProcess)
@@ -213,6 +224,20 @@ public class CkMethodDispatcherAuditTests
         Assert.DoesNotContain(TestData.Secret, text);
         Assert.DoesNotContain(TestData.OldSecret, text);
         Assert.DoesNotContain(TestData.Token, text);
+    }
+
+    [Fact]
+    public async Task TheCallerOfTheEvent_IsTheTrustedPrincipal_AndTheProviderSeesTheRedactedViewOnly()
+    {
+        A.CallTo(() => _resolver.Resolve(A<CkMethodRequest>._)).Throws<InvalidOperationException>();
+        var principals = new SpyPrincipals();
+
+        await Build(principals: principals).Dispatcher.InvokeAsync(Request(), TestContext.Current.CancellationToken);
+
+        Assert.Equal("trusted-9", Meta(Assert.Single(_sink.Events), CkMethodAuditEvent.Keys.CallerSubject));
+        Assert.Null(principals.Seen!.CallerAccessToken);
+        Assert.DoesNotContain(TestData.Secret, principals.Seen.ParametersJson);
+        Assert.DoesNotContain(TestData.OldSecret, principals.Seen.ParametersJson);
     }
 
     [Fact]
