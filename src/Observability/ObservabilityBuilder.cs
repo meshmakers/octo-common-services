@@ -115,6 +115,8 @@ internal class ObservabilityBuilder(
             // TenantSetupMetrics in Infrastructure. A string, not a reference: Observability does not depend
             // on Infrastructure; TenantSetupRetryTests pins the constant it must equal.
             .AddMeter("Meshmakers.Octo.TenantSetup")
+            // CK method audit failures (AB#6919) - ck.method.audit.failures from CkMethodAuditRecorder in Methods.
+            .AddMeter("Meshmakers.Octo.Methods")
             .AddPrometheusExporter();
 
             // AB#5430: metrics had a Prometheus scrape endpoint and nothing else, while tracing

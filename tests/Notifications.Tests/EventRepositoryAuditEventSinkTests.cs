@@ -63,6 +63,20 @@ public class EventRepositoryAuditEventSinkTests
     }
 
     [Fact]
+    public async Task PublishStrictAsync_WhenTheRepositoryFails_ThrowsSoThatTheCallerCanCountIt()
+    {
+        var repository = A.Fake<IEventRepository>();
+        A.CallTo(() => repository.StoreEventAsync(A<string>._, A<RtEventSourcesEnum>._, A<RtEventLevelsEnum>._,
+                A<string>._, A<string?>._, A<IReadOnlyCollection<KeyValuePair<string, string>>?>._, A<Meshmakers.Octo.ConstructionKit.Contracts.RtEntityId?>._))
+            .Throws(new EventStoreFailedException("boom", new InvalidOperationException()));
+        var sink = CreateSink(repository);
+
+        await Assert.ThrowsAsync<EventStoreFailedException>(() => sink.PublishStrictAsync(
+            new AuditEvent("tenantA", AuditEventLevel.Warning, "Method.Invocation", "m"),
+            TestContext.Current.CancellationToken));
+    }
+
+    [Fact]
     public void MapMetadata_SkipsNullValues_AndRendersWithTheInvariantCulture()
     {
         var previous = CultureInfo.CurrentCulture;

@@ -187,6 +187,18 @@ public sealed class CkMethodRedactionBusTests(RabbitMqFixture rabbitMq) : IAsync
         }
     }
 
+    /// <summary>The sink behind the real audit recorder (AB#6919): every event that the audit filter writes is scanned.</summary>
+    private sealed class EventScanSink(CaptureSink sink) : Meshmakers.Octo.Runtime.Contracts.AuditTrails.IAuditEventSink
+    {
+        public Task PublishAsync(Meshmakers.Octo.Runtime.Contracts.AuditTrails.AuditEvent auditEvent,
+            CancellationToken cancellationToken = default)
+        {
+            sink.Add("audit-event", auditEvent.Category + "|" + auditEvent.Message + "|" +
+                                    JsonSerializer.Serialize(auditEvent.Metadata));
+            return Task.CompletedTask;
+        }
+    }
+
     private async Task<ICkMethodDispatcher> StartAsync(bool inProcess)
     {
         var definition = new DefinitionSource();
@@ -199,6 +211,8 @@ public sealed class CkMethodRedactionBusTests(RabbitMqFixture rabbitMq) : IAsync
         services.AddSingleton<ICkMethodDefinitionSource>(definition);
         services.AddSingleton<ICkMethodAuthorizationDefinitionSource>(definition);
         services.AddSingleton<ICkMethodInvocationFilter>(new AuditProbeFilter(_sink));
+        services.AddSingleton<Meshmakers.Octo.Runtime.Contracts.AuditTrails.IAuditEventSink>(new EventScanSink(_sink));
+        services.AddCkMethodAudit();
         services.AddCkMethodAuthorization();
         services.AddDistributionEventHub(c =>
         {
@@ -372,6 +386,8 @@ public sealed class CkMethodRedactionBusTests(RabbitMqFixture rabbitMq) : IAsync
         var captured = _sink.Snapshot();
         Assert.Contains(captured, c => c.Kind == "audit-request"); // the scan really looked at the audit view
         Assert.Contains(captured, c => c.Kind == "log");
+        // the real audit filter wrote one event per call (6 calls above), and the scan below covers them
+        Assert.Equal(6, captured.Count(c => c.Kind == "audit-event"));
         var forms = Forms(canary);
         var leaks = captured.Where(c => forms.Any(f => c.Text.Contains(f, StringComparison.Ordinal)) ||
                                         c.Text.Contains(Canary, StringComparison.Ordinal) ||

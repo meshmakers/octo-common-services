@@ -1,6 +1,7 @@
 using System.Collections;
 using System.Globalization;
 using Meshmakers.Octo.Runtime.Contracts.AuditTrails;
+using Meshmakers.Octo.Services.Infrastructure.Services;
 using Meshmakers.Octo.Services.Notifications.Generated.System.Notification.v2;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
@@ -34,7 +35,7 @@ namespace Meshmakers.Octo.Services.Notifications.Services;
 /// operation that triggered the event has to succeed.
 /// </para>
 /// </remarks>
-public sealed class EventRepositoryAuditEventSink : IAuditEventSink
+public sealed class EventRepositoryAuditEventSink : IStrictAuditEventSink
 {
     private readonly IServiceProvider _serviceProvider;
     private readonly RtEventSourcesEnum _defaultSource;
@@ -54,21 +55,7 @@ public sealed class EventRepositoryAuditEventSink : IAuditEventSink
     {
         try
         {
-            await using var scope = _serviceProvider.CreateAsyncScope();
-            var eventRepository = scope.ServiceProvider.GetRequiredService<IEventRepository>();
-            var level = MapLevel(auditEvent.Level);
-            var details = MapMetadata(auditEvent.Metadata);
-            if (string.IsNullOrWhiteSpace(auditEvent.TenantId))
-            {
-                await eventRepository.StoreSystemEventAsync(_defaultSource, level, auditEvent.Message,
-                        auditEvent.Category, details)
-                    .ConfigureAwait(false);
-            }
-            else
-            {
-                await eventRepository.StoreEventAsync(auditEvent.TenantId, _defaultSource, level,
-                    auditEvent.Message, auditEvent.Category, details).ConfigureAwait(false);
-            }
+            await PublishStrictAsync(auditEvent, cancellationToken).ConfigureAwait(false);
         }
         catch (Exception ex)
         {
@@ -76,6 +63,29 @@ public sealed class EventRepositoryAuditEventSink : IAuditEventSink
                 "Failed to publish audit event '{AuditCategory}' (tenant: {TenantId}) to event repository; " +
                 "the engine operation that produced the event was not affected.",
                 auditEvent.Category, auditEvent.TenantId ?? "<system>");
+        }
+    }
+
+    /// <summary>
+    /// Writes the event like <see cref="PublishAsync"/> but lets the failure of the event repository escape (AB#6919),
+    /// for the caller that must know whether the record exists.
+    /// </summary>
+    public async Task PublishStrictAsync(AuditEvent auditEvent, CancellationToken cancellationToken = default)
+    {
+        await using var scope = _serviceProvider.CreateAsyncScope();
+        var eventRepository = scope.ServiceProvider.GetRequiredService<IEventRepository>();
+        var level = MapLevel(auditEvent.Level);
+        var details = MapMetadata(auditEvent.Metadata);
+        if (string.IsNullOrWhiteSpace(auditEvent.TenantId))
+        {
+            await eventRepository.StoreSystemEventAsync(_defaultSource, level, auditEvent.Message,
+                    auditEvent.Category, details)
+                .ConfigureAwait(false);
+        }
+        else
+        {
+            await eventRepository.StoreEventAsync(auditEvent.TenantId, _defaultSource, level,
+                auditEvent.Message, auditEvent.Category, details).ConfigureAwait(false);
         }
     }
 
