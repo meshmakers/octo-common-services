@@ -34,6 +34,7 @@ and the tenant id. The Methods meter does not carry the tenant, like the audit c
 
 * Calls through the dispatcher or the in-process transport run through one invocation pipeline; it is counted around the
   whole pipeline (authorization refusals, replays from the idempotency store, exceptions and cancellations included), once.
+  A keyed call to a method declared `execution.idempotent: true` skips the idempotency store and is counted once like an unkeyed call.
   It is not a filter and has no place in the order bands (Audit 100, Authorization 200, Idempotency 300).
 * A call that the **gateway** refuses before it reaches the pipeline (forbidden, unknown target, parameters too large, ...)
   is counted by the audit recorder that records the refusal, with `transport="gateway"`. It is therefore visible wherever

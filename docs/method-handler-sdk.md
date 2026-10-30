@@ -406,7 +406,16 @@ slot for the previous key. Until then keyed calls to methods with sensitive para
 running keyed calls unprotected) and the authorization (`AddCkMethodAuthorization()`), which supplies the principal provider. A call **without a key**
 passes straight through: no store access, no principal lookup.
 
-For a call with `IdempotencyKey` the filter decides in this order (every refusal is a normal failed envelope, the handler does not run, nothing but
+**A method that declares `execution.idempotent: true` ignores the key.** The method itself is safe to repeat, so a keyed call to it never touches the
+store: the key is accepted and ignored (no format or length check, no scope, no caller subject needed, no fingerprint, no `result-sensitive` refusal, no
+`fingerprint-key-missing` refusal), and the call runs as an unkeyed one, every time. Two calls with the same key and the same or different parameters both
+execute; nothing is stored, nothing is replayed (`Facts.ReplayOf` stays empty). The flag is read from the method definition in the CK cache
+(`ICkMethodSensitivityResolver.IsIdempotent`, same source as authorization); an unknown method, an absent or `false` flag or a failing source count as
+not idempotent, so the store stays in charge. Audit and metrics are unchanged: still exactly one audit event and one `ck.method.calls` increment per call
+(a replay marker never appears, because nothing is replayed). The flag does not change the duplicate-delivery refusal of section 8: that still answers
+`METHOD_OUTCOME_UNKNOWN` for a possible duplicate delivery.
+
+For a call with `IdempotencyKey` to any other method the filter decides in this order (every refusal is a normal failed envelope, the handler does not run, nothing but
 the claim is stored):
 
 | Situation | Answer |
@@ -443,7 +452,7 @@ never reusable by guess). The log names method, invocation id and the opaque key
 The bus consumer receives the transport delivery info (`CommandDeliveryInfo`). A **possible duplicate** (the broker redelivers
 because the previous consumer lost its connection before the acknowledgement, or the bus retries) is **not executed**: the
 previous delivery may have run the method. The caller gets `METHOD_OUTCOME_UNKNOWN` (see the wire contract). The host does not
-know which methods are idempotent, so every method is treated as non-idempotent. The invocation id check stays as a second
+know which methods are idempotent for this purpose, so every method is treated as non-idempotent (`execution.idempotent` only lets a *keyed call* skip the idempotency store, see the idempotency filter). The invocation id check stays as a second
 line (a repeated id is answered `METHOD_OUTCOME_UNKNOWN` as well, also after a refused redelivery). The log line of a refusal names
 the invocation id, the method, the tenant and the delivery info (redelivered flag, retry attempt, redelivery count, message id)
 and never the parameters or the token.
@@ -468,7 +477,7 @@ flagged and refuses it).
 **Limits: what is NOT detected.** There is no "at most once" guarantee.
 
 * The same logical operation with a **new invocation id** (caller retry after a timeout, double click). Helps: the idempotency key
-  (F3.5, filter band 300) or `execution.idempotent`.
+  (F3.5, filter band 300). A method declared `execution.idempotent` needs no key: it is safe to repeat.
 * The same invocation id on **another instance** without a broker flag (the caller re-sends the request unchanged). The seen-ids
   memory is per instance. A shared store is open decision **OD-3** (`methodConsistency.md`); it is not built here.
 * The same invocation id after the handler instance **restarted** (the memory is not persisted).

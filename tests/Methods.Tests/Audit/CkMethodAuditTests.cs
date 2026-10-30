@@ -83,10 +83,10 @@ public class CkMethodAuditTests
     private sealed class Rig
     {
         public Rig(CaptureSink? sink = null, Action<CkMethodAuditOptions>? configure = null, bool idempotency = true,
-            Exception? innerThrows = null)
+            Exception? innerThrows = null, bool idempotentMethod = false)
         {
             Sink = sink ?? new CaptureSink();
-            var definition = TestData.Definition();
+            var definition = TestData.Definition().Idempotent(idempotentMethod);
             Logs = new FakeLogCollector();
             Loggers = LoggerFactory.Create(b => b.AddProvider(new FakeLoggerProvider(Logs)));
             Time = new FakeTimeProvider(new DateTimeOffset(2026, 10, 30, 12, 0, 0, TimeSpan.Zero));
@@ -278,6 +278,24 @@ public class CkMethodAuditTests
         Assert.Equal(first.InvocationId.ToString(), Meta(replay, CkMethodAuditEvent.Keys.ReplayOf));
         Assert.Equal(CkMethodAuditOutcomes.Success, Meta(replay, CkMethodAuditEvent.Keys.Outcome));
         Assert.Contains("(replay)", replay.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task KeyedCallToAnIdempotentMethod_HasExactlyOneEventPerCall_AndNeverAReplay()
+    {
+        var rig = new Rig(idempotentMethod: true);
+
+        await rig.Call(rig.Request("key-1"), token: TestContext.Current.CancellationToken);
+        await rig.Call(rig.Request("key-1"), token: TestContext.Current.CancellationToken);
+
+        Assert.Equal(2, rig.Executions); // both ran, none was answered from the store
+        Assert.Equal(2, rig.Sink.Events.Count);
+        Assert.All(rig.Sink.Events, e =>
+        {
+            Assert.Equal(string.Empty, Meta(e, CkMethodAuditEvent.Keys.ReplayOf));
+            Assert.DoesNotContain("(replay)", e.Message, StringComparison.Ordinal);
+            Assert.Equal(CkMethodAuditOutcomes.Success, Meta(e, CkMethodAuditEvent.Keys.Outcome));
+        });
     }
 
     [Fact]

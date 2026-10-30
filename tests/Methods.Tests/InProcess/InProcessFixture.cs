@@ -104,4 +104,7 @@ internal sealed class DefinitionSensitivity(CkMethodDto? definition) : ICkMethod
 
     public bool IsResultSensitive(string tenantId, string ckTypeId, string qualifiedMethodId) =>
         definition == null || definition.Result?.Sensitive == true;
+
+    public bool IsIdempotent(string tenantId, string ckTypeId, string qualifiedMethodId) =>
+        definition?.Execution?.Idempotent == true;
 }

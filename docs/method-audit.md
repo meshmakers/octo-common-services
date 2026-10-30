@@ -66,7 +66,7 @@ canary scan of `CkMethodRedactionBusTests` (the event written to the sink is one
 
 A replay is its own invocation with its own invocation id, so it gets its own event. The event carries `replayOf` = id of the
 first invocation (never the key or the fingerprint). `METHOD_REQUEST_IN_PROGRESS` and the parameters-changed refusal
-(`METHOD_VALIDATION_FAILED`, field `idempotencyKey`) are no replays: they are recorded with their code and without `replayOf`.
+(`METHOD_VALIDATION_FAILED`, field `idempotencyKey`) are no replays: they are recorded with their code and without `replayOf`. A keyed call to a method declared `execution.idempotent: true` skips the idempotency store, runs as an unkeyed call and is recorded like one (one event, no `replayOf`).
 
 ## Exceptions and cancellation
 

@@ -10,7 +10,8 @@ namespace Meshmakers.Octo.Services.Methods.Idempotency;
 ///     AB#7820, decided in OD-4 AB#6922). A call that carries <c>IdempotencyKey</c> runs at most once per
 ///     (tenant, method, caller subject, key): the first call claims the key, executes and stores its outcome; a repeat is
 ///     answered from the store and never reaches the handler. A call without a key passes straight through (no store
-///     access, no allocation).
+///     access, no allocation). A key sent to a method that declares <c>execution.idempotent: true</c> is accepted and
+///     ignored (AB#7896): the call runs as an unkeyed one, so none of the rules below applies to it.
 /// </summary>
 /// <remarks>
 ///     <list type="bullet">
@@ -78,6 +79,16 @@ public sealed class CkMethodIdempotencyFilter(
         var request = context.Request;
         if (string.IsNullOrEmpty(request.IdempotencyKey))
         {
+            return await next(request).ConfigureAwait(false);
+        }
+
+        if (sensitivity.IsIdempotent(request.TenantId, request.CkTypeId, request.MethodId))
+        {
+            // The method declares execution.idempotent: it is safe to repeat, so the key is accepted and ignored: no store
+            // access, no scope, no fingerprint, no format check; the call runs as an unkeyed one (AB#7896).
+            logger.LogDebug(
+                "CK method {MethodId} invocation {InvocationId}: idempotency key ignored, the method is declared idempotent",
+                request.MethodId, request.InvocationId);
             return await next(request).ConfigureAwait(false);
         }
 

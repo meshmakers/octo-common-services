@@ -748,7 +748,13 @@ evolution: `docs/method-wire-contract.md`.
   `CkMethodIdempotencyLifetime`): default 24 h, max 7 d (clamped + one warning), zero/negative fails start. New platform code `METHOD_REQUEST_IN_PROGRESS` (`NotExecuted`, parameter `methodId`; additive, wire contract version unchanged).
   Registration `AddCkMethodIdempotencyOptions()` / `AddCkMethodInMemoryIdempotencyStore()`. The fingerprint keys are `CkMethodFingerprintOptions` (AB#7819, see the invocation pipeline).
 - **Idempotency filter** (AB#7820, F3.5, OD-4; `src/Methods/Idempotency/CkMethodIdempotencyFilter.cs`, registration `AddCkMethodIdempotency()`, tests `IdempotencyFilterTests`): band 300, unkeyed calls pass through with zero cost.
-  Keyed call order: sensitive/unknown result -> `METHOD_VALIDATION_FAILED` `result-sensitive` (G2=A, nothing stored); no subject from `ICkMethodPrincipalProvider` -> `caller-unknown`; key > 128 -> `key-too-long`; no fingerprint on the
+  **Declared idempotent (AB#7896):** a keyed call to a method with `execution.idempotent: true` (read through `ICkMethodSensitivityResolver.IsIdempotent`, default member `false`; the
+  resolver reads the same definition source as authorization; unknown method, absent flag or a source fault = `false`, the store stays in charge) skips the store: the key is accepted and ignored
+  (no format or length check, no scope, no subject needed, no fingerprint, no result-sensitivity refusal), the call runs as an unkeyed one every time, `Facts.ReplayOf` stays empty. The pipeline
+  does not compute a fingerprint for it either, so the `fingerprint-key-missing` refusal does not apply. Audit and `ck.method.calls` are untouched (still one event and one count per call); the
+  filter logs one Debug line. It does not change the duplicate-delivery refusal of the bus consumer (OD-3), which still treats every method as non-idempotent. Tests: `IdempotencyFilterTests`
+  (store spy), `CkMethodAuditTests`, `CkMethodMetricsTests`.
+  Keyed call order (a method not declared idempotent): sensitive/unknown result -> `METHOD_VALIDATION_FAILED` `result-sensitive` (G2=A, nothing stored); no subject from `ICkMethodPrincipalProvider` -> `caller-unknown`; key > 128 -> `key-too-long`; no fingerprint on the
   facts -> `fingerprint-unavailable`; store throws -> `METHOD_HANDLER_NOT_AVAILABLE` `idempotency-store-unavailable` (fail closed). Existing record: `MatchesStoredFingerprint` false (also an unconfigured key id or an empty fingerprint) ->
   `parameters-changed` (before the state); in flight (until deadline + `ResponseGrace`) -> `METHOD_REQUEST_IN_PROGRESS`; `Unknown`/lapsed -> `METHOD_OUTCOME_UNKNOWN`; completed -> stored envelope with this call's `invocationId`,
   `Facts.ReplayOf` = first invocation id. After the run: success/accepted/declared code/`METHOD_HANDLER_FAILED` -> `Completed` (replayed); not-executed platform code (via `CkMethodErrorCodes.Catalog`) -> `ReleaseAsync`;
