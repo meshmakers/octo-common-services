@@ -50,4 +50,61 @@ public sealed record CkMethodHandlerEntry(
     ///     because a heartbeat was missed.
     /// </summary>
     public bool NoQueueBound { get; init; }
+
+    /// <summary>
+    ///     Where the row came from (AB#7836). <see cref="CkMethodHandlerEntrySource.Snapshot" /> from a restore of the
+    ///     persisted snapshot until an announcement, a discovery answer or a withdrawal of the same instance replaces it.
+    ///     Not persisted: the source is derived at restore time.
+    /// </summary>
+    public CkMethodHandlerEntrySource Source { get; init; } = CkMethodHandlerEntrySource.Announcement;
+
+    /// <summary>
+    ///     The state of the entry at <paramref name="nowUtc" />, by the same rules as
+    ///     <see cref="ICkMethodHandlerRegistry.GetLiveHandlers" />: <see cref="CkMethodHandlerState.Withdrawn" /> after a
+    ///     withdrawal, <see cref="CkMethodHandlerState.Live" /> while not expired, otherwise
+    ///     <see cref="CkMethodHandlerState.NoQueueBound" /> (the broker refused a send) or
+    ///     <see cref="CkMethodHandlerState.Expired" /> (heartbeat missed). A restored row follows the same rules, so it is
+    ///     never live after its <see cref="ExpiresUtc" />.
+    /// </summary>
+    /// <param name="nowUtc">The time to evaluate at (dispatcher clock).</param>
+    public CkMethodHandlerState GetState(DateTime nowUtc)
+    {
+        if (Withdrawn)
+        {
+            return CkMethodHandlerState.Withdrawn;
+        }
+
+        if (ExpiresUtc > nowUtc)
+        {
+            return CkMethodHandlerState.Live;
+        }
+
+        return NoQueueBound ? CkMethodHandlerState.NoQueueBound : CkMethodHandlerState.Expired;
+    }
+}
+
+/// <summary>Where a registry row came from.</summary>
+public enum CkMethodHandlerEntrySource
+{
+    /// <summary>Received as an announcement (heartbeat or discovery answer) or a withdrawal.</summary>
+    Announcement = 0,
+
+    /// <summary>Restored from the persisted snapshot (AB#5671) and not yet confirmed by the handler.</summary>
+    Snapshot = 1
+}
+
+/// <summary>State of a registry row at a point in time.</summary>
+public enum CkMethodHandlerState
+{
+    /// <summary>Announced, not withdrawn, not expired.</summary>
+    Live = 0,
+
+    /// <summary>The announced TTL ran out without a heartbeat.</summary>
+    Expired = 1,
+
+    /// <summary>The handler withdrew gracefully.</summary>
+    Withdrawn = 2,
+
+    /// <summary>Expired because the broker returned a mandatory send (no queue bound).</summary>
+    NoQueueBound = 3
 }

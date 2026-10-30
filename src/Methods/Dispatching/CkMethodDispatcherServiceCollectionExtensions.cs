@@ -18,6 +18,7 @@ public static class CkMethodDispatcherServiceCollectionExtensions
     ///     in-process transport, register filters with <c>AddCkMethodInvocationFilter</c>. When the host registers an
     ///     <c>ICkMethodHandlerSnapshotStore</c> (the MongoDB runtime engine does), the registry is persisted as a snapshot
     ///     (<see cref="CkMethodDispatcherOptions.SnapshotEnabled" />, AB#5671); without it the registry is in memory only.
+    ///     <see cref="ICkMethodHandlerRegistryDiagnostics" /> (AB#7836) is registered too.
     /// </summary>
     /// <param name="services">The service collection.</param>
     public static IServiceCollection AddCkMethodDispatcher(this IServiceCollection services)
@@ -29,6 +30,7 @@ public static class CkMethodDispatcherServiceCollectionExtensions
         services.TryAddSingleton<CkMethodHandlerRegistry>();
         services.TryAddSingleton<ICkMethodHandlerRegistry>(sp => sp.GetRequiredService<CkMethodHandlerRegistry>());
         services.TryAddSingleton<CkMethodHandlerSnapshotPersistence>();
+        services.TryAddSingleton<ICkMethodHandlerRegistryDiagnostics, CkMethodHandlerRegistryDiagnosticsService>();
         if (services.All(d => d.ImplementationType != typeof(CkMethodHandlerSnapshotLoadService)))
         {
             services.AddInitializationService<CkMethodHandlerSnapshotLoadService>();

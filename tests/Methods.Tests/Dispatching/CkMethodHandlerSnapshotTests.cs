@@ -33,7 +33,7 @@ public class CkMethodHandlerSnapshotTests
     private CkMethodHandlerSnapshotPersistence Persistence(CkMethodHandlerRegistry registry,
         ICkMethodHandlerSnapshotStore? store, bool enabled = true) =>
         new(registry, Options.Create(new CkMethodDispatcherOptions { SnapshotEnabled = enabled }),
-            NullLogger<CkMethodHandlerSnapshotPersistence>.Instance, store);
+            NullLogger<CkMethodHandlerSnapshotPersistence>.Instance, _time, store);
 
     private CkMethodHandlerAnnounced Announce(string instance = "a", int ttl = 45, IReadOnlyList<string>? tenants = null,
         DateTime? at = null, int contractVersion = 1) =>

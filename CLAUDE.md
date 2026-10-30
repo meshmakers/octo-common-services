@@ -925,8 +925,7 @@ tests `tests/Methods.Tests/InProcess/`. Guide: `docs/method-handler-sdk.md` sect
 - **Registry** (`ICkMethodHandlerRegistry`, in-memory, advisory): fed by announce/withdraw, expiry = receipt time + TTL (dispatcher
   clock), withdrawal beats older announcements, `MarkNoQueueBound` spares instances announced during the send. Used for the tenant check
   (`tenant-not-served`) and the contract version check (never send a newer version than announced); it never vetoes a send, the broker's
-  mandatory flag decides. `CkMethodDispatcherStartupService` (order 30) publishes a discovery request at start. F3.2 builds the
-  diagnostics on it.
+  mandatory flag decides. `CkMethodDispatcherStartupService` (order 30) publishes a discovery request at start. Diagnostics: see below.
 - **Registry snapshot** (AB#5671): with an `ICkMethodHandlerSnapshotStore` in the host (port and Mongo store live in
   `octo-construction-kit-engine-mongodb`, plain collection `ck_method_handler_snapshot` in the system DB, TTL index) the registry queues
   every change (`CkMethodHandlerRegistry.TakeChanges`) and `CkMethodHandlerSnapshotFlushService` writes it every
@@ -935,6 +934,13 @@ tests `tests/Methods.Tests/InProcess/`. Guide: `docs/method-handler-sdk.md` sect
   source timestamp, restored times are capped (`LastSeenUtc` <= now, expiry <= last seen + 24 h, older than 24 h skipped), received
   announcements win. Rows are service data only (allow-list test). No store or `SnapshotEnabled=false` = in memory as before; a failing
   store never affects a call (requeue, retry next flush). Tests: `tests/Methods.Tests/Dispatching/CkMethodHandlerSnapshotTests.cs`.
+- **Registry diagnostics** (AB#7836): `ICkMethodHandlerRegistryDiagnostics` (public, `AddCkMethodDispatcher`; implementation
+  `CkMethodHandlerRegistryDiagnosticsService`) returns the dispatcher instance id, every entry with `Source` (`Announcement` | `Snapshot`;
+  `Restore` sets `Snapshot`, any received announcement or withdrawal sets `Announcement`, not persisted) and `State`
+  (`CkMethodHandlerEntry.GetState(now)`: `Live` | `Expired` | `Withdrawn` | `NoQueueBound`, same rules as `GetLiveHandlers`), the snapshot
+  health from `CkMethodHandlerSnapshotPersistence` (`Enabled`, last load time/rows read/restored, last flush success, last flush failed +
+  exception **type name only**) and the method ids of `ICkInProcessMethodTransport` (transport `in-process`). Service data only (allow-list
+  test). Tests: `tests/Methods.Tests/Dispatching/CkMethodHandlerRegistryDiagnosticsTests.cs`. The GraphQL query is AB#7837 (asset-repo).
 - **Tests**: `tests/Methods.Tests/Dispatching`, `tests/Methods.IntegrationTests/CkMethodDispatcherBusTests.cs` (the integration project
   now references FakeItEasy for a fake `ICkCacheService`).
 
