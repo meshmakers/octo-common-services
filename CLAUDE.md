@@ -750,7 +750,9 @@ and registry (F3.2/F3.3) and the pipeline handler (AB#6879) are other stories. D
   again, AB#4348).
 - **Life cycle** (all internal, `AddCkMethodHandlers(serviceName, m => m.Handle<THandler>(methodId))`): start order 15 validation,
   20 event hub, 25 endpoints, wait for `WaitUntilReadyAsync` of every endpoint (`Methods:EndpointReadyTimeout`, 30 s; timeout = start
-  failure) and only then the announcement, heartbeat hosted service (15 s, TTL 45 s from `CkMethodHandlerOptions`), withdraw before
+  failure) and only then the announcement, heartbeat hosted service (15 s, TTL 45 s from `CkMethodHandlerOptions`, **final** values, AB#7838; validated at startup by
+  `CkMethodHandlerOptionsValidator`: interval >= 1 s, TTL >= 2 x interval and <= 24 h, a violation stops the host; keys `Methods:HeartbeatInterval` /
+  `Methods:Ttl`, env `OCTO_Methods__HeartbeatInterval` / `OCTO_Methods__Ttl`), withdraw before
   the endpoints are removed on graceful stop, `AddCkMethodHandlerDiscovery()` in the `AddDistributionEventHub` configuration
   answers dispatcher discovery with an immediate announcement.
 - **Startup validation** (`Methods:ValidateRegistrations`, default on): every registration is checked against the CK cache of the

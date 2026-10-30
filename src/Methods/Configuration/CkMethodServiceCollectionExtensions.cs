@@ -4,6 +4,7 @@ using Meshmakers.Octo.Services.Methods;
 using Meshmakers.Octo.Services.Methods.Authorization;
 using Meshmakers.Octo.Services.Methods.Handlers;
 using Microsoft.Extensions.DependencyInjection.Extensions;
+using Microsoft.Extensions.Options;
 
 // ReSharper disable once CheckNamespace
 namespace Microsoft.Extensions.DependencyInjection;
@@ -29,7 +30,11 @@ public static class CkMethodServiceCollectionExtensions
         registrations.SetServiceName(serviceName);
         configure(new RegistrationBuilder(services, registrations));
 
-        services.AddOptions<CkMethodHandlerOptions>().BindConfiguration(CkMethodHandlerOptions.SectionName);
+        // AB#7838: an interval of 0 would crash the heartbeat loop and a TTL below two intervals expires live handlers
+        services.AddOptions<CkMethodHandlerOptions>().BindConfiguration(CkMethodHandlerOptions.SectionName)
+            .ValidateOnStart();
+        services.TryAddEnumerable(
+            ServiceDescriptor.Singleton<IValidateOptions<CkMethodHandlerOptions>, CkMethodHandlerOptionsValidator>());
         services.AddOptions<CkMethodLimitsOptions>().BindConfiguration(CkMethodLimitsOptions.SectionName);
         services.AddOptions<CkMethodDispatcherOptions>().BindConfiguration(CkMethodDispatcherOptions.SectionName);
         services.TryAddSingleton(TimeProvider.System);

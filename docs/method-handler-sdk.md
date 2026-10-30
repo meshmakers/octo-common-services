@@ -93,6 +93,18 @@ removes the queues.
 Options (section `Methods`): `HeartbeatInterval`, `Ttl`, `ValidateRegistrations` (default `true`, switch off only in tests),
 `ValidationTenantIds`, `EndpointReadyTimeout`.
 
+**Heartbeat and TTL (final values, AB#7838).** The defaults are final: **`Methods:HeartbeatInterval` = 15 s, `Methods:Ttl` = 45 s**
+(environment variables `OCTO_Methods__HeartbeatInterval` and `OCTO_Methods__Ttl`, format `hh:mm:ss`). Every announcement carries its own
+interval and TTL, and a dispatcher expires an entry at *receipt time plus the announced TTL*, so hosts may run with different values.
+
+* **Validated at startup** (`ValidateOnStart`): `HeartbeatInterval` >= 1 s, `Ttl` >= 2 x `HeartbeatInterval` and `Ttl` <= 24 h (the clamp
+  of the registry). A host that violates a rule **does not start**; the message names the key and the rule, for example
+  `Methods:Ttl is 00:00:20 but must be at least 2 x Methods:HeartbeatInterval (00:00:30)`. Before, an interval of 0 crashed the heartbeat
+  loop and a TTL below two intervals let a live handler expire between two heartbeats.
+* **Why 15 s / 45 s.** The registry is advisory: whether a call fails fast (`METHOD_HANDLER_NOT_AVAILABLE`, under a second) is decided by the
+  broker's mandatory send, not by the TTL. The TTL only drives diagnostics and the persisted snapshot. 45 s tolerates two lost heartbeats;
+  shorter values only add bus traffic.
+
 ## 4a. Who is the caller? Token validation in a remote handler (AB#6913)
 
 The method bus is internal but **not authenticated per message**: anything that can publish to the method queue can write any
