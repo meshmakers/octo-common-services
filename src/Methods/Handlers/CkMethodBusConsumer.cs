@@ -1,4 +1,3 @@
-using System.Collections.Concurrent;
 using Meshmakers.Octo.Common.DistributionEventHub.Services;
 using Meshmakers.Octo.Services.Contracts.DistributionEventHub.Methods;
 using Microsoft.Extensions.Logging;
@@ -16,12 +15,9 @@ internal sealed class CkMethodBusConsumer(
     TimeProvider timeProvider,
     ILogger<CkMethodBusConsumer> logger)
 {
-    private static readonly TimeSpan SeenRetentionAfterDeadline = TimeSpan.FromMinutes(5);
-    private static readonly TimeSpan MaxSeenRetention = TimeSpan.FromHours(1);
-    private readonly ConcurrentDictionary<Guid, DateTime> _seenInvocations = new();
-    private long _seenAdds;
+    private readonly CkMethodSeenInvocations _seen = new(timeProvider);
 
-    internal int SeenInvocationCount => _seenInvocations.Count;
+    internal int SeenInvocationCount => _seen.Count;
 
     public ExecuteDeliveredCommandHandler<CkMethodRequest> CreateHandler()
     {
@@ -58,63 +54,28 @@ internal sealed class CkMethodBusConsumer(
     /// </param>
     internal async Task<CkMethodResponse> HandleAsync(CkMethodRequest request, CommandDeliveryInfo? delivery = null)
     {
-        // Second line of defence: the invocation id also catches a duplicate that the broker did not flag (for
-        // example a caller that re-sent the same request). It is marked first so that a refused redelivery is
-        // remembered as well.
-        var firstSight = TryMarkSeen(request);
-        if (delivery is { IsPossibleDuplicate: true })
+        // The decision (broker flag, then the invocation id as second line, clamped retention) is the shared helper's.
+        switch (_seen.Decide(request, delivery))
         {
-            logger.LogWarning(
-                "CK method {MethodId} invocation {InvocationId} tenant {TenantId} NOT executed: possible duplicate delivery " +
-                "(redelivered {Redelivered}, retry attempt {RetryAttempt}, redelivery count {RedeliveryCount}, message {MessageId})",
-                request.MethodId, request.InvocationId, request.TenantId, delivery.Redelivered, delivery.RetryAttempt,
-                delivery.RedeliveryCount, delivery.MessageId);
-            return OutcomeUnknown(request);
+            case CkMethodDeliveryDecision.PossibleDuplicate:
+                logger.LogWarning(
+                    "CK method {MethodId} invocation {InvocationId} tenant {TenantId} NOT executed: possible duplicate delivery " +
+                    "(redelivered {Redelivered}, retry attempt {RetryAttempt}, redelivery count {RedeliveryCount}, message {MessageId})",
+                    request.MethodId, request.InvocationId, request.TenantId, delivery!.Redelivered, delivery.RetryAttempt,
+                    delivery.RedeliveryCount, delivery.MessageId);
+                return OutcomeUnknown(request);
+            case CkMethodDeliveryDecision.AlreadySeen:
+                logger.LogWarning(
+                    "CK method {MethodId} invocation {InvocationId} tenant {TenantId} NOT executed: invocation id already seen",
+                    request.MethodId, request.InvocationId, request.TenantId);
+                return OutcomeUnknown(request);
+            default:
+                return await invoker.InvokeAsync(request).ConfigureAwait(false);
         }
-
-        if (!firstSight)
-        {
-            logger.LogWarning(
-                "CK method {MethodId} invocation {InvocationId} tenant {TenantId} NOT executed: invocation id already seen",
-                request.MethodId, request.InvocationId, request.TenantId);
-            return OutcomeUnknown(request);
-        }
-
-        return await invoker.InvokeAsync(request).ConfigureAwait(false);
     }
 
     private CkMethodResponse OutcomeUnknown(CkMethodRequest request) =>
         CkMethodResponse.Failed(request.InvocationId, instance.InstanceId,
             CkMethodError.Create(CkMethodErrorCodes.MethodOutcomeUnknown,
                 (CkMethodErrorParameters.MethodId, request.MethodId)));
-
-    private bool TryMarkSeen(CkMethodRequest request)
-    {
-        var now = timeProvider.GetUtcNow().UtcDateTime;
-
-        // Clamp first: DeadlineUtc comes from the wire and may be DateTime.MaxValue (a non-dispatcher sender), where
-        // DeadlineUtc + retention would throw. The sum below is at most now + MaxSeenRetention + SeenRetentionAfterDeadline.
-        var latest = now + MaxSeenRetention;
-        var clampedDeadline = request.DeadlineUtc > latest ? latest : request.DeadlineUtc;
-        var keepUntil = clampedDeadline + SeenRetentionAfterDeadline;
-        if (keepUntil > latest)
-        {
-            keepUntil = latest;
-        }
-
-        if (!_seenInvocations.TryAdd(request.InvocationId, keepUntil))
-        {
-            return false;
-        }
-
-        if (Interlocked.Increment(ref _seenAdds) % 256 == 0)
-        {
-            foreach (var entry in _seenInvocations.Where(e => e.Value < now))
-            {
-                _seenInvocations.TryRemove(entry.Key, out _);
-            }
-        }
-
-        return true;
-    }
 }

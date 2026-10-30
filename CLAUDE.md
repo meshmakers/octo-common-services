@@ -743,7 +743,9 @@ and registry (F3.2/F3.3) and the pipeline handler (AB#6879) are other stories. D
   `GetCommandResponseAsync(name, request, CommandSendOptions { Mandatory = true, ... })`, a missing consumer fails with
   `CommandNotRoutableException`). A possible duplicate delivery (`CommandDeliveryInfo.IsPossibleDuplicate`: broker redelivery or
   retry) is not executed and answered `METHOD_OUTCOME_UNKNOWN` (all methods count as non-idempotent; the log line names invocation id,
-  tenant and delivery info, never parameters); a repeated invocation id is the second line, with the same answer. The seen-ids
+  tenant and delivery info, never parameters); a repeated invocation id is the second line, with the same answer. The decision is the
+  public `CkMethodSeenInvocations.Decide(request, delivery)` (`Fresh | PossibleDuplicate | AlreadySeen`, AB#7818): every host of method
+  handlers uses it instead of its own dictionary; the bus consumer only logs and answers. The seen-ids
   retention is `min(DeadlineUtc, now + 1 h) + 5 min`, capped at `now + 1 h` (an endless deadline from another sender cannot overflow). A failing response send is swallowed (a rethrow would let the bus retry run the method
   again, AB#4348).
 - **Life cycle** (all internal, `AddCkMethodHandlers(serviceName, m => m.Handle<THandler>(methodId))`): start order 15 validation,

@@ -363,6 +363,16 @@ line (a repeated id is answered `METHOD_OUTCOME_UNKNOWN` as well, also after a r
 the invocation id, the method, the tenant and the delivery info (redelivered flag, retry attempt, redelivery count, message id)
 and never the parameters or the token.
 
+**One helper for every host (AB#7818, OD-3).** The decision "must this delivery not run again" lives in one public class,
+`CkMethodSeenInvocations.Decide(request, delivery)` (namespace `Meshmakers.Octo.Services.Methods.Handlers`), returning
+`CkMethodDeliveryDecision.Fresh`, `PossibleDuplicate` (the transport flags the delivery) or `AlreadySeen` (the invocation id is
+known). A host that consumes `CkMethodRequest` outside this library (for example the communication controller) must use the
+helper instead of keeping its own seen-ids dictionary: it marks the id before it evaluates the flag (a refused redelivery is
+remembered), clamps the deadline before it adds the retention (`DateTime.MaxValue` from a foreign sender cannot overflow) and
+takes a `TimeProvider` for tests. Keep one instance per host (singleton); the memory is per instance. On `PossibleDuplicate` and
+`AlreadySeen` the host answers `METHOD_OUTCOME_UNKNOWN` and does not run the handler; the logging and the refusal counter are the
+host's. The helper reads only the invocation id and the deadline and never logs.
+
 **No automatic retry (AB#6907).** The platform never runs a method twice on its own: the dispatcher sends once (no publisher-side
 resend; a transport fault ends as `METHOD_TIMEOUT` or `METHOD_HANDLER_NOT_AVAILABLE`), the handler endpoint suppresses faults and the
 consumer swallows a failing response send, so the bus retry (AB#4348) cannot run the method again. A handler that throws after a side
