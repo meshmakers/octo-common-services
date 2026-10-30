@@ -2,7 +2,10 @@ using Meshmakers.Octo.Common.DistributionEventHub;
 using Meshmakers.Octo.Common.DistributionEventHub.Services;
 using Meshmakers.Octo.ConstructionKit.Contracts.DataTransferObjects;
 using Meshmakers.Octo.Services.Contracts.DistributionEventHub.Methods;
+using Meshmakers.Octo.Services.Methods.Audit;
+using Meshmakers.Octo.Services.Methods.Authorization;
 using Meshmakers.Octo.Services.Methods.Handlers;
+using Meshmakers.Octo.Services.Methods.Metrics;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 
@@ -30,6 +33,12 @@ internal sealed class CkMethodDispatcher(
     public async Task<CkMethodResponse> InvokeAsync(CkMethodRequest request, CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(request);
+        var started = timeProvider.GetTimestamp();
+        // Which transport the call is on, and whether it entered the pipeline: the pipeline counts every call it runs
+        // (also one whose exception escapes it) and the band-100 audit filter records the calls that reach the filters.
+        // Only what happens before that is the dispatcher's to count and record (AB#7930).
+        var transport = CkMethodTransportNames.Bus;
+        var pipelineEntered = false;
         try
         {
             var methodId = resolver.Resolve(request);
@@ -47,24 +56,93 @@ internal sealed class CkMethodDispatcher(
             var inProcess = serviceProvider.GetService(typeof(ICkInProcessMethodTransport)) as ICkInProcessMethodTransport;
             if (inProcess != null && inProcess.CanHandle(request.MethodId))
             {
+                transport = CkMethodTransportNames.InProcess;
+                pipelineEntered = true;
                 return await inProcess.InvokeAsync(request, cancellationToken).ConfigureAwait(false);
             }
 
+            pipelineEntered = true;
             return await pipeline.ExecuteAsync(CkMethodTransportNames.Bus, request,
                 r => SendAsync(r, cancellationToken), cancellationToken).ConfigureAwait(false);
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
+            // The caller gave up. Inside the pipeline the audit filter records it; a cancellation that surfaces before the
+            // pipeline (a resolver that observes the token) has no other observer than this line.
+            if (!pipelineEntered)
+            {
+                await AuditAsync(request, transport, CkMethodAuditOutcomes.CallerCancelled, started, countCall: true,
+                    cancellationToken).ConfigureAwait(false);
+            }
+
             throw;
         }
         catch (Exception e)
         {
             // The contract is "never throws for a failing call"; the pipeline and the transports already answer their own
-            // failures, this is the last line for the rest (resolver, DI).
+            // failures, this is the last line for the rest (resolver, DI, and what escapes the pipeline before its filters).
             var correlationId = request.CorrelationId ?? request.InvocationId;
-            logger.LogError(Redactor(request).Redact(e), "CK method {MethodId} invocation {InvocationId} failed in the dispatcher (correlation {CorrelationId})",
+            logger.LogError(SafeRedacted(request, e), "CK method {MethodId} invocation {InvocationId} failed in the dispatcher (correlation {CorrelationId})",
                 request.MethodId, request.InvocationId, correlationId);
+            // AB#7930: the answer is a response, so the gateway (which records only exceptions it catches) does not see a
+            // fault. An exception that escapes the pipeline was counted by the pipeline but no filter ran, so it needs the
+            // event only; a fault before the pipeline needs the event and the count.
+            await AuditAsync(request, transport, CkMethodErrorCodes.MethodHandlerFailed, started, countCall: !pipelineEntered,
+                cancellationToken).ConfigureAwait(false);
             return HandlerFailed(request, correlationId);
+        }
+    }
+
+    /// <summary>
+    ///     Records the one audit event of a call that ended in the dispatcher before the filters of the pipeline could see it
+    ///     (and counts it when the pipeline did not). Never throws: a failing recorder must not change the answer, and the
+    ///     event is written with a token that is not cancelled, like the audit filter does. Without
+    ///     <c>AddCkMethodAudit</c> there is no recorder and nothing is recorded.
+    /// </summary>
+    private async Task AuditAsync(CkMethodRequest request, string transport, string outcome, long started, bool countCall,
+        CancellationToken cancellationToken)
+    {
+        var duration = timeProvider.GetElapsedTime(started);
+        if (countCall)
+        {
+            CkMethodMetrics.RecordCall(request.MethodId, transport, outcome, duration);
+        }
+
+        try
+        {
+            if (serviceProvider.GetService(typeof(ICkMethodAuditRecorder)) is not ICkMethodAuditRecorder recorder)
+            {
+                return;
+            }
+
+            var subject = TrustedSubject(request, transport, cancellationToken);
+            await recorder.RecordAsync(CkMethodAuditRecord.For(request, outcome, transport, duration, subject),
+                CancellationToken.None).ConfigureAwait(false);
+        }
+        catch (CkMethodAuditFailedException)
+        {
+            // logged and counted by the recorder; the call is answered as failed anyway
+        }
+        catch (Exception e)
+        {
+            logger.LogError(e, "CK method {MethodId} invocation {InvocationId}: the audit event of the dispatcher could not be recorded",
+                request.MethodId, request.InvocationId);
+        }
+    }
+
+    /// <summary>The trusted caller like the audit filter reads it; <c>null</c> falls back to <c>request.Caller</c>.</summary>
+    private string? TrustedSubject(CkMethodRequest request, string transport, CancellationToken cancellationToken)
+    {
+        try
+        {
+            return (serviceProvider.GetService(typeof(ICkMethodPrincipalProvider)) as ICkMethodPrincipalProvider)
+                ?.GetPrincipal(new CkMethodInvocationContext(transport, request, cancellationToken))?.Subject;
+        }
+        catch (Exception e)
+        {
+            logger.LogWarning(e, "CK method {MethodId}: the caller for the audit event could not be determined",
+                request.MethodId);
+            return null;
         }
     }
 
@@ -174,6 +252,22 @@ internal sealed class CkMethodDispatcher(
     private CkMethodRedactor Redactor(CkMethodRequest request) =>
         CkMethodRedactor.For(sensitivity.GetSensitiveParameters(request.TenantId, request.CkTypeId, request.MethodId),
             request);
+
+    /// <summary>
+    ///     <see cref="Redactor" /> for the last line: a fault of the sensitivity lookup itself must not escape the dispatcher
+    ///     (nothing of the exception is logged then, it may quote the payload).
+    /// </summary>
+    private Exception? SafeRedacted(CkMethodRequest request, Exception e)
+    {
+        try
+        {
+            return Redactor(request).Redact(e);
+        }
+        catch
+        {
+            return null;
+        }
+    }
 
     private CkMethodResponse NotAvailable(CkMethodRequest request, string reason)
     {

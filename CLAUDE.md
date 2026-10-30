@@ -921,6 +921,13 @@ tests `tests/Methods.Tests/InProcess/`. Guide: `docs/method-handler-sdk.md` sect
   `METHOD_HANDLER_FAILED` and rethrown; caller cancellation once as `CALLER_CANCELLED` and rethrown. A failing sink does not fail the call (logged, counter
   `ck.method.audit.failures`; each write bounded by `Methods:Audit:WriteTimeout`, default 5 s); `Methods:Audit:FailCallOnAuditFailure` / `FailCallOnAuditFailureTenants` make it fail (`METHOD_OUTCOME_UNKNOWN` for an executed call,
   a refusal stays a refusal). `EventRepositoryAuditEventSink` implements `IStrictAuditEventSink` (Infrastructure) so the recorder can see the failure.
+- **Audit of calls that end before the pipeline** (AB#7930; `CkMethodDispatcher.AuditAsync`, tests `tests/Methods.Tests/Dispatching/CkMethodDispatcherAuditTests.cs`, doc `docs/method-audit.md`):
+  the dispatcher's last-line catch (resolver/DI fault, or an exception that escapes `ICkMethodInvocationPipeline` before its filters ran) answers `METHOD_HANDLER_FAILED`
+  **and** records one event through `ICkMethodAuditRecorder` (looked up lazily from the service provider, so no `AddCkMethodAudit()` = no event; transport `bus`, `in-process` once
+  the in-process transport was chosen; no handler instance; caller = trusted principal, else `request.Caller`). A cancellation that surfaces before the pipeline is recorded once as
+  `CALLER_CANCELLED` and rethrown. One `ck.method.calls` increment: the dispatcher counts a fault **before** the pipeline itself (`CkMethodMetrics.RecordCall`); an exception that
+  escaped the pipeline was already counted by its `finally`. The gateway records only exceptions it catches, so it never records a dispatcher answer again; a cancellation inside the
+  gateway's target-access check is the gateway's own record (transport `gateway`, asset-repo). A recorder failure never changes the answer.
 - `CkMethodRequest` carries `Caller` and `CallerAccessToken` unchanged to the handler; neither reaches a log (`ToString()` redacts,
   the redactor masks the token in exceptions).
 - **Redacted request view** (AB#6914, F3.4; `src/Methods/Redaction/`, tests `tests/Methods.Tests/Redaction`,
