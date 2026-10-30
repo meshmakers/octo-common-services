@@ -1,3 +1,4 @@
+using Meshmakers.Octo.Runtime.Contracts.MongoDb.Methods;
 using Meshmakers.Octo.Services.Contracts.DistributionEventHub.Methods;
 
 namespace Meshmakers.Octo.Services.Methods.Dispatching;
@@ -8,14 +9,20 @@ namespace Meshmakers.Octo.Services.Methods.Dispatching;
 ///     A withdrawal wins over every announcement of the same instance that is not newer by the handler's own
 ///     timestamps, so a late heartbeat cannot resurrect a stopped instance. Entries are keyed by the queue name of the
 ///     method (<see cref="CkMethodQueueNames.For" />: model-version-less, case-insensitive), the same key the send uses.
+///     With persistence enabled (<see cref="EnablePersistence" />, AB#5671) every change is queued for the snapshot store
+///     and a restarted host restores the rows with <see cref="Restore" />; a restored row is a "last seen" record and
+///     counts as live only inside its heartbeat TTL window, exactly like a received announcement.
 /// </summary>
 internal sealed class CkMethodHandlerRegistry(TimeProvider timeProvider) : ICkMethodHandlerRegistry
 {
     internal static readonly TimeSpan LastSeenRetention = TimeSpan.FromHours(24);
+    private static readonly TimeSpan MaxTtl = TimeSpan.FromHours(24);
     private static readonly TimeSpan PruneInterval = TimeSpan.FromMinutes(1);
 
     private readonly Dictionary<string, Dictionary<string, State>> _methods = new(StringComparer.Ordinal);
     private readonly Lock _lock = new();
+    private readonly HashSet<(string MethodKey, string InstanceId)> _dirty = [];
+    private bool _trackChanges;
     private DateTime _lastPruneUtc;
 
     private DateTime Now => timeProvider.GetUtcNow().UtcDateTime;
@@ -39,6 +46,7 @@ internal sealed class CkMethodHandlerRegistry(TimeProvider timeProvider) : ICkMe
                 instances[message.InstanceId] = new State(
                     new CkMethodHandlerEntry(methodId, message.ServiceName, message.InstanceId, message.Version,
                         message.ContractVersion, now, now + ttl, false, tenants), null);
+                MarkDirty(Normalize(methodId), message.InstanceId);
             }
 
             Prune(now);
@@ -62,6 +70,7 @@ internal sealed class CkMethodHandlerRegistry(TimeProvider timeProvider) : ICkMe
                     ? previous
                     : message.Timestamp;
                 instances[message.InstanceId] = new State(entry, withdrawnAt);
+                MarkDirty(Normalize(methodId), message.InstanceId);
             }
         }
     }
@@ -86,9 +95,129 @@ internal sealed class CkMethodHandlerRegistry(TimeProvider timeProvider) : ICkMe
                 if (state.Entry.ExpiresUtc > now && state.Entry.LastSeenUtc <= sendStartedUtc)
                 {
                     instances[key] = state with { Entry = state.Entry with { ExpiresUtc = now, NoQueueBound = true } };
+                    MarkDirty(Normalize(qualifiedMethodId), key);
                 }
             }
         }
+    }
+
+    /// <summary>Starts queueing every change for <see cref="TakeChanges" /> (called once a snapshot store exists).</summary>
+    internal void EnablePersistence()
+    {
+        lock (_lock)
+        {
+            _trackChanges = true;
+        }
+    }
+
+    /// <summary>
+    ///     Merges persisted rows into the registry (startup of a restarted host). A row never replaces an entry that was
+    ///     received since (newer or equal <c>LastSeenUtc</c> in memory wins), a withdrawn row stays a tombstone, and the
+    ///     times are bounded: a row cannot claim to be seen in the future or to live longer than the maximum TTL.
+    ///     Restored rows are not queued for writing back.
+    /// </summary>
+    /// <returns>The number of rows taken over.</returns>
+    internal int Restore(IEnumerable<CkMethodHandlerSnapshotRecord> records)
+    {
+        var now = Now;
+        var restored = 0;
+        lock (_lock)
+        {
+            foreach (var record in records)
+            {
+                if (string.IsNullOrEmpty(record.MethodKey) || string.IsNullOrEmpty(record.InstanceId))
+                {
+                    continue;
+                }
+
+                var lastSeen = record.LastSeenUtc > now ? now : record.LastSeenUtc;
+                if (lastSeen + LastSeenRetention < now)
+                {
+                    continue; // history older than the registry keeps
+                }
+
+                var maxExpiry = lastSeen + MaxTtl;
+                var expires = record.ExpiresUtc > maxExpiry ? maxExpiry : record.ExpiresUtc;
+                var instances = InstancesOf(record.MethodKey);
+                if (instances.TryGetValue(record.InstanceId, out var existing) && existing.Entry.LastSeenUtc >= lastSeen)
+                {
+                    continue;
+                }
+
+                var entry = new CkMethodHandlerEntry(record.MethodId, record.ServiceName, record.InstanceId,
+                    record.Version, record.ContractVersion, lastSeen, record.Withdrawn ? lastSeen : expires,
+                    record.Withdrawn, record.Tenants.ToList()) { NoQueueBound = record.NoQueueBound };
+                instances[record.InstanceId] = new State(entry, record.Withdrawn ? record.WithdrawnAtSource : null);
+                restored++;
+            }
+        }
+
+        return restored;
+    }
+
+    /// <summary>Takes the rows changed since the last call (empty while persistence is not enabled).</summary>
+    internal IReadOnlyList<CkMethodHandlerSnapshotRecord> TakeChanges()
+    {
+        lock (_lock)
+        {
+            if (_dirty.Count == 0)
+            {
+                return [];
+            }
+
+            var rows = new List<CkMethodHandlerSnapshotRecord>(_dirty.Count);
+            foreach (var (methodKey, instanceId) in _dirty)
+            {
+                if (_methods.TryGetValue(methodKey, out var instances) && instances.TryGetValue(instanceId, out var state))
+                {
+                    rows.Add(ToRecord(methodKey, state));
+                }
+            }
+
+            _dirty.Clear();
+            return rows;
+        }
+    }
+
+    /// <summary>Queues rows again after a failed write.</summary>
+    internal void Requeue(IEnumerable<CkMethodHandlerSnapshotRecord> records)
+    {
+        lock (_lock)
+        {
+            foreach (var record in records)
+            {
+                MarkDirty(record.MethodKey, record.InstanceId);
+            }
+        }
+    }
+
+    private void MarkDirty(string methodKey, string instanceId)
+    {
+        if (_trackChanges)
+        {
+            _dirty.Add((methodKey, instanceId));
+        }
+    }
+
+    private static CkMethodHandlerSnapshotRecord ToRecord(string methodKey, State state)
+    {
+        var e = state.Entry;
+        return new CkMethodHandlerSnapshotRecord
+        {
+            MethodKey = methodKey,
+            InstanceId = e.InstanceId,
+            MethodId = e.MethodId,
+            ServiceName = e.ServiceName,
+            Version = e.Version,
+            ContractVersion = e.ContractVersion,
+            LastSeenUtc = e.LastSeenUtc,
+            ExpiresUtc = e.ExpiresUtc,
+            Withdrawn = e.Withdrawn,
+            WithdrawnAtSource = state.WithdrawnAtSource,
+            NoQueueBound = e.NoQueueBound,
+            Tenants = e.Tenants.ToList(),
+            RetainUntilUtc = e.LastSeenUtc + LastSeenRetention
+        };
     }
 
     public IReadOnlyList<CkMethodHandlerEntry> GetLiveHandlers(string qualifiedMethodId)

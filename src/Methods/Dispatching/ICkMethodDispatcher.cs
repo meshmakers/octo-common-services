@@ -67,4 +67,18 @@ public sealed class CkMethodDispatcherOptions
     ///     before it answers <c>METHOD_TIMEOUT</c> itself. Documented tolerance of the timeout. Default 2 s.
     /// </summary>
     public TimeSpan ResponseGrace { get; set; } = TimeSpan.FromSeconds(2);
+
+    /// <summary>
+    ///     Keep the handler registry as a snapshot in the system database (AB#5671) so a restarted host answers without
+    ///     waiting for the next heartbeat round. Takes effect only when the host registers the snapshot store
+    ///     (<c>ICkMethodHandlerSnapshotStore</c>, part of the MongoDB runtime engine); without the store the registry is
+    ///     in memory only, as before. Default <c>true</c>.
+    /// </summary>
+    public bool SnapshotEnabled { get; set; } = true;
+
+    /// <summary>
+    ///     How often changed registry rows are written to the snapshot store (a heartbeat round is coalesced into one
+    ///     bulk write). Must be positive. Default 5 s.
+    /// </summary>
+    public TimeSpan SnapshotFlushInterval { get; set; } = TimeSpan.FromSeconds(5);
 }
