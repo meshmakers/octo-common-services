@@ -71,7 +71,12 @@ internal sealed class CkMethodHandlerSnapshotPersistence(
                 registry.Requeue(rows); // system tenant not there yet
             }
         }
-        catch (Exception e) when (e is not OperationCanceledException)
+        catch (OperationCanceledException)
+        {
+            registry.Requeue(rows); // the rows were taken already: a cancelled write must not lose them
+            throw;
+        }
+        catch (Exception e)
         {
             registry.Requeue(rows);
             logger.LogWarning(e, "Writing the CK method handler registry snapshot failed; retrying with the next flush");

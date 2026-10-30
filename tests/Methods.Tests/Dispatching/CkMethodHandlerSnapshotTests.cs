@@ -298,6 +298,24 @@ public class CkMethodHandlerSnapshotTests
     }
 
     [Fact]
+    public async Task CancelledWrite_KeepsTheRowsForTheNextFlush()
+    {
+        var registry = NewRegistry();
+        var persistence = Persistence(registry, _store);
+        await persistence.LoadAsync(TestContext.Current.CancellationToken);
+        registry.OnAnnounced(Announce());
+
+        _store.Cancel = true;
+        await Assert.ThrowsAsync<OperationCanceledException>(() =>
+            persistence.FlushAsync(TestContext.Current.CancellationToken));
+        Assert.Empty(_store.Rows);
+
+        _store.Cancel = false;
+        await persistence.FlushAsync(TestContext.Current.CancellationToken);
+        Assert.Single(_store.Rows);
+    }
+
+    [Fact]
     public async Task FailingLoad_IsNotFatal_TheRegistryFillsFromHeartbeats()
     {
         var registry = NewRegistry();
@@ -329,6 +347,7 @@ public class CkMethodHandlerSnapshotTests
 
         public bool Fail { get; set; }
         public bool Deferred { get; set; }
+        public bool Cancel { get; set; }
         public int LoadCalls { get; private set; }
         public int UpsertCalls { get; private set; }
 
@@ -351,6 +370,11 @@ public class CkMethodHandlerSnapshotTests
             CancellationToken cancellationToken = default)
         {
             UpsertCalls++;
+            if (Cancel)
+            {
+                throw new OperationCanceledException();
+            }
+
             if (Fail)
             {
                 throw new InvalidOperationException("store down");
