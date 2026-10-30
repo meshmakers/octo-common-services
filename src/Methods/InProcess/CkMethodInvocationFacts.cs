@@ -70,6 +70,43 @@ public sealed class CkMethodInvocationFacts
     /// </summary>
     public CkMethodParametersFingerprint? ParametersFingerprint { get; internal set; }
 
+    /// <summary>
+    ///     Fingerprints of the same raw request under other keys that a stored fingerprint may come from (AB#7819): the
+    ///     previous key of a rotation, or the unkeyed SHA-256 made before a key was configured. Empty when there are none.
+    ///     Read-only for filters; use <see cref="MatchesStoredFingerprint" /> instead of comparing yourself.
+    /// </summary>
+    public IReadOnlyList<CkMethodParametersFingerprint> AlternateParametersFingerprints { get; internal set; } = [];
+
+    /// <summary>
+    ///     <c>true</c> when <paramref name="stored" /> (read from the record of the first call, with its key id) is the
+    ///     fingerprint of this request under the key that made it: the current key, the previous key after a rotation, or
+    ///     the unkeyed SHA-256. <c>false</c> when the parameters differ, the key id is unknown, or this call has no
+    ///     fingerprint. Constant-time comparison.
+    /// </summary>
+    /// <param name="stored">The stored fingerprint (bytes and key id).</param>
+    public bool MatchesStoredFingerprint(CkMethodParametersFingerprint? stored)
+    {
+        if (stored == null || ParametersFingerprint == null)
+        {
+            return false;
+        }
+
+        if (ParametersFingerprint.Matches(stored))
+        {
+            return true;
+        }
+
+        foreach (var alternate in AlternateParametersFingerprints)
+        {
+            if (alternate.Matches(stored))
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
     /// <summary>Prints the replay id and whether a fingerprint exists, never the fingerprint.</summary>
     public override string ToString() =>
         $"{nameof(CkMethodInvocationFacts)} {{ ReplayOf = {ReplayOf?.ToString() ?? "none"}, " +

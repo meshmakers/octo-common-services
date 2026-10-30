@@ -1,5 +1,6 @@
 using Meshmakers.Octo.Services.Contracts.DistributionEventHub.Methods;
 using Meshmakers.Octo.Services.Methods.Handlers;
+using Meshmakers.Octo.Services.Methods.Idempotency;
 using Microsoft.Extensions.Logging;
 
 namespace Meshmakers.Octo.Services.Methods;
@@ -100,7 +101,8 @@ public interface ICkMethodInvocationPipeline
 internal sealed class CkMethodInvocationPipeline(
     IEnumerable<ICkMethodInvocationFilter> filters,
     ICkMethodSensitivityResolver sensitivity,
-    ILogger<CkMethodInvocationPipeline> logger) : ICkMethodInvocationPipeline
+    ILogger<CkMethodInvocationPipeline> logger,
+    ICkMethodParametersFingerprinter? fingerprinter = null) : ICkMethodInvocationPipeline
 {
     private readonly ICkMethodInvocationFilter[] _filters = filters.OrderBy(f => f.Order).ToArray();
 
@@ -111,18 +113,36 @@ internal sealed class CkMethodInvocationPipeline(
         ArgumentNullException.ThrowIfNull(request);
         ArgumentNullException.ThrowIfNull(transport);
 
-        if (_filters.Length == 0)
+        // A call without a key costs nothing here; a keyed call needs the sensitivity and the fingerprint even when no
+        // filter is registered, so that the missing-key refusal does not depend on which other filters exist.
+        var keyed = fingerprinter != null && !string.IsNullOrEmpty(request.IdempotencyKey);
+        if (_filters.Length == 0 && !keyed)
         {
             return await transport(request).ConfigureAwait(false);
         }
 
         var sensitive = sensitivity.GetSensitiveParameters(request.TenantId, request.CkTypeId, request.MethodId);
         var resultSensitive = sensitivity.IsResultSensitive(request.TenantId, request.CkTypeId, request.MethodId);
+        var facts = new CkMethodInvocationFacts();
+        var activeFilters = _filters;
+        // Before redaction, from the raw values, and only for a call that carries a key (AB#7819). The fingerprinter is
+        // registered together with the idempotency options, so the feature off means no cost and no refusal.
+        if (keyed)
+        {
+            var result = fingerprinter!.Compute(request, sensitive is null || sensitive.Count > 0);
+            facts.ParametersFingerprint = result.Primary;
+            facts.AlternateParametersFingerprints = result.Alternates;
+            if (result.KeyMissing)
+            {
+                activeFilters = [.. _filters.Append(new FingerprintKeyGuard(logger)).OrderBy(f => f.Order)];
+            }
+        }
+
         var view = CkMethodRequestRedaction.CreateView(request, sensitive);
         // The response mirrors the request side: the filters only ever see a redacted view (AB#7007), the raw response is
         // kept here and goes to the caller.
         CkMethodResponse? rawResponse = null;
-        var context = new CkMethodInvocationContext(transportName, view, cancellationToken);
+        var context = new CkMethodInvocationContext(transportName, view, cancellationToken) { Facts = facts };
         // The filters only ever see the redacted view; the terminal step puts the raw values back for the transport.
         CkMethodInvocationDelegate chain = r =>
         {
@@ -149,9 +169,9 @@ internal sealed class CkMethodInvocationPipeline(
             return CkMethodResponseRedaction.CreateView(raw, resultSensitive);
         }
 
-        for (var i = _filters.Length - 1; i >= 0; i--)
+        for (var i = activeFilters.Length - 1; i >= 0; i--)
         {
-            var filter = _filters[i];
+            var filter = activeFilters[i];
             var next = chain;
             chain = r => filter.InvokeAsync(context with { Request = r }, next);
         }
@@ -176,5 +196,27 @@ internal sealed class CkMethodInvocationPipeline(
                     (CkMethodErrorParameters.MethodId, request.MethodId),
                     (CkMethodErrorParameters.CorrelationId, correlationId.ToString())));
         }
+    }
+}
+
+/// <summary>
+///     Refuses a keyed call to a method with sensitive parameters when no fingerprint key is configured (OD-4 G1): the
+///     handler does not run, the idempotency filter behind it never sees the call. Carries no request value.
+/// </summary>
+internal sealed class FingerprintKeyGuard(ILogger logger) : ICkMethodInvocationFilter
+{
+    /// <summary>Between authorization and idempotency: an unauthorized caller learns nothing, the idempotency filter never sees the call.</summary>
+    public int Order => (CkMethodInvocationFilterOrder.Authorization + CkMethodInvocationFilterOrder.Idempotency) / 2;
+
+    public Task<CkMethodResponse> InvokeAsync(CkMethodInvocationContext context, CkMethodInvocationDelegate next)
+    {
+        logger.LogWarning(
+            "CK method {MethodId} invocation {InvocationId} refused: an idempotency key was sent for a method with sensitive parameters, but no fingerprint key is configured ({Section})",
+            context.Request.MethodId, context.Request.InvocationId, CkMethodFingerprintOptions.SectionName);
+        return Task.FromResult(CkMethodResponse.Failed(context.Request.InvocationId, string.Empty,
+            CkMethodError.Create(CkMethodErrorCodes.MethodValidationFailed,
+                (CkMethodErrorParameters.MethodId, context.Request.MethodId),
+                (CkMethodErrorParameters.Field, CkMethodIdempotencyRefusal.Field),
+                (CkMethodErrorParameters.Reason, CkMethodIdempotencyRefusal.FingerprintKeyMissing))));
     }
 }

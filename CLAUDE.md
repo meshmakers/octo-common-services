@@ -700,7 +700,7 @@ evolution: `docs/method-wire-contract.md`.
   `CkMethodIdempotencyRecord` (reference equality for the conditional replace; `ToString` prints no fingerprint or response), `CkMethodInMemoryIdempotencyStore` (tests and single-replica hosts; the Mongo store is AB#7824 in
   asset-repo, the band-300 filter is K4). Row 4: only not-executed codes `ReleaseAsync`; an unknown outcome and `METHOD_HANDLER_FAILED` burn the key. Option `Methods:Idempotency:Ttl` (`CkMethodIdempotencyOptions`,
   `CkMethodIdempotencyLifetime`): default 24 h, max 7 d (clamped + one warning), zero/negative fails start. New platform code `METHOD_REQUEST_IN_PROGRESS` (`NotExecuted`, parameter `methodId`; additive, wire contract version unchanged).
-  Registration `AddCkMethodIdempotencyOptions()` / `AddCkMethodInMemoryIdempotencyStore()`. The fingerprint key options belong to AB#7819.
+  Registration `AddCkMethodIdempotencyOptions()` / `AddCkMethodInMemoryIdempotencyStore()`. The fingerprint keys are `CkMethodFingerprintOptions` (AB#7819, see the invocation pipeline).
 - **Deadline clamp** (AB#7665, L-4): the invoker clamps `DeadlineUtc` to now + `Methods:Dispatcher:MaxTimeout` (`CkMethodDeadline.Clamp/MaxOf`, the dispatcher's helper) and logs the clamp once at Information.
 - **Versioning**: `CkMethodContract.CurrentVersion` (int, major) on request, response and announcement; additive changes never
   bump it, unknown members are ignored, a missing version reads as 1; a newer message is answered with
@@ -869,9 +869,19 @@ tests `tests/Methods.Tests/InProcess/`. Guide: `docs/method-handler-sdk.md` sect
   `CkMethodInvocationContext.Facts` is created by the pipeline once per call and shared by all filters of that call (the `with { Request = r }`
   copy keeps the reference), so an inner filter hands facts to an outer one, read after `next()` returns. Members: `ReplayOf` (Guid?, set only by
   the idempotency filter at band 300 when it answers from the store; the audit filter at 100 reads it) and `ParametersFingerprint` (opaque
-  `CkMethodParametersFingerprint`: HMAC bytes plus key id; `internal set`, filled by the pipeline in AB#7819; compared in constant time with
+  `CkMethodParametersFingerprint`: HMAC bytes plus key id; `internal set`, filled by the pipeline (AB#7819); compared in constant time with
   `Matches`). Never on the wire (not a member of the request or the response), never serialized; `ToString()` of the facts, the fingerprint and the
   context print `[redacted]` instead of the value. A context a test builds by hand starts with its own empty facts.
+  **Parameters fingerprint (AB#7819, OD-4 row 2 + G1; `CkMethodParametersFingerprinter` / `ICkMethodParametersFingerprinter` in `src/Methods/InProcess/`, options `CkMethodFingerprintOptions` in `src/Methods/Idempotency/`, tests `ParametersFingerprintTests`)**:
+  the pipeline computes it from the **raw** request before the redacted view is built, only for a call that carries `IdempotencyKey` (an unkeyed call computes nothing) and only when the
+  fingerprinter is registered (`AddCkMethodIdempotencyOptions()` registers it, so a host without an idempotency store pays nothing and refuses nothing). Input: domain tag, `ckTypeId`, `targetRtId`, canonical parameters
+  (members sorted ordinal, duplicate member: last wins, numbers normalized `1` = `1.0` = `1e0`, array order kept, null or empty = `{}`), each part length-prefixed. HMAC-SHA-256 with the
+  current key, key id stored with it; `Facts.AlternateParametersFingerprints` holds the same request under the previous key (and, for a method without sensitive parameters, the unkeyed
+  `sha256`), `Facts.MatchesStoredFingerprint(stored)` verifies a stored fingerprint of any of them in constant time. No key and a method with sensitive parameters (or an unknown method, fail closed):
+  the pipeline inserts a refusal step between authorization (200) and idempotency (300): `METHOD_VALIDATION_FAILED`, field `idempotencyKey`, reason `fingerprint-key-missing`; audit (100) sees it,
+  the idempotency filter and the handler do not run. No key and no sensitive parameters: unkeyed SHA-256, key id `sha256`. Configuration `Methods:Idempotency:Fingerprint:Current:{Id,Secret}` and
+  `:Previous:{Id,Secret}` (secret = base64 of at least 32 bytes, id `[A-Za-z0-9._-]{1,64}`; malformed or half-set keys fail the start, messages name the setting, never the value; keys are read at start;
+  all replicas share them). The key options and the fingerprint never appear in logs, exceptions, `ToString()` or audit (canary test). Ops prerequisite: a Vault + Helm secret per environment (Heimdall).
   **Redacted response view (AB#7007; `CkMethodResponseRedaction` in `CkMethodSensitivity.cs`)**: the mirror of the request side. When
   the CK result of the method is `sensitive` (`ICkMethodSensitivityResolver.IsResultSensitive`; fail-closed `true` for an unknown method,
   a missing source or a faulting source), the terminal step keeps the raw response and hands the filters a view whose `ResultJson` is

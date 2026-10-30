@@ -1,3 +1,4 @@
+using Meshmakers.Octo.Services.Methods;
 using Meshmakers.Octo.Services.Methods.Idempotency;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Options;
@@ -10,7 +11,9 @@ public static class CkMethodIdempotencyServiceCollectionExtensions
 {
     /// <summary>
     ///     Binds <see cref="CkMethodIdempotencyOptions" /> (<c>Methods:Idempotency</c>), validates them at the start of the
-    ///     service (a zero or negative <c>Ttl</c> fails it) and registers <see cref="CkMethodIdempotencyLifetime" />. A store
+    ///     service (a zero or negative <c>Ttl</c> fails it) and registers <see cref="CkMethodIdempotencyLifetime" />. Also binds the
+    ///     fingerprint keys (<c>Methods:Idempotency:Fingerprint</c>, malformed keys fail the start) and registers the
+    ///     <see cref="ICkMethodParametersFingerprinter" /> the pipeline uses (AB#7819). A store
     ///     implementation calls this and registers itself.
     /// </summary>
     /// <param name="services">The service collection.</param>
@@ -28,6 +31,12 @@ public static class CkMethodIdempotencyServiceCollectionExtensions
         }
 
         options.ValidateOnStart();
+        services.AddOptions<CkMethodFingerprintOptions>().BindConfiguration(CkMethodFingerprintOptions.SectionName)
+            .ValidateOnStart();
+        services.TryAddEnumerable(
+            ServiceDescriptor.Singleton<IValidateOptions<CkMethodFingerprintOptions>, CkMethodFingerprintOptionsValidator>());
+        // the pipeline fingerprints keyed calls only when this is registered (the idempotency feature is on)
+        services.TryAddSingleton<ICkMethodParametersFingerprinter, CkMethodParametersFingerprinter>();
         services.TryAddEnumerable(
             ServiceDescriptor.Singleton<IValidateOptions<CkMethodIdempotencyOptions>, CkMethodIdempotencyOptionsValidator>());
         services.TryAddSingleton(TimeProvider.System);
