@@ -114,7 +114,10 @@ public sealed class CkMethodIdempotencyFilter(
         var grace = dispatcherOptions.Value.ResponseGrace > TimeSpan.Zero
             ? dispatcherOptions.Value.ResponseGrace
             : TimeSpan.Zero;
-        var leaseUntil = (request.DeadlineUtc > now ? request.DeadlineUtc : now) + grace;
+        // Clamped like the transports do, for the lease only (the request goes on unchanged): an absurd deadline must
+        // neither overflow nor make the claim last for ever.
+        var deadline = CkMethodDeadline.Clamp(request.DeadlineUtc, now, CkMethodDeadline.MaxOf(dispatcherOptions.Value));
+        var leaseUntil = (deadline > now ? deadline : now) + grace;
 
         CkMethodIdempotencyClaimResult claim;
         try

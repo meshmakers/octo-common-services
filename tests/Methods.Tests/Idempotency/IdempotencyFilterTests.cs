@@ -342,6 +342,23 @@ public class IdempotencyFilterTests
         Assert.Equal(1, rig.Executions);
     }
 
+    [Fact]
+    public async Task AnAbsurdDeadline_CannotOverflowTheLease_NorMakeItEndless()
+    {
+        var rig = new Rig();
+        var request = rig.Request() with { DeadlineUtc = DateTime.MaxValue };
+        var gate = new TaskCompletionSource<CkMethodResponse>();
+
+        var firstRun = rig.Call(request, _ => gate.Task);
+        rig.Time.Advance(TimeSpan.FromMinutes(11)); // beyond the 10 minute maximum timeout plus grace
+        var repeat = await rig.Call(rig.Request());
+        gate.SetResult(CkMethodResponse.Succeeded(Guid.NewGuid(), "h"));
+        await firstRun;
+
+        Assert.Equal(CkMethodErrorCodes.MethodOutcomeUnknown, repeat.Error!.Code);
+        Assert.Equal(1, rig.Executions);
+    }
+
     // ---------------------------------------------------------------- which outcomes release or burn
 
     [Theory]
