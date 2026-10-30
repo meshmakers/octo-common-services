@@ -166,7 +166,15 @@ internal class ObservabilityBuilder(
             tracing.AddSource("Meshmakers.Octo.StreamData.Crate");
 
             // Handler span of the in-process CK method transport (CkMethodTelemetry.ActivitySourceName, AB#7022).
+            // It also carries the call span ("CK method call") of the dispatcher and the bus handler span (AB#6920).
             tracing.AddSource("Meshmakers.Octo.Methods");
+
+            // MassTransit (the event hub) emits send/process spans on its own ActivitySource and writes the W3C trace
+            // context of the current activity into the message headers, so the handler of a CK method call over the bus
+            // joins the trace of the gateway (AB#6920: one trace gateway -> bus -> handler). Without a listener MassTransit
+            // creates no activity and the handler side starts a new trace. Like the sources above it must also be listed
+            // in OTEL_DOTNET_AUTO_TRACES_ADDITIONAL_SOURCES in the charts to leave the pod through the injector.
+            tracing.AddSource("MassTransit");
 
             // MongoDB.Driver 3.x emits one CLIENT span per command on its own ActivitySource
             // (TracingOptions are on by default) — but only when someone listens. The injected

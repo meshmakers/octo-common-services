@@ -1,6 +1,7 @@
 using System.Diagnostics.Metrics;
 using Meshmakers.Octo.Runtime.Contracts.AuditTrails;
 using Meshmakers.Octo.Services.Infrastructure.Services;
+using Meshmakers.Octo.Services.Methods.Metrics;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 
@@ -45,12 +46,11 @@ public sealed class CkMethodAuditFailedException : Exception
 internal sealed class CkMethodAuditRecorder : ICkMethodAuditRecorder
 {
     /// <summary>Name of the meter.</summary>
-    internal const string MeterName = "Meshmakers.Octo.Methods";
+    internal const string MeterName = CkMethodTelemetry.MeterName;
 
     internal const string FailureCounterName = "ck.method.audit.failures";
 
-    private static readonly Meter Meter = new(MeterName);
-    private static readonly Counter<long> Failures = Meter.CreateCounter<long>(FailureCounterName,
+    private static readonly Counter<long> Failures = CkMethodTelemetry.Meter.CreateCounter<long>(FailureCounterName,
         description: "Audit events of CK method invocations that could not be written");
 
     private readonly IAuditEventSink _sink;
@@ -80,6 +80,13 @@ internal sealed class CkMethodAuditRecorder : ICkMethodAuditRecorder
     public async Task RecordAsync(CkMethodAuditRecord record, CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(record);
+        // A call the gateway refused never enters the pipeline, so this is its only place to be counted (AB#6920); the
+        // calls of the audit filter are counted by the pipeline itself, exactly once each.
+        if (string.Equals(record.Transport, CkMethodAuditRecord.GatewayTransport, StringComparison.Ordinal))
+        {
+            CkMethodMetrics.RecordCall(record.MethodId, record.Transport, record.Outcome, record.Duration);
+        }
+
         try
         {
             var auditEvent = record.ToAuditEvent();

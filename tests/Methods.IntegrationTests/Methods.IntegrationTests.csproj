@@ -16,6 +16,7 @@
         </PackageReference>
         <PackageReference Include="FakeItEasy" Version="9.0.1" />
         <PackageReference Include="Microsoft.NET.Test.Sdk" Version="18.9.0" />
+        <PackageReference Include="OpenTelemetry.Exporter.InMemory" Version="1.18.0" />
         <PackageReference Include="Testcontainers.RabbitMq" Version="4.14.0" />
         <PackageReference Include="xunit.v3.mtp-off" Version="4.0.0" />
         <PackageReference Include="xunit.runner.visualstudio" Version="4.0.0">
@@ -26,6 +27,7 @@
 
     <ItemGroup>
         <ProjectReference Include="..\..\src\Methods\Methods.csproj" />
+        <ProjectReference Include="..\..\src\Observability\Observability.csproj" />
     </ItemGroup>
 
 </Project>

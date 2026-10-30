@@ -39,4 +39,35 @@ public class ActivitySourceRegistrationTests
         using var source = new ActivitySource("MongoDB.Driver");
         Assert.True(source.HasListeners());
     }
+
+    /// <summary>
+    ///     AB#6920: MassTransit's spans (and with them the propagation of the trace context through the bus) exist, so a CK
+    ///     method call over the event hub is one trace from the gateway to the handler.
+    /// </summary>
+    [Fact]
+    public void MassTransitSource_IsRegistered()
+    {
+        var builder = Host.CreateApplicationBuilder();
+        builder.AddObservability();
+
+        using var host = builder.Build();
+        _ = host.Services.GetRequiredService<TracerProvider>();
+
+        using var source = new ActivitySource("MassTransit");
+        Assert.True(source.HasListeners());
+    }
+
+    /// <summary>AB#6920: the method host's call and handler spans (source = meter name) are exported.</summary>
+    [Fact]
+    public void MethodsSource_IsRegistered()
+    {
+        var builder = Host.CreateApplicationBuilder();
+        builder.AddObservability();
+
+        using var host = builder.Build();
+        _ = host.Services.GetRequiredService<TracerProvider>();
+
+        using var source = new ActivitySource("Meshmakers.Octo.Methods");
+        Assert.True(source.HasListeners());
+    }
 }
