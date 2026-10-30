@@ -75,6 +75,12 @@ public static partial class CkMethodErrorCodes
     public const string MethodParametersTooLarge = "METHOD_PARAMETERS_TOO_LARGE";
 
     /// <summary>
+    ///     A call with the same idempotency key (same tenant, method and caller) is still running; this call was not
+    ///     executed. Send the same key again later: the first result is then replayed (OD-4 row 3).
+    /// </summary>
+    public const string MethodRequestInProgress = "METHOD_REQUEST_IN_PROGRESS";
+
+    /// <summary>
     ///     Documentation of every platform code: meaning, whether the method ran, the parameters the code carries and
     ///     what a caller should do. The single source for the documentation table.
     /// </summary>
@@ -119,7 +125,11 @@ public static partial class CkMethodErrorCodes
         new(MethodParametersTooLarge, CkMethodExecutionState.NotExecuted,
             "The parameters are larger than the limit of the service (UTF-8 bytes of the parameter JSON, option Methods:MaxParametersBytes, default 1 MiB).",
             [CkMethodErrorParameters.MethodId, CkMethodErrorParameters.MaxBytes, CkMethodErrorParameters.ActualBytes],
-            "Do not retry unchanged; send fewer or smaller parameters (large content belongs in a file, not in a parameter).")
+            "Do not retry unchanged; send fewer or smaller parameters (large content belongs in a file, not in a parameter)."),
+        new(MethodRequestInProgress, CkMethodExecutionState.NotExecuted,
+            "A call with the same idempotency key (same tenant, method and caller) is still running. This call was not executed.",
+            [CkMethodErrorParameters.MethodId],
+            "Send the same idempotency key again later; the result of the first call is then replayed.")
     ];
 
     /// <summary>

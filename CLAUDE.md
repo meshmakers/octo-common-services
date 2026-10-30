@@ -694,6 +694,13 @@ evolution: `docs/method-wire-contract.md`.
   `CkMethodHandlerAnnounced` / `Withdrawn` / `DiscoveryRequested`, `CkMethodQueueNames`, `CkMethodErrorCodes`
   (constants + `Catalog`, single source; `METHOD_` is reserved for the platform), `CkMethodErrorParameters`.
 - **Parameter size limit** (AB#7665, F-2): `METHOD_PARAMETERS_TOO_LARGE` (parameters `methodId`, `maxBytes`, `actualBytes`); limit = UTF-8 byte length of `ParametersJson`, option `Methods:MaxParametersBytes` (`CkMethodLimitsOptions`, default 1 MiB, one name for gateway and host, bound by `AddCkMethodDispatcher`, `AddCkMethodHandlers`, `AddCkInProcessMethodHandlers`). `CkMethodParameterLimit.Exceeds/TooLarge` is the one check: the gateway (asset-repo) calls it before validation, `CkMethodHandlerInvoker` before the token is validated and before deserialization. Tests: `CkMethodHandlerInvokerTests`, adversarial C12.
+- **Idempotency store contract** (AB#7817, F3.5, decided in OD-4 AB#6922; `src/Methods/Idempotency/`, tests `tests/Methods.Tests/Idempotency/IdempotencyStoreTests.cs`): `ICkMethodIdempotencyStore`
+  (`ClaimAsync` atomic, expired record taken over by a conditional replace; `CompleteAsync(Completed|Unknown)`; `ReleaseAsync`; owner-only, only while `InProgress`; fails closed by
+  throwing `CkMethodIdempotencyStoreException`), `CkMethodIdempotencyKey` (tenant + method + caller subject from the principal provider + key, stored `Id` = SHA-256 hex, raw key not at rest, max 128 chars),
+  `CkMethodIdempotencyRecord` (reference equality for the conditional replace; `ToString` prints no fingerprint or response), `CkMethodInMemoryIdempotencyStore` (tests and single-replica hosts; the Mongo store is AB#7824 in
+  asset-repo, the band-300 filter is K4). Row 4: only not-executed codes `ReleaseAsync`; an unknown outcome and `METHOD_HANDLER_FAILED` burn the key. Option `Methods:Idempotency:Ttl` (`CkMethodIdempotencyOptions`,
+  `CkMethodIdempotencyLifetime`): default 24 h, max 7 d (clamped + one warning), zero/negative fails start. New platform code `METHOD_REQUEST_IN_PROGRESS` (`NotExecuted`, parameter `methodId`; additive, wire contract version unchanged).
+  Registration `AddCkMethodIdempotencyOptions()` / `AddCkMethodInMemoryIdempotencyStore()`. The fingerprint key options belong to AB#7819.
 - **Deadline clamp** (AB#7665, L-4): the invoker clamps `DeadlineUtc` to now + `Methods:Dispatcher:MaxTimeout` (`CkMethodDeadline.Clamp/MaxOf`, the dispatcher's helper) and logs the clamp once at Information.
 - **Versioning**: `CkMethodContract.CurrentVersion` (int, major) on request, response and announcement; additive changes never
   bump it, unknown members are ignored, a missing version reads as 1; a newer message is answered with

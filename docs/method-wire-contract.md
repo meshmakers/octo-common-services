@@ -91,6 +91,7 @@ fails when this table lacks a code or a well-known parameter.
 | `METHOD_NOT_SUPPORTED_BY_HANDLER_VERSION` | no | `methodId`, `supportedVersion` | Reserved: handler does not support the method version. |
 | `METHOD_CONTRACT_VERSION_UNSUPPORTED` | no | `requestedVersion`, `supportedVersion` | Message uses a newer wire contract version than the receiver understands. Wait for the rolling update. |
 | `METHOD_PARAMETERS_TOO_LARGE` | no | `methodId`, `maxBytes`, `actualBytes` | The UTF-8 byte length of `ParametersJson` is above the limit of the service (`Methods:MaxParametersBytes`, default 1 MiB = 1048576; exactly the limit passes). The gateway refuses before it validates the parameters, the host re-checks before it deserializes them. Do not retry unchanged. |
+| `METHOD_REQUEST_IN_PROGRESS` | no | `methodId` | A call with the same idempotency key (same tenant, method and caller subject) is still running; this call was not executed. Send the same key again later: the first result is then replayed. A claim counts as running until the request deadline plus the response grace of the dispatcher; after that the first outcome is unknown and the key is burned. |
 
 Well-known parameter names (`CkMethodErrorParameters`, camelCase): `methodId`, `correlationId`, `field`, `reason`,
 `timeoutSeconds`, `requestedVersion`, `supportedVersion`, `maxBytes`, `actualBytes`. `reason` values are short kebab-case tokens such as
