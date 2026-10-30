@@ -23,6 +23,12 @@ public sealed class CkMethodAuditOptions
     /// </summary>
     public IList<string> FailCallOnAuditFailureTenants { get; set; } = [];
 
+    /// <summary>
+    ///     Longest time one audit write may take; a write that is still running then counts as failed (logged, counted, the
+    ///     failure policy applies). Default 5 seconds; <c>00:00:00</c> or less waits without a limit.
+    /// </summary>
+    public TimeSpan WriteTimeout { get; set; } = TimeSpan.FromSeconds(5);
+
     internal bool FailsCallFor(string? tenantId) =>
         FailCallOnAuditFailure ||
         (!string.IsNullOrWhiteSpace(tenantId) &&

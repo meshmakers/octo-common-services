@@ -65,6 +65,18 @@ internal sealed class CkMethodAuditRecorder : ICkMethodAuditRecorder
         _logger = logger;
     }
 
+    private int _lenientSinkWarned;
+
+    private void WarnOnceAboutLenientSink(string tenantId)
+    {
+        if (_options.CurrentValue.FailsCallFor(tenantId) && Interlocked.Exchange(ref _lenientSinkWarned, 1) == 0)
+        {
+            _logger.LogWarning(
+                "Audit sink {SinkType} does not implement IStrictAuditEventSink: audit write failures cannot be counted and cannot fail the call (first seen for tenant {TenantId})",
+                _sink.GetType().Name, tenantId);
+        }
+    }
+
     public async Task RecordAsync(CkMethodAuditRecord record, CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(record);
@@ -72,13 +84,26 @@ internal sealed class CkMethodAuditRecorder : ICkMethodAuditRecorder
         {
             var auditEvent = record.ToAuditEvent();
             // the strict write reports a failure; the plain contract swallows it, then nothing could be counted
+            Task write;
             if (_sink is IStrictAuditEventSink strict)
             {
-                await strict.PublishStrictAsync(auditEvent, cancellationToken).ConfigureAwait(false);
+                write = strict.PublishStrictAsync(auditEvent, cancellationToken);
             }
             else
             {
-                await _sink.PublishAsync(auditEvent, cancellationToken).ConfigureAwait(false);
+                WarnOnceAboutLenientSink(record.TenantId);
+                write = _sink.PublishAsync(auditEvent, cancellationToken);
+            }
+
+            // bounded: the event repository takes no token, a stalled store must not keep the call pending
+            var timeout = _options.CurrentValue.WriteTimeout;
+            if (timeout > TimeSpan.Zero)
+            {
+                await write.WaitAsync(timeout, cancellationToken).ConfigureAwait(false);
+            }
+            else
+            {
+                await write.ConfigureAwait(false);
             }
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)

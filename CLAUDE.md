@@ -910,7 +910,7 @@ tests `tests/Methods.Tests/InProcess/`. Guide: `docs/method-handler-sdk.md` sect
   `CALLER_CANCELLED`), `durationMs`, `replayOf` (first invocation id from `CkMethodInvocationFacts.ReplayOf`; a replay is its own event). **Never** parameters (redacted or not),
   `resultJson`, token, idempotency key, fingerprint or exception text: `CkMethodAuditRecord` has no place for them. An inner exception is recorded once as
   `METHOD_HANDLER_FAILED` and rethrown; caller cancellation once as `CALLER_CANCELLED` and rethrown. A failing sink does not fail the call (logged, counter
-  `ck.method.audit.failures`); `Methods:Audit:FailCallOnAuditFailure` / `FailCallOnAuditFailureTenants` make it fail (`METHOD_OUTCOME_UNKNOWN` for an executed call,
+  `ck.method.audit.failures`; each write bounded by `Methods:Audit:WriteTimeout`, default 5 s); `Methods:Audit:FailCallOnAuditFailure` / `FailCallOnAuditFailureTenants` make it fail (`METHOD_OUTCOME_UNKNOWN` for an executed call,
   a refusal stays a refusal). `EventRepositoryAuditEventSink` implements `IStrictAuditEventSink` (Infrastructure) so the recorder can see the failure.
 - `CkMethodRequest` carries `Caller` and `CallerAccessToken` unchanged to the handler; neither reaches a log (`ToString()` redacts,
   the redactor masks the token in exceptions).

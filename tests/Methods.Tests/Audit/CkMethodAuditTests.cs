@@ -51,6 +51,15 @@ public class CkMethodAuditTests
             throw new InvalidOperationException("event repository down");
     }
 
+    private sealed class HangingSink : CaptureSink, IStrictAuditEventSink
+    {
+        public override Task PublishAsync(AuditEvent auditEvent, CancellationToken cancellationToken = default) =>
+            Task.CompletedTask;
+
+        public Task PublishStrictAsync(AuditEvent auditEvent, CancellationToken cancellationToken = default) =>
+            new TaskCompletionSource().Task; // never completes, ignores the token
+    }
+
     private sealed class Principals : ICkMethodPrincipalProvider
     {
         public CkMethodPrincipal? Current { get; set; } = HostFixture.Administrator;
@@ -427,6 +436,40 @@ public class CkMethodAuditTests
         Assert.False(response.Success);
         Assert.Equal(refuse ? CkMethodErrorCodes.MethodForbidden : CkMethodErrorCodes.MethodOutcomeUnknown,
             response.Error!.Code);
+    }
+
+    [Fact]
+    public async Task StalledAuditWrite_IsBoundedByTheTimeout_AndTreatedAsAFailure()
+    {
+        var rig = new Rig(new HangingSink(), o => o.WriteTimeout = TimeSpan.FromMilliseconds(100));
+
+        var response = await rig.Call(rig.Request(), token: TestContext.Current.CancellationToken)
+            .WaitAsync(TimeSpan.FromSeconds(10), TestContext.Current.CancellationToken);
+
+        Assert.True(response.Success); // default policy: the call is not failed
+        Assert.Contains(rig.Logs.GetSnapshot(), r => r.Level == LogLevel.Error &&
+                                                      r.Message.Contains("could not be written", StringComparison.Ordinal));
+
+        var strict = new Rig(new HangingSink(), o =>
+        {
+            o.WriteTimeout = TimeSpan.FromMilliseconds(100);
+            o.FailCallOnAuditFailure = true;
+        });
+        var failed = await strict.Call(strict.Request(), token: TestContext.Current.CancellationToken)
+            .WaitAsync(TimeSpan.FromSeconds(10), TestContext.Current.CancellationToken);
+        Assert.Equal(CkMethodErrorCodes.MethodOutcomeUnknown, failed.Error!.Code);
+    }
+
+    [Fact]
+    public async Task LenientSink_WithTheSwitchOn_WarnsOnce_ThatFailuresCannotBeSeen()
+    {
+        var rig = new Rig(new CaptureSink(), o => o.FailCallOnAuditFailure = true);
+
+        await rig.Call(rig.Request(), token: TestContext.Current.CancellationToken);
+        await rig.Call(rig.Request(), token: TestContext.Current.CancellationToken);
+
+        Assert.Single(rig.Logs.GetSnapshot(), r => r.Level == LogLevel.Warning &&
+            r.Message.Contains("IStrictAuditEventSink", StringComparison.Ordinal));
     }
 
     [Fact]

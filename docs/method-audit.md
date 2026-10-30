@@ -87,6 +87,8 @@ For regulated tenants a switch makes the audit failure fail the call (section `M
 { "Methods": { "Audit": { "FailCallOnAuditFailure": false, "FailCallOnAuditFailureTenants": [ "regulated-tenant" ] } } }
 ```
 
+A write is bounded by `WriteTimeout` (default 5 s, `00:00:00` = no limit): a stalled store counts as a failed write, so a call never hangs on the audit. A sink that implements only `IAuditEventSink` cannot report failures; with the switch on the recorder logs a warning once.
+
 `FailCallOnAuditFailure` applies to every tenant, the list (case-insensitive) to the named tenants. Because the event is written
 after the call, the method may already have run: the answer is then `METHOD_OUTCOME_UNKNOWN` (check the state before calling
 again); a call that was not executed (a refusal) stays the refusal it was.
