@@ -811,6 +811,9 @@ and registry (F3.2/F3.3) and the pipeline handler (AB#6879) are other stories. D
   system tenant (or `Methods:ValidationTenantIds`): unknown method id, a CK parameter without a property on `TParameters`,
   scalar type mismatch, a required property without a CK parameter, result/no-result mismatch. A failure stops the service
   and names the method. The check also records sensitive parameter names and declared error codes for run time.
+  Tenant ids (the default `SystemTenantId` like `OctoSystem` and every `ValidationTenantIds` entry) are normalised (trimmed, lower-case) to the
+  key the CK cache uses (`CkCacheMethodDefinitionSource.NormalizeTenantId`, AB#7912; tests `CkCacheMethodDefinitionSourceTests`), so a host with the
+  default configuration starts; no `ValidationTenantIds` workaround is needed.
 - **Sensitive data**: the host never logs `ParametersJson` or the token (`CkMethodRequest.ToString()` redacts, the host logs ids
   only). `CkMethodRedactor` additionally masks the values of CK `sensitive: true` parameters and the caller token in the
   message, stack trace and `ToString()` of an exception a handler throws before the host logs it. Tests: `CkMethodHandlerInvokerTests`.

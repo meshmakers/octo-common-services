@@ -25,10 +25,18 @@ internal sealed class CkCacheMethodDefinitionSource : ICkMethodDefinitionSource
         IOptions<OctoSystemConfiguration> systemOptions)
     {
         _ckCache = ckCache;
-        TenantIds = options.Value.ValidationTenantIds.Count > 0
-            ? options.Value.ValidationTenantIds.ToList()
-            : [systemOptions.Value.SystemTenantId];
+        // The CK cache is keyed by the lower-case tenant id (the database name, see TenantContext), while the configured
+        // system tenant id is mixed-case ("OctoSystem"): normalise the same way, or the lookup misses (AB#7912).
+        TenantIds = (options.Value.ValidationTenantIds.Count > 0
+                ? options.Value.ValidationTenantIds
+                : [systemOptions.Value.SystemTenantId])
+            .Select(NormalizeTenantId)
+            .Distinct(StringComparer.Ordinal)
+            .ToList();
     }
+
+    /// <summary>The key under which the CK cache holds a tenant: trimmed and lower-case.</summary>
+    internal static string NormalizeTenantId(string tenantId) => tenantId.Trim().ToLowerInvariant();
 
     public IReadOnlyList<string> TenantIds { get; }
 
