@@ -698,9 +698,15 @@ evolution: `docs/method-wire-contract.md`.
   (`ClaimAsync` atomic, expired record taken over by a conditional replace; `CompleteAsync(Completed|Unknown)`; `ReleaseAsync`; owner-only, only while `InProgress`; fails closed by
   throwing `CkMethodIdempotencyStoreException`), `CkMethodIdempotencyKey` (tenant + method + caller subject from the principal provider + key, stored `Id` = SHA-256 hex, raw key not at rest, max 128 chars),
   `CkMethodIdempotencyRecord` (reference equality for the conditional replace; `ToString` prints no fingerprint or response), `CkMethodInMemoryIdempotencyStore` (tests and single-replica hosts; the Mongo store is AB#7824 in
-  asset-repo, the band-300 filter is K4). Row 4: only not-executed codes `ReleaseAsync`; an unknown outcome and `METHOD_HANDLER_FAILED` burn the key. Option `Methods:Idempotency:Ttl` (`CkMethodIdempotencyOptions`,
+  asset-repo). Row 4: only not-executed codes `ReleaseAsync`; an unknown outcome and `METHOD_HANDLER_FAILED` burn the key. Option `Methods:Idempotency:Ttl` (`CkMethodIdempotencyOptions`,
   `CkMethodIdempotencyLifetime`): default 24 h, max 7 d (clamped + one warning), zero/negative fails start. New platform code `METHOD_REQUEST_IN_PROGRESS` (`NotExecuted`, parameter `methodId`; additive, wire contract version unchanged).
   Registration `AddCkMethodIdempotencyOptions()` / `AddCkMethodInMemoryIdempotencyStore()`. The fingerprint keys are `CkMethodFingerprintOptions` (AB#7819, see the invocation pipeline).
+- **Idempotency filter** (AB#7820, F3.5, OD-4; `src/Methods/Idempotency/CkMethodIdempotencyFilter.cs`, registration `AddCkMethodIdempotency()`, tests `IdempotencyFilterTests`): band 300, unkeyed calls pass through with zero cost.
+  Keyed call order: sensitive/unknown result -> `METHOD_VALIDATION_FAILED` `result-sensitive` (G2=A, nothing stored); no subject from `ICkMethodPrincipalProvider` -> `caller-unknown`; key > 128 -> `key-too-long`; no fingerprint on the
+  facts -> `fingerprint-unavailable`; store throws -> `METHOD_HANDLER_NOT_AVAILABLE` `idempotency-store-unavailable` (fail closed). Existing record: `MatchesStoredFingerprint` false (also an unconfigured key id or an empty fingerprint) ->
+  `parameters-changed` (before the state); in flight (until deadline + `ResponseGrace`) -> `METHOD_REQUEST_IN_PROGRESS`; `Unknown`/lapsed -> `METHOD_OUTCOME_UNKNOWN`; completed -> stored envelope with this call's `invocationId`,
+  `Facts.ReplayOf` = first invocation id. After the run: success/accepted/declared code/`METHOD_HANDLER_FAILED` -> `Completed` (replayed); not-executed platform code (via `CkMethodErrorCodes.Catalog`) -> `ReleaseAsync`;
+  timeout/outcome unknown/unknown platform code/exception/cancellation -> `Unknown` (burned). A store failure after the run never changes the caller's answer (logged, record burns when its lease lapses).
 - **Deadline clamp** (AB#7665, L-4): the invoker clamps `DeadlineUtc` to now + `Methods:Dispatcher:MaxTimeout` (`CkMethodDeadline.Clamp/MaxOf`, the dispatcher's helper) and logs the clamp once at Information.
 - **Versioning**: `CkMethodContract.CurrentVersion` (int, major) on request, response and announcement; additive changes never
   bump it, unknown members are ignored, a missing version reads as 1; a newer message is answered with

@@ -341,7 +341,7 @@ refusal; the idempotency filter (300) and the transport never run for a refused 
 
 ### Idempotency store contract (F3.5, AB#7817)
 
-The filter that uses it (band 300) is a later story; this library defines the contract, the lifetime options, the fingerprint (next section) and an in-memory store
+The filter that uses it (band 300) is described after the fingerprint; this library defines the contract, the lifetime options, the fingerprint and an in-memory store
 (`src/Methods/Idempotency/`). The MongoDB store lives in the asset repository (this library has no MongoDB reference, a test pins that).
 
 * **Identity** (`CkMethodIdempotencyKey.Create(tenant, methodId, subject, key)`): tenant + qualified method id + caller **subject** + key.
@@ -363,7 +363,8 @@ The filter that uses it (band 300) is a later story; this library defines the co
 * **`METHOD_REQUEST_IN_PROGRESS`**: the platform code for "the first call with this key is still running" (`NotExecuted` for this call; send the same key again
   later, the first result is then replayed). Additive; the contract version does not change.
 * Registration: `AddCkMethodIdempotencyOptions()` (options, validation at start, `CkMethodIdempotencyLifetime`) and
-  `AddCkMethodInMemoryIdempotencyStore()` (in-memory store unless a store is registered; its state is per process, so tests and single-replica hosts only).
+  `AddCkMethodInMemoryIdempotencyStore()` (in-memory store unless a store is registered; its state is per process, so tests and single-replica hosts only);
+  `AddCkMethodIdempotency()` adds the filter (see below).
 
 ### Parameters fingerprint and its key (F3.5, AB#7819)
 
@@ -396,6 +397,45 @@ without sensitive parameters uses a plain SHA-256 (key id `sha256`). Authorizati
 **Ops prerequisite (Platform Ops):** before keyed calls are enabled on a shared environment (test-2, staging-1, prod-1, prod-2), the
 environment needs the fingerprint secret as a Vault entry and a Helm secret value, shared by all asset-repository replicas, with the
 slot for the previous key. Until then keyed calls to methods with sensitive parameters are refused there.
+
+### Idempotency filter at band 300 (F3.5, AB#7820)
+
+`AddCkMethodIdempotency()` adds `CkMethodIdempotencyFilter` (band 300, innermost before the transport). The host also registers a store
+(`AddCkMethodInMemoryIdempotencyStore()` for tests and single-replica hosts; without any store the pipeline cannot be built and the host fails instead of
+running keyed calls unprotected) and the authorization (`AddCkMethodAuthorization()`), which supplies the principal provider. A call **without a key**
+passes straight through: no store access, no principal lookup.
+
+For a call with `IdempotencyKey` the filter decides in this order (every refusal is a normal failed envelope, the handler does not run, nothing but
+the claim is stored):
+
+| Situation | Answer |
+|---|---|
+| The method's result is sensitive, or the method is unknown (OD-4 G2) | `METHOD_VALIDATION_FAILED`, `field` `idempotencyKey`, `reason` `result-sensitive`. Nothing is stored; call without a key. |
+| No authenticated subject from `ICkMethodPrincipalProvider` | same, `reason` `caller-unknown` (a key has no scope without a caller; `CkMethodRequest.Caller` is never used). |
+| Key longer than 128 characters | same, `reason` `key-too-long`. |
+| No parameter fingerprint on the invocation (idempotency options not registered) | same, `reason` `fingerprint-unavailable` (fail closed). |
+| Store cannot decide (throws) | `METHOD_HANDLER_NOT_AVAILABLE`, `reason` `idempotency-store-unavailable`; not executed, retry later. |
+| This call took the claim | executes, then stores or releases (below). |
+| Existing record, other parameters, or a stored fingerprint that cannot be verified (empty, or made with a key id that is no longer configured) | `METHOD_VALIDATION_FAILED`, `reason` `parameters-changed`. Checked before the state. |
+| Existing record, first call still running (until request deadline + `Methods:Dispatcher:ResponseGrace`) | `METHOD_REQUEST_IN_PROGRESS`. |
+| Existing record, outcome unknown (stored `Unknown`, or the lease lapsed) | `METHOD_OUTCOME_UNKNOWN`: neither executed nor answered; the key is burned, use a new key. |
+| Existing record, completed | the stored envelope, with the `invocationId` of **this** call; `Facts.ReplayOf` = invocation id of the first call. |
+
+**Scope and position:** tenant + qualified method id + caller subject (sub, else client_id; from the principal provider) + key, stored as a hash. The
+filter sits inside authorization, so an unauthorized caller never learns whether a key exists, and behind the fingerprint-key refusal of the pipeline.
+The audit filter (100) sees every outcome and reads `Facts.ReplayOf` after `next()`.
+
+**What happens after the first call ran (OD-4 row 4):**
+
+| Outcome of the first call | Record |
+|---|---|
+| success, accepted (async), a code the method declares | stored (`Completed`), replayed |
+| `METHOD_HANDLER_FAILED` | stored (`Completed`) and replayed as that failure: the key is burned, the caller needs a new key to try again |
+| not-executed platform code (`METHOD_HANDLER_NOT_AVAILABLE`, `METHOD_FORBIDDEN`, `METHOD_VALIDATION_FAILED`, ...: `CkMethodErrorCodes.Catalog`, `NotExecuted`) | **released**: the same key may run again at once |
+| `METHOD_TIMEOUT`, `METHOD_OUTCOME_UNKNOWN`, a platform code this version does not know, an exception, cancellation by the caller | `Unknown`: burned |
+
+If the store fails *after* the method ran, the caller still gets the answer; the record stays in progress and reads as `Unknown` once its lease lapsed (burned,
+never reusable by guess). The log names method, invocation id and the opaque key id (the hash), never the raw key, a fingerprint, a parameter or a result.
 
 ## 8. Duplicate deliveries and failing sends
 

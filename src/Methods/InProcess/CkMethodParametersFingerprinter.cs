@@ -22,6 +22,30 @@ public static class CkMethodIdempotencyRefusal
     ///     configured (OD-4 G1, fail closed): without a key the fingerprint of a password could be guessed offline.
     /// </summary>
     public const string FingerprintKeyMissing = "fingerprint-key-missing";
+
+    /// <summary>
+    ///     The <c>reason</c> when the key was already used with other parameters (or the stored fingerprint cannot be
+    ///     verified any more, e.g. its key id is no longer configured). Send a new key for the new work.
+    /// </summary>
+    public const string ParametersChanged = "parameters-changed";
+
+    /// <summary>
+    ///     The <c>reason</c> when a key is sent for a method whose result is sensitive (or unknown): the result would have
+    ///     to be stored to be replayed (OD-4 G2). Call without a key.
+    /// </summary>
+    public const string ResultSensitive = "result-sensitive";
+
+    /// <summary>The <c>reason</c> when the call has no authenticated caller subject: a key has no scope without one.</summary>
+    public const string CallerUnknown = "caller-unknown";
+
+    /// <summary>The <c>reason</c> when the key is longer than <see cref="Idempotency.CkMethodIdempotencyKey.MaxKeyLength" />.</summary>
+    public const string KeyTooLong = "key-too-long";
+
+    /// <summary>The <c>reason</c> when the call carries a key but no parameter fingerprint could be made (fail closed).</summary>
+    public const string FingerprintUnavailable = "fingerprint-unavailable";
+
+    /// <summary>The <c>reason</c> of <c>METHOD_HANDLER_NOT_AVAILABLE</c> when the idempotency store cannot decide (fail closed).</summary>
+    public const string StoreUnavailable = "idempotency-store-unavailable";
 }
 
 /// <summary>The fingerprints of one request, or the fact that none can be made.</summary>
