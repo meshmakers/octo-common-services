@@ -681,6 +681,52 @@ Three types and four associations (`types/notificationSubscription.yaml`, `notif
   listens on it, so it is a cross-repo contract (pinned in the adapter by `FromNotificationScheduleNodeTests`). The message itself,
   `NotificationScheduleTick`, is pinned by `NotificationScheduleTickWireContractTests`.
 
+## System.Notification 2.7.0: event log category and structured details (AB#7821)
+
+Changelog of the model (Minor, `octo-ckc ValidateVersion` against the published 2.6.0: VALID, required level MINOR): the `Event`
+type (and so `StatefulEvent`) gets two optional attributes, nothing that exists changes. No CK model depends on System.Notification;
+the blueprints `System.Notification.Bootstrap`, `Samples.EnergyEnvironment` (`[2.1.0,3.0)`) and `System.Communication.Notifications`
+(`[2.6.0,3.0)`) accept 2.7.0, so nothing cascades. An older service keeps writing events without the new fields (embedded-import
+downgrade guard).
+
+| Attribute (type) | Meaning |
+|------------------|---------|
+| `Category` (`EventCategory`, String, optional) | stable dotted kind of the event, e.g. `Method.Invocation`, `Archive.Transition`; the auditor's filter |
+| `Details` (`EventDetails`, record list of `EventDetail`, optional) | structured key/value strings (`Key`, `Value`); e.g. invocation id, method, outcome |
+
+Both are `SeedOwned` like the other `Event` attributes (an event travels with an `ExportRt`; `RuntimeState` would drop it).
+
+- `IEventRepository` has overloads `StoreEventAsync` / `StoreSystemEventAsync` with `category` and `details`
+  (`IReadOnlyCollection<KeyValuePair<string,string>>`); the older overloads delegate with `null`, so existing callers and
+  events without a category are unchanged. `IEventRepository` has a single implementation (`EventRepository`).
+- `EventRepositoryAuditEventSink` writes `AuditEvent.Category` into `Category` and `AuditEvent.Metadata` into `Details`
+  (`MapMetadata`): `null` values are skipped, values are rendered with the invariant culture (dates ISO 8601 round-trip, lists
+  comma-separated), an empty result writes no `Details`. The sink still catches everything and logs; it never fails the caller.
+- Tests: `Notifications.Tests/EventRepositoryAuditEventSinkTests` (mapping, culture, never-throws) and
+  `Notifications.IntegrationTests` (real MongoDB replica set via Testcontainers: tenant and system tenant, an event without
+  category round-trips, filter by `Category`). The integration project is skipped without Docker or with `OCTO_SKIP_CONTAINER_TESTS=true`.
+- **Producer inventory (state of origin/main, 2026-10-30).** Metadata is persisted verbatim, so every `new AuditEvent(...)` was
+  checked: none carries a credential, token or parameter value; the keys are identifiers, names, counts and timestamps. A new
+  producer (AB#6919 method invocations, AB#7826 refused calls) must keep it that way and never put parameter values or tokens into `Metadata`.
+
+| Category | Producer | Metadata keys |
+|----------|----------|---------------|
+| `CkModelImport.ExtensibleEnumOverride` | engine `ForwardingCkModelImportAuditTrail` | `ckModelId`, `ckEnumId`, `ckEnumValueName`, `extensionValueName`, `extensionValueKey` |
+| `CkModelMigration.WrapScalarInRecord` | engine `ForwardingCkModelImportAuditTrail` | `stepId`, `ckTypeId`, `rtId`, `sourceAttribute`, `targetRecordCkRecordId`, `wrappedCount` |
+| `RtImport.MissingMandatoryAttributes` | engine `ForwardingRtImportAuditTrail` | `ckTypeId`, `rtId`, `missingCkAttributeIds` (attribute ids) |
+| `RtImport.SkippedDanglingEdges` | engine `ForwardingRtImportAuditTrail` | `skippedCount`, `sampleEdges` (edge descriptions: role, type and rtIds) |
+| `RtImport.ReplacedToOneEdges` | engine `ForwardingRtImportAuditTrail` | `replacedCount`, `sampleEdges` |
+| `RtImport.BlueprintAttributesStripped` | engine `ImportBlueprintLockEnforcer` | `strippedAttributeCount`, `strippedEntityCount` |
+| `Archive.Transition` | engine `ForwardingArchiveAuditTrail` | `archiveRtId`, `fromStatus`, `toStatus`, `reason` |
+| `Archive.Deletion` | engine `ForwardingArchiveAuditTrail` | `archiveRtId`, `statusAtDeletion` |
+| `Archive.RollupRun` | engine `ForwardingArchiveAuditTrail` | `rollupRtId`, `bucketStart`, `bucketEnd`, `rowsWritten`, `elapsedMs` |
+| `Archive.RollupFreeze` | engine `ForwardingArchiveAuditTrail` | `rollupRtId`, `frozenUntil`, `reason` |
+| `Archive.Recompute` | engine `ForwardingArchiveAuditTrail` | `archiveRtId`, `rangeStart`, `rangeEnd`, `rowsProcessed`, `windowsProcessed`, `elapsedMs` |
+| `Archive.RecomputeFailure` | engine `ForwardingArchiveAuditTrail` | `archiveRtId`, `rangeStart`, `rangeEnd`, `reason` |
+| `Archive.RetroReachCapped` | engine `ForwardingArchiveAuditTrail` | `archiveRtId`, `consumedWatermark`, `cappedFloor`, `capMs` |
+| `Tenant.CreateFailed` | engine-mongodb `TenantContext` | `tenantId`, `databaseName`, `correlationId` |
+| `DataPermissions.WriteViolation` / `ReadViolation` / `BlueprintLockViolation` | engine `DataPermissionRules`, `RtDataPermissionEvaluator`, `DataPermissionWriteGuard`, `ImportBlueprintLockEnforcer`; engine-mongodb `TenantRepository` | none (the message names subject and type) |
+
 ## CK method wire contract (CK v2 Phase 3, AB#6874)
 
 Namespace `Meshmakers.Octo.Services.Contracts.DistributionEventHub.Methods` (`src/Contracts/DistributionEventHub/Methods/`),

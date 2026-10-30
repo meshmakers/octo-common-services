@@ -1,0 +1,38 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+    <PropertyGroup>
+        <IsPackable>false</IsPackable>
+        <IsTestProject>true</IsTestProject>
+        <OutputType>Exe</OutputType>
+        <RootNamespace>Notifications.IntegrationTests</RootNamespace>
+        <Configurations>Debug;Release;DebugL</Configurations>
+        <Platforms>AnyCPU</Platforms>
+    </PropertyGroup>
+
+    <ItemGroup>
+        <PackageReference Include="coverlet.collector" Version="10.0.1">
+            <PrivateAssets>all</PrivateAssets>
+            <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
+        </PackageReference>
+        <PackageReference Include="Microsoft.Extensions.Logging" Version="10.0.13" />
+        <PackageReference Include="Microsoft.NET.Test.Sdk" Version="18.9.0" />
+        <PackageReference Include="Testcontainers.MongoDb" Version="4.14.0" />
+        <PackageReference Include="xunit.v3.mtp-off" Version="4.0.0" />
+        <PackageReference Include="xunit.runner.visualstudio" Version="4.0.0">
+            <PrivateAssets>all</PrivateAssets>
+            <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
+        </PackageReference>
+        <!-- The engine and its MongoDB persistence, the real thing the event repository writes to -->
+        <PackageReference Include="Meshmakers.Octo.Runtime.Engine" Version="$(OctoCoreLibVersion)" />
+        <PackageReference Include="Meshmakers.Octo.Runtime.Engine.MongoDb" Version="$(OctoCoreLibVersion)" />
+    </ItemGroup>
+
+    <ItemGroup>
+        <Using Include="Xunit" />
+    </ItemGroup>
+
+    <ItemGroup>
+        <ProjectReference Include="..\..\src\Notifications\Notifications.csproj" />
+    </ItemGroup>
+
+</Project>

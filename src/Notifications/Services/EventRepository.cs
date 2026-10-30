@@ -40,22 +40,52 @@ public class EventRepository(ISystemContext systemContext) : IEventRepository
         await session.CommitTransactionAsync().ConfigureAwait(false);
     }
 
-    public async Task StoreEventAsync(string tenantId, RtEventSourcesEnum source, RtEventLevelsEnum eventLevel, string message, 
+    private static RtEvent CreateEvent(RtEventSourcesEnum source, RtEventLevelsEnum eventLevel, string message,
+        string? category, IReadOnlyCollection<KeyValuePair<string, string>>? details)
+    {
+        var rtEvent = new RtEvent
+        {
+            RtId = OctoObjectId.GenerateNewId(),
+            Message = message,
+            Source = source,
+            Level = eventLevel
+        };
+
+        if (!string.IsNullOrWhiteSpace(category))
+        {
+            rtEvent.Category = category;
+        }
+
+        if (details is { Count: > 0 })
+        {
+            var detailRecords = new AttributeRecordValueList<RtEventDetailRecord>();
+            foreach (var detail in details)
+            {
+                detailRecords.Add(new RtEventDetailRecord { Key = detail.Key, Value = detail.Value });
+            }
+
+            rtEvent.Details = detailRecords;
+        }
+
+        return rtEvent;
+    }
+
+    public Task StoreEventAsync(string tenantId, RtEventSourcesEnum source, RtEventLevelsEnum eventLevel, string message,
+        RtEntityId? associatedRtEntityId = null)
+    {
+        return StoreEventAsync(tenantId, source, eventLevel, message, null, null, associatedRtEntityId);
+    }
+
+    public async Task StoreEventAsync(string tenantId, RtEventSourcesEnum source, RtEventLevelsEnum eventLevel,
+        string message, string? category, IReadOnlyCollection<KeyValuePair<string, string>>? details,
         RtEntityId? associatedRtEntityId = null)
     {
         ArgumentValidation.ValidateString(nameof(tenantId), tenantId);
         ArgumentValidation.ValidateString(nameof(message), message);
-        
+
         try
         {
-            var rtEvent = new RtEvent
-            {
-                RtId = OctoObjectId.GenerateNewId(),
-                Message = message,
-                Source = source,
-                Level = eventLevel
-            };
-
+            var rtEvent = CreateEvent(source, eventLevel, message, category, details);
             await AddMessageAsync(rtEvent, tenantId, associatedRtEntityId).ConfigureAwait(false);
         }
         catch (Exception e)
@@ -63,22 +93,22 @@ public class EventRepository(ISystemContext systemContext) : IEventRepository
             throw new EventStoreFailedException("Event store failed.", e);
         }
     }
-    
+
+    public Task StoreSystemEventAsync(RtEventSourcesEnum source, RtEventLevelsEnum eventLevel, string message,
+        RtEntityId? associatedRtEntityId = null)
+    {
+        return StoreSystemEventAsync(source, eventLevel, message, null, null, associatedRtEntityId);
+    }
+
     public async Task StoreSystemEventAsync(RtEventSourcesEnum source, RtEventLevelsEnum eventLevel, string message,
+        string? category, IReadOnlyCollection<KeyValuePair<string, string>>? details,
         RtEntityId? associatedRtEntityId = null)
     {
         ArgumentValidation.ValidateString(nameof(message), message);
 
         try
         {
-            var rtEvent = new RtEvent
-            {
-                RtId = OctoObjectId.GenerateNewId(),
-                Message = message,
-                Source = source,
-                Level = eventLevel
-            };
-
+            var rtEvent = CreateEvent(source, eventLevel, message, category, details);
             await AddMessageAsync(rtEvent, null, associatedRtEntityId).ConfigureAwait(false);
         }
         catch (Exception e)
