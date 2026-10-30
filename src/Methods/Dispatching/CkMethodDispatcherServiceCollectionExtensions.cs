@@ -15,7 +15,9 @@ public static class CkMethodDispatcherServiceCollectionExtensions
     ///     event hub with <see cref="AddCkMethodHandlerRegistryFeed" /> in its configuration and, to resolve methods of
     ///     derived or implementing types, the CK cache. Methods registered with <c>AddCkInProcessMethodHandlers</c> in the
     ///     same service are called in-process; the others go over the bus. The invocation pipeline is shared with the
-    ///     in-process transport, register filters with <c>AddCkMethodInvocationFilter</c>.
+    ///     in-process transport, register filters with <c>AddCkMethodInvocationFilter</c>. When the host registers an
+    ///     <c>ICkMethodHandlerSnapshotStore</c> (the MongoDB runtime engine does), the registry is persisted as a snapshot
+    ///     (<see cref="CkMethodDispatcherOptions.SnapshotEnabled" />, AB#5671); without it the registry is in memory only.
     /// </summary>
     /// <param name="services">The service collection.</param>
     public static IServiceCollection AddCkMethodDispatcher(this IServiceCollection services)
@@ -26,6 +28,13 @@ public static class CkMethodDispatcherServiceCollectionExtensions
         services.AddCkMethodInvocationPipeline();
         services.TryAddSingleton<CkMethodHandlerRegistry>();
         services.TryAddSingleton<ICkMethodHandlerRegistry>(sp => sp.GetRequiredService<CkMethodHandlerRegistry>());
+        services.TryAddSingleton<CkMethodHandlerSnapshotPersistence>();
+        if (services.All(d => d.ImplementationType != typeof(CkMethodHandlerSnapshotLoadService)))
+        {
+            services.AddInitializationService<CkMethodHandlerSnapshotLoadService>();
+            services.AddHostedService<CkMethodHandlerSnapshotFlushService>();
+        }
+
         services.TryAddSingleton<ICkMethodDeclaringElementResolver, CkCacheMethodDeclaringElementResolver>();
         services.TryAddSingleton<ICkMethodTimeoutResolver, CkCacheMethodTimeoutResolver>();
         services.TryAddSingleton<ICkMethodDispatcher, CkMethodDispatcher>();

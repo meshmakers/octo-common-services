@@ -427,10 +427,29 @@ tolerance) before it answers `METHOD_TIMEOUT` itself; message TTL and send timeo
 
 **The registry is advisory.** `ICkMethodHandlerRegistry` (fed by `CkMethodHandlerAnnounced` / `Withdrawn`, expiry = receipt time + the
 announced TTL, 45 s by default; a dispatcher asks for a fresh announcement at start) provides the tenant and contract version
-checks and diagnostics (`GetLiveHandlers`, `GetLastSeen`, `Snapshot`; the persisted snapshot and the Studio view are F3.2). It never
+checks and diagnostics (`GetLiveHandlers`, `GetLastSeen`, `Snapshot`; the Studio view is F3.2). It never
 vetoes a send: an empty registry (dispatcher just started, heartbeat lost) must not refuse a call the broker can still deliver, so the
 mandatory flag decides. A withdrawal beats any announcement written before it; a broker "not routable" expires only entries last seen
 before the send started.
+
+**The persisted snapshot (AB#5671).** When the host registers `ICkMethodHandlerSnapshotStore` (the MongoDB runtime engine does:
+non-CK collection `ck_method_handler_snapshot` in the system database, one document per method and handler instance, unique key plus a
+TTL index) the registry is written to it in the background (`Methods:Dispatcher:SnapshotFlushInterval`, default 5 s, one bulk write per
+heartbeat round) and loaded by `CkMethodHandlerSnapshotLoadService` (initialization order 28, before the discovery request). A restarted
+dispatcher host therefore knows its handlers, the served tenants and the contract versions before the first heartbeat arrives.
+
+* **A row is "last seen", not "live".** A restored row is live only inside its TTL window (`ExpiresUtc`, receipt time + announced TTL),
+  exactly like a received announcement. Rows of a stopped handler, an expired TTL or a withdrawal are history: `GetLiveHandlers` does not
+  return them, the send is decided by the broker and ends as `METHOD_HANDLER_NOT_AVAILABLE`. A withdrawal is stored as a tombstone with the
+  handler's own withdrawal timestamp, so an older announcement that arrives after a restart cannot resurrect the instance.
+* **Never more than an announcement could say.** On restore `LastSeenUtc` is capped to now and `ExpiresUtc` to `LastSeenUtc` + 24 h; rows
+  last seen more than 24 h ago are skipped. A heartbeat or discovery answer that arrived since is newer and wins over the snapshot row.
+* **Service data only.** A row holds ids, service name, versions, times, the served tenant ids and flags; no parameter value, token or user
+  data (tests over the stored document and the row type).
+* **Optional.** Without the store, or with `Methods:Dispatcher:SnapshotEnabled=false`, nothing is queued and the registry behaves as before.
+  A store that is down, or not yet there (system tenant missing), never affects a call: the write is retried with the next flush, a failing
+  load is logged and the registry fills from heartbeats.
+* Several dispatcher replicas share the collection; an upsert never replaces a row with an older `LastSeenUtc`.
 
 **A handler stopping mid-flight.** A graceful stop withdraws first and removes the endpoints; new calls fail at once with
 `METHOD_HANDLER_NOT_AVAILABLE`. A call that is running on that instance gets its cancellation token cancelled and ends as
