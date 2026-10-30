@@ -844,7 +844,7 @@ tests `tests/Methods.Tests/InProcess/`. Guide: `docs/method-handler-sdk.md` sect
   `CkDetachedExecution.Run` = `Task.Run` under `ExecutionContext.SuppressFlow()`, so the handler's flow has an **empty** ambient context
   (an `AsyncLocal` set by the caller, e.g. the asset-repo request session, is not visible, also not after the first `await`; nothing set by the
   handler leaks back). Carried explicitly, nothing else: the trace (`Activity.Current` of the caller is restored in the flow; our
-  `ActivitySource` `CkMethodTelemetry.ActivitySourceName` = `Meshmakers.Octo.Methods` starts the handler span `CK method handle` as its child,
+  `ActivitySource` `CkMethodTelemetry.ActivitySourceName` = `Meshmakers.Octo.Methods` starts the handler span `CK method handle` (since AB#6920 a grandchild of the caller: caller > `CK method call` > `CK method handle`),
   tags `ck.method.id`, `ck.method.transport`; subscribed in `ObservabilityBuilder`; without a listener the caller's trace still continues),
   `CurrentCulture`/`CurrentUICulture`, the cancellation token with the deadline (argument), and the call-identifying logging scope
   (`MethodId`, `InvocationId`, `CorrelationId`, `TenantId`, opened by the invoker inside the detached flow). The caller's logging scopes,
@@ -970,6 +970,42 @@ tests `tests/Methods.Tests/InProcess/`. Guide: `docs/method-handler-sdk.md` sect
   red, the skipped test is enabled. The asset-repo half (HTTP token layer, gateway, GraphQL) is in
   `octo-asset-repo-services/tests/**/Adversarial`, see its CLAUDE.md. A new method path (filter, transport, handler host) gets
   its cases added here before it ships.
+
+### Method metrics and one trace per call (AB#6920, F3.5)
+
+Meter **`Meshmakers.Octo.Methods`** (`CkMethodTelemetry.MeterName`; one `Meter` instance, `CkMethodTelemetry.Meter`, also used by `ck.method.audit.failures`
+of AB#6919; registered in `ObservabilityBuilder`, test `MeterRegistrationTests.MethodsMeter_IsRegistered`). Code: `src/Methods/Metrics/CkMethodMetrics.cs`,
+tests `tests/Methods.Tests/Metrics/CkMethodMetricsTests.cs`, `tests/Methods.IntegrationTests/CkMethodTraceAndMetricsBusTests.cs`, canary in
+`CkMethodRedactionBusTests` (metric tags are scanned like logs). Reference for operators: `docs/method-metrics.md`.
+
+| Instrument | Type | Labels | Counts |
+|------------|------|--------|--------|
+| `ck.method.calls` | counter | `method_id`, `transport`, `outcome` | every finished call once |
+| `ck.method.duration` | histogram, seconds (buckets 5 ms .. 300 s) | `method_id`, `transport`, `outcome` | duration of the same call |
+| `ck.method.no_handler` | counter | `method_id`, `transport` | outcome `METHOD_HANDLER_NOT_AVAILABLE` of an unroutable call (not the idempotency store being down) |
+| `ck.method.duplicate_refused` | counter | `reason` (`broker_flag`, `seen_id`), `method_id` | a delivery a handler host refused as a possible duplicate |
+| `ck.method.audit.failures` | counter | `transport` | audit events that could not be written (AB#6919) |
+
+- **Where it is counted (exactly once per call).** `CkMethodInvocationPipeline.ExecuteAsync` wraps *everything* (filters and transport; also the
+  no-filter early return) in one call span, one stopwatch and one `finally`: both transports (`bus`, `in-process`) and every outcome (success, declared
+  error, platform code, authorization refusal, replay, exception as `METHOD_HANDLER_FAILED`, caller cancellation as `CALLER_CANCELLED`) are seen
+  once. It is **not** a filter: the bands Audit 100 / Authorization 200 / Idempotency 300 stay the only ordering contract. A call the **gateway refuses
+  before the pipeline** (AB#7826) never reaches it, so `CkMethodAuditRecorder.RecordAsync` counts exactly those records (`Transport == "gateway"`, outcome =
+  the refusal code, duration = `record.Duration`); records of the audit filter carry `bus`/`in-process` and are not counted there. Consequence: the gateway
+  count exists where audit is registered (the recorder is the only shared point); no asset-repo change is needed for it.
+- **Duplicates.** `CkMethodSeenInvocations.Decide` (AB#7818) counts, so every host (library bus consumer, communication controller after AB#7822) is covered
+  once per delivery: the broker flag wins (`broker_flag`), otherwise a repeated invocation id (`seen_id`). A fresh delivery counts nothing. This is the
+  measurable trigger of OD-3 option B' (a duplicate without broker flag = `seen_id` rising).
+- **Labels never contain** parameters, results, tokens, idempotency keys, entity ids, user names or the tenant (the Methods meter carries no tenant, like
+  `ck.method.audit.failures`; tenant is not needed to see which method fails). Bounded values: unknown transport -> `other`; an outcome that is neither
+  `SUCCESS`/`ACCEPTED`/`CALLER_CANCELLED` nor a platform code nor a well-formed declared code -> `invalid_code`; after 1000 distinct `method_id`
+  values per process further ids -> `other` (`CkMethodLabelBudget`; a forging caller cannot grow the series). Canary test: all labels, instrument names.
+- **Traces.** `ObservabilityBuilder` adds `AddSource("MassTransit")`: MassTransit then creates send/process spans and carries the W3C context in the message,
+  so the handler joins the gateway's trace. Spans of `Meshmakers.Octo.Methods` (`CkMethodTelemetry`): `CK method call` (Client; the dispatcher side, the
+  pipeline's one span, tags `ck.method.id`, `ck.method.transport`, `ck.method.outcome`) and `CK method handle` (Consumer on the bus consumer, Internal for
+  in-process); no parameters, results or tokens in tags. Chain over the bus: gateway span > `CK method call` > MassTransit send > MassTransit process > `CK method handle`.
+  Test `CkMethodTraceAndMetricsBusTests.CallOverTheBus_IsOneTrace_...` (private RabbitMQ, the tracer provider is the one `AddObservability()` builds, in-memory
+  exporter; fails when the `MassTransit` source is removed). Like the other sources it must also be in `OTEL_DOTNET_AUTO_TRACES_ADDITIONAL_SOURCES` in the charts to leave a pod through the injector.
 
 ### Method dispatcher (AB#6905, F3.3)
 

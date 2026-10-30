@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using Meshmakers.Octo.Common.DistributionEventHub.Services;
 using Meshmakers.Octo.Services.Contracts.DistributionEventHub.Methods;
 using Microsoft.Extensions.Logging;
@@ -54,6 +55,9 @@ internal sealed class CkMethodBusConsumer(
     /// </param>
     internal async Task<CkMethodResponse> HandleAsync(CkMethodRequest request, CommandDeliveryInfo? delivery = null)
     {
+        // Handler side of the call (AB#6920): the bus consume span of the caller's trace is the parent.
+        using var span = CkMethodTelemetry.StartSpan(CkMethodTelemetry.HandleSpanName, ActivityKind.Consumer,
+            request.MethodId, CkMethodTransportNames.Bus);
         // The decision (broker flag, then the invocation id as second line, clamped retention) is the shared helper's.
         switch (_seen.Decide(request, delivery))
         {

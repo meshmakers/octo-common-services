@@ -1,6 +1,7 @@
 using System.Collections.Concurrent;
 using Meshmakers.Octo.Common.DistributionEventHub.Services;
 using Meshmakers.Octo.Services.Contracts.DistributionEventHub.Methods;
+using Meshmakers.Octo.Services.Methods.Metrics;
 
 namespace Meshmakers.Octo.Services.Methods.Handlers;
 
@@ -48,10 +49,18 @@ public sealed class CkMethodSeenInvocations
         var firstSight = TryMarkSeen(request.InvocationId, request.DeadlineUtc);
         if (delivery is { IsPossibleDuplicate: true })
         {
+            // one count per refused delivery, here where every host decides (AB#6920); the broker flag wins over the id
+            CkMethodMetrics.RecordDuplicateRefused(request.MethodId, CkMethodDuplicateReasons.BrokerFlag);
             return CkMethodDeliveryDecision.PossibleDuplicate;
         }
 
-        return firstSight ? CkMethodDeliveryDecision.Fresh : CkMethodDeliveryDecision.AlreadySeen;
+        if (!firstSight)
+        {
+            CkMethodMetrics.RecordDuplicateRefused(request.MethodId, CkMethodDuplicateReasons.SeenId);
+            return CkMethodDeliveryDecision.AlreadySeen;
+        }
+
+        return CkMethodDeliveryDecision.Fresh;
     }
 
     private bool TryMarkSeen(Guid invocationId, DateTime deadlineUtc)

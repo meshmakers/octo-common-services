@@ -57,4 +57,23 @@ public class MeterRegistrationTests
 
         Assert.True(counter.Enabled);
     }
+
+    /// <summary>
+    ///     AB#6920 / AB#6919: ck.method.calls, .duration, .no_handler, .duplicate_refused and ck.method.audit.failures
+    ///     (meter of the Methods package, name pinned there by a test) reach the exporters.
+    /// </summary>
+    [Fact]
+    public void MethodsMeter_IsRegistered()
+    {
+        var builder = Host.CreateApplicationBuilder();
+        builder.AddObservability();
+
+        using var host = builder.Build();
+        _ = host.Services.GetRequiredService<MeterProvider>();
+
+        using var meter = new System.Diagnostics.Metrics.Meter("Meshmakers.Octo.Methods");
+        var counter = meter.CreateCounter<int>("ck.method.probe");
+
+        Assert.True(counter.Enabled);
+    }
 }

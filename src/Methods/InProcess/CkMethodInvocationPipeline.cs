@@ -1,6 +1,9 @@
 using Meshmakers.Octo.Services.Contracts.DistributionEventHub.Methods;
 using Meshmakers.Octo.Services.Methods.Handlers;
+using Meshmakers.Octo.Services.Methods.Audit;
 using Meshmakers.Octo.Services.Methods.Idempotency;
+using Meshmakers.Octo.Services.Methods.Metrics;
+using System.Diagnostics;
 using Microsoft.Extensions.Logging;
 
 namespace Meshmakers.Octo.Services.Methods;
@@ -106,6 +109,11 @@ internal sealed class CkMethodInvocationPipeline(
 {
     private readonly ICkMethodInvocationFilter[] _filters = filters.OrderBy(f => f.Order).ToArray();
 
+    /// <summary>
+    ///     Counts and times the whole call (AB#6920): around the filters and the transport, so every outcome of every
+    ///     transport is seen once - also a refusal of the authorization filter, a replay and a call without any filter. It is
+    ///     deliberately not a filter: the bands 100/200/300 stay the only ordering contract.
+    /// </summary>
     public async Task<CkMethodResponse> ExecuteAsync(string transportName, CkMethodRequest request,
         CkMethodInvocationDelegate transport, CancellationToken cancellationToken = default)
     {
@@ -113,6 +121,35 @@ internal sealed class CkMethodInvocationPipeline(
         ArgumentNullException.ThrowIfNull(request);
         ArgumentNullException.ThrowIfNull(transport);
 
+        var started = Stopwatch.GetTimestamp();
+        // The span of the whole call; the bus message and the in-process handler span become its children, so the handler
+        // side of a call is one trace with the gateway that made it. Nobody listening: no span, the trace continues.
+        using var span = CkMethodTelemetry.StartSpan(CkMethodTelemetry.CallSpanName, ActivityKind.Client, request.MethodId,
+            transportName);
+        CkMethodResponse? response = null;
+        var outcome = CkMethodErrorCodes.MethodHandlerFailed;
+        try
+        {
+            response = await ExecuteCoreAsync(transportName, request, transport, cancellationToken).ConfigureAwait(false);
+            outcome = CkMethodAuditRecord.OutcomeOf(response);
+            return response;
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            outcome = CkMethodAuditOutcomes.CallerCancelled;
+            throw;
+        }
+        finally
+        {
+            span?.SetTag(CkMethodTelemetry.OutcomeTag, outcome);
+            CkMethodMetrics.RecordFinished(request.MethodId, transportName, outcome, Stopwatch.GetElapsedTime(started),
+                response);
+        }
+    }
+
+    private async Task<CkMethodResponse> ExecuteCoreAsync(string transportName, CkMethodRequest request,
+        CkMethodInvocationDelegate transport, CancellationToken cancellationToken)
+    {
         // A call without a key costs nothing here; a keyed call needs the sensitivity and the fingerprint even when no
         // filter is registered, so that the missing-key refusal does not depend on which other filters exist.
         var keyed = fingerprinter != null && !string.IsNullOrEmpty(request.IdempotencyKey);

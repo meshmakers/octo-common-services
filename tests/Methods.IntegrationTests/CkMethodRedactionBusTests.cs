@@ -50,6 +50,7 @@ public sealed class CkMethodRedactionBusTests(RabbitMqFixture rabbitMq) : IAsync
     private readonly List<IEventHubControl> _hubs = [];
     private readonly CaptureSink _sink = new();
     private ActivityListener? _listener;
+    private System.Diagnostics.Metrics.MeterListener? _meters;
 
     public ValueTask InitializeAsync()
     {
@@ -60,11 +61,28 @@ public sealed class CkMethodRedactionBusTests(RabbitMqFixture rabbitMq) : IAsync
             ActivityStopped = activity => _sink.Add("activity", DescribeActivity(activity))
         };
         ActivitySource.AddActivityListener(_listener);
+        // AB#6920: every metric measurement of the method meter (instrument name + all tags) is scanned like a log line
+        _meters = new System.Diagnostics.Metrics.MeterListener();
+        _meters.InstrumentPublished = (instrument, l) =>
+        {
+            if (instrument.Meter.Name == CkMethodTelemetry.MeterName)
+            {
+                l.EnableMeasurementEvents(instrument);
+            }
+        };
+        _meters.SetMeasurementEventCallback<long>((i, v, tags, _) => AddMetric(i, tags));
+        _meters.SetMeasurementEventCallback<double>((i, v, tags, _) => AddMetric(i, tags));
+        _meters.Start();
         return ValueTask.CompletedTask;
     }
 
+    private void AddMetric(System.Diagnostics.Metrics.Instrument instrument,
+        ReadOnlySpan<KeyValuePair<string, object?>> tags) =>
+        _sink.Add("metric", instrument.Name + " " + string.Join(",", tags.ToArray().Select(t => $"{t.Key}={t.Value}")));
+
     public async ValueTask DisposeAsync()
     {
+        _meters?.Dispose();
         _listener?.Dispose();
         foreach (var hub in _hubs)
         {
@@ -386,6 +404,9 @@ public sealed class CkMethodRedactionBusTests(RabbitMqFixture rabbitMq) : IAsync
         var captured = _sink.Snapshot();
         Assert.Contains(captured, c => c.Kind == "audit-request"); // the scan really looked at the audit view
         Assert.Contains(captured, c => c.Kind == "log");
+        // AB#6920: the scan covers the method meter: the calls were counted, and no label carries the canary
+        Assert.Contains(captured, c => c.Kind == "metric" && c.Text.StartsWith("ck.method.calls ", StringComparison.Ordinal));
+        Assert.Contains(captured, c => c.Kind == "metric" && c.Text.StartsWith("ck.method.duration ", StringComparison.Ordinal));
         // the real audit filter wrote one event per call (6 calls above), and the scan below covers them
         Assert.Equal(6, captured.Count(c => c.Kind == "audit-event"));
         var forms = Forms(canary);

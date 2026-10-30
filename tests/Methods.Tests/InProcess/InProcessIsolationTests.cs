@@ -147,7 +147,12 @@ public class InProcessIsolationTests
         Assert.NotNull(span);
         Assert.Equal(CkMethodTelemetry.ActivitySourceName, span.Source.Name);
         Assert.Equal(caller.TraceId, span.TraceId);
-        Assert.Equal(caller.SpanId, span.ParentSpanId);
+        // AB#6920: the pipeline's call span sits between the caller and the handler: caller > call > handle
+        var call = span.Parent;
+        Assert.NotNull(call);
+        Assert.Equal("CK method call", call.OperationName);
+        Assert.Equal(caller.SpanId, call.ParentSpanId);
+        Assert.Equal(call.SpanId, span.ParentSpanId);
         Assert.Equal(TestData.MethodId, span.GetTagItem("ck.method.id"));
         Assert.Equal(CkMethodTransportNames.InProcess, span.GetTagItem("ck.method.transport"));
         Assert.Same(caller, Activity.Current); // the handler's activity did not replace the caller's
