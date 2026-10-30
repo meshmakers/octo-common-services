@@ -278,6 +278,15 @@ The response mirrors this (AB#7007): the filters get the response of the transpo
 filter that returns a different response (for example a failed one) keeps its change; a filter that answers without calling `next` is returned
 as is.
 
+**Sharing facts between filters (AB#7816).** `context.Facts` (`CkMethodInvocationFacts`) is one object per invocation, created by the pipeline:
+every filter of that call sees the same instance (also after `context with { Request = ... }`), two calls never share one. An inner filter tells
+the outer ones what it did, and the outer one reads it **after `next()` returned**: the idempotency filter (band 300) sets `Facts.ReplayOf` (the
+first invocation id of the key) when it answers from its store, and the audit filter (band 100) reads it to write "replay of". Only the idempotency
+filter sets `ReplayOf`. `Facts.ParametersFingerprint` (the keyed fingerprint of the raw parameters, an opaque `CkMethodParametersFingerprint`) is
+set by the pipeline before the first filter runs and is read-only for filters. The facts are not a member of `CkMethodRequest` or
+`CkMethodResponse`, are never serialized and never logged: the `ToString()` of the facts, of the fingerprint and of the context prints no
+fingerprint value, and a filter must not log or audit it either.
+
 A filter refuses with a normal failed `CkMethodResponse` (for example `METHOD_FORBIDDEN`), may continue with a modified request
 (`next(request with { IdempotencyKey = ... })`) and must not log `ParametersJson` or the token. An exception escaping a filter is
 answered `METHOD_HANDLER_FAILED`. The dispatcher of F3.3 runs its bus send as the terminal delegate of the same pipeline

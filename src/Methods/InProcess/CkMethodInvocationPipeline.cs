@@ -54,7 +54,15 @@ public delegate Task<CkMethodResponse> CkMethodInvocationDelegate(CkMethodReques
 public sealed record CkMethodInvocationContext(
     string Transport,
     CkMethodRequest Request,
-    CancellationToken CancellationToken);
+    CancellationToken CancellationToken)
+{
+    /// <summary>
+    ///     The facts of this invocation that the filters share (AB#7816). One instance per call, created by the pipeline;
+    ///     <c>context with { Request = ... }</c> keeps the same instance, so an outer filter reads after <c>next()</c> what
+    ///     an inner one set. A context a test builds by hand starts with its own empty facts.
+    /// </summary>
+    public CkMethodInvocationFacts Facts { get; init; } = new();
+}
 
 /// <summary>
 ///     One step around every method invocation, for the in-process and the bus transport alike. This is the extension
