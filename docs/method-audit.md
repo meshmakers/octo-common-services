@@ -9,7 +9,8 @@ deliberately does not contain.
 | Writer | Calls that it records | Where |
 |--------|-----------------------|-------|
 | `CkMethodAuditFilter`, band 100 (`CkMethodInvocationFilterOrder.Audit`), outermost filter of the pipeline | everything that enters the pipeline: success, declared business error, `METHOD_HANDLER_FAILED`, `METHOD_TIMEOUT`, `METHOD_HANDLER_NOT_AVAILABLE`, `METHOD_OUTCOME_UNKNOWN`, a refusal by authorization (band 200, `METHOD_FORBIDDEN`), an answer of the idempotency filter (band 300) including `METHOD_REQUEST_IN_PROGRESS` and a parameters-changed refusal | this repository, `src/Methods/Audit` |
-| the gateway (asset-repo, AB#7826) | the calls it refuses **before** the pipeline: forbidden, unknown or invisible target, oversized or invalid parameters | uses `ICkMethodAuditRecorder` directly |
+| the gateway (asset-repo, AB#7826) | the calls it refuses **before** the pipeline: forbidden, unknown or invisible target, oversized or invalid parameters; a fault of its own steps (`METHOD_HANDLER_FAILED`, the exception surfaces); a cancellation by the caller before the dispatch (`CALLER_CANCELLED`) | uses `ICkMethodAuditRecorder` directly |
+| `CkMethodDispatcher`, last line (AB#7930) | a call that fails in the dispatcher **before the filters** of the pipeline ran: a fault of the resolver or the DI container, an exception that escapes the pipeline before its filters, a cancellation that surfaces before the pipeline | uses `ICkMethodAuditRecorder` when `AddCkMethodAudit()` is registered |
 
 Both go through the public `ICkMethodAuditRecorder` so that the event looks the same wherever it was written:
 
@@ -34,6 +35,24 @@ or it hands it to the dispatcher (the filter records it). Register with `service
 registered `IAuditEventSink` (the event log, after `AddNotificationServices()`). `RecordAsync` throws
 `CkMethodAuditFailedException` only when the tenant is configured to fail calls on an audit failure (below); the gateway answers
 the call as failed in that case.
+
+### One event, one count per invocation id
+
+Whoever observes the end of a call records it, and only that one:
+
+| The call ends ... | Recorded by | Counted in `ck.method.calls` by |
+|-------------------|-------------|---------------------------------|
+| in the gateway, before the dispatcher (refusal, fault, cancellation in the target-access check) | the gateway, transport `gateway` | the recorder (every `gateway` record) |
+| in the dispatcher before the pipeline (resolver or DI fault, cancellation) | the dispatcher, transport `bus` (`in-process` once the in-process transport was chosen), outcome `METHOD_HANDLER_FAILED` or `CALLER_CANCELLED`, no handler instance | the dispatcher, same labels |
+| as an exception that escapes the pipeline before its filters ran | the dispatcher, outcome `METHOD_HANDLER_FAILED` | the pipeline (it counts every call it runs) |
+| anywhere inside the pipeline | the audit filter | the pipeline |
+
+The dispatcher answers its last-line fault as a normal `METHOD_HANDLER_FAILED` response, so the gateway (which records only
+exceptions it catches) sees an answer and does not record it again. A cancellation that reaches the gateway after the dispatch
+started is recorded by the filter (or the dispatcher), never by the gateway. The caller of an event written by the dispatcher is
+the trusted `ICkMethodPrincipalProvider` principal, falling back to `request.Caller`; the record cannot carry parameters,
+results or tokens, and the exception text never reaches it. Without `AddCkMethodAudit()` the dispatcher records nothing but
+still counts the call.
 
 ## The event
 
@@ -72,7 +91,11 @@ first invocation (never the key or the fingerprint). `METHOD_REQUEST_IN_PROGRESS
 
 * An inner filter throws: one event with `METHOD_HANDLER_FAILED`, the exception propagates and the pipeline answers as before.
 * The caller cancels (`OperationCanceledException` of the caller's token): one event with `CALLER_CANCELLED`, the exception
-  propagates. The method may or may not have run. The event is written with a token that is not cancelled.
+  propagates. The method may or may not have run. The event is written with a token that is not cancelled. Where it is
+  written depends on where the cancellation surfaces: in the pipeline by the filter, in the dispatcher before the pipeline by the
+  dispatcher, in the gateway before the dispatch (target-access check) by the gateway.
+* The dispatcher itself fails before the pipeline runs (resolver, DI): the caller gets a `METHOD_HANDLER_FAILED` response and
+  one event with the same outcome is written by the dispatcher (see the table above).
 
 ## Audit failure
 

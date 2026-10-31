@@ -10,8 +10,9 @@ namespace Meshmakers.Octo.Services.Methods.Audit;
 /// <summary>
 ///     Writes the audit event of one CK method invocation (AB#6919): category <c>Method.Invocation</c>, metadata from
 ///     <see cref="CkMethodAuditRecord" />. The band-100 audit filter calls it for every call that enters the pipeline; the
-///     gateway (AB#7826) calls it for the calls it refuses before the pipeline, so the event repository holds exactly one event
-///     per invocation id whichever way the call ended. Register with <c>AddCkMethodAudit()</c>.
+///     gateway (AB#7826) calls it for the calls it refuses before the pipeline and the dispatcher (AB#7930) for the calls that fail
+///     in its last line before the filters ran, so the event repository holds exactly one event per invocation id whichever way
+///     the call ended. Register with <c>AddCkMethodAudit()</c>.
 /// </summary>
 public interface ICkMethodAuditRecorder
 {
