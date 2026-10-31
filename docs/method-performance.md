@@ -20,8 +20,8 @@ Tests (`tests/Methods.IntegrationTests/CkMethodReplicaSharingBusTests.cs`):
 
 Observed (Apple M4 Pro): 2 replicas `[497, 503]` of 1000, 3 replicas `[1000, 1000, 1000]` of 3000 (RabbitMQ round-robin with a 2 ms
 handler). With the replica stopped at call 300 of 1500 the burst ended without a single failure: a graceful stop lets the
-consumer finish what it received, the broker redelivers nothing. `METHOD_TIMEOUT` / `METHOD_OUTCOME_UNKNOWN` appear only for a
-hard loss of the instance (see `CkMethodDispatcherBusTests.BrokerRedelivery_...`).
+consumer finish what it received; in a quiet moment the broker redelivers nothing (with steady traffic about 0.03 flagged deliveries per stop, see "Graceful stop: mechanism, rate, options"). `METHOD_TIMEOUT` / `METHOD_OUTCOME_UNKNOWN` appear for a
+hard loss of the instance (see `CkMethodDispatcherBusTests.BrokerRedelivery_...`) and, rarely, for a graceful stop.
 
 ### A queue that already exists with different arguments (rolling update)
 
@@ -98,6 +98,7 @@ default run**: the CI test step takes `**/*Tests.csproj` and the project name do
 dotnet build Octo.Common.Services.sln -c DebugL            # builds the worker the hard-kill scenario starts as a child process
 export OCTO_METHOD_MEASURE=1
 export OCTO_METHOD_MEASURE_ROUNDS=10                       # optional, default 10 rounds of 300 calls per scenario
+export OCTO_METHOD_MEASURE_JITTER=1                        # optional: handler time 0.5 to 1.5 x 400 ms (steady arrivals, see "Graceful stop")
 dotnet test tests/Methods.Measurements/Methods.Measurements.csproj -c DebugL --no-build \
   --logger "console;verbosity=detailed"                    # needs Docker; about 5 minutes; lines "RESULT ..." and "MEASURE ..."
 # one part only: --filter "FullyQualifiedName~RedeliveryMeasurementTests"  or  "FullyQualifiedName~ClaimWriteBenchmarkTests"
@@ -164,6 +165,44 @@ Reading:
 - Not covered, because the broker cannot produce them: a caller that re-sends the same invocation id (the dispatcher never does) and
   a consumer that acknowledges late after the broker's consumer timeout. A duplicate of that kind would run on a second instance without a
   flag; the metric would not show it either.
+
+### Graceful stop: mechanism, rate, options (AB#7935)
+
+**Mechanism** (MassTransit 8.5.10, read from the library; the timeline of one round confirmed it). A graceful stop of a handler host
+withdraws the instance, then stops the method endpoint. MassTransit marks the consumer as stopping (`IsStopping`) and only then sends
+`basic.cancel` to the broker. A delivery that the broker had already pushed to that consumer when the flag was set is neither started nor
+acknowledged: the consumer ignores it. It stays unacknowledged until the channel closes, and the broker then requeues it **flagged as
+redelivered**. Another replica receives it, refuses it as a possible duplicate (`broker_flag`) and the caller sees `METHOD_OUTCOME_UNKNOWN`,
+although the call never ran. The window is the round trip of `basic.cancel`; calls that already run are finished normally and
+acknowledged. The handler code never sees these deliveries, so nothing in `src/Methods` can start, answer or mark them.
+
+**Rate depends on how arrivals are spread.** The scenario of the table above lets 32 caller threads re-send at the same moment (every
+call takes exactly 400 ms), and the stop is triggered by the tenth completion, i.e. at the instant a new batch of 32 arrives:
+
+| Handler time | Stops | Invocations | Flagged, never ran | Per stop | Unflagged duplicates |
+|--------------|-------|-------------|--------------------|----------|----------------------|
+| 400 ms fixed (lock-step batches, worst case) | 10 | 3000 | 29 | 2.9 | 0 |
+| 200-600 ms random (`OCTO_METHOD_MEASURE_JITTER=1`, steady arrivals of about 80 calls/s) | 30 | 9000 | 1 | 0.03 | 0 |
+
+With steady traffic the expected number is the arrival rate of the stopping replica times the round trip of `basic.cancel`, a few
+thousandths to a few hundredths per stop at the measured rate; it grows with bursts that coincide with the stop.
+
+**Decision (Odin, AB#7935): accept the residual, keep OD-3 option A.** The call that never ran is answered `METHOD_OUTCOME_UNKNOWN`, the
+safe answer (nothing runs twice). No runtime change was made, because every variant that stays inside the handler host is worse or
+unsafe:
+
+- *Drain design* (tried and measured, not merged): from the start of the stop the host refuses new deliveries with
+  `METHOD_HANDLER_NOT_AVAILABLE` (reason `handler-stopping`, nothing ran, retry-safe), waits for the running calls, then stops the
+  endpoint. Refusing recycles the prefetch slots, so the replica keeps receiving its share of the traffic for the whole drain: lock-step
+  scenario 196 never-run calls per 3000 (147 as `METHOD_HANDLER_NOT_AVAILABLE`, 49 still flagged) instead of 29.
+- *Mark the delivery as not started*: the flag is the broker's, a consumer cannot remove it, and the replica that receives it cannot know
+  who held it before (a graceful stop, a lost connection, a killed process). Treating a flagged delivery as fresh without that knowledge
+  would run a call twice after a lost connection.
+
+**Options for zero** (not part of this story): (1) a cancel-first stop in `octo-distributedEventHub`: cancel the consumer, wait for the
+broker's cancel-ok, only then let the library ignore late deliveries; the MassTransit public API has no such pause, so it means a
+transport change. (2) Option B' (handler-side claim for keyed calls, see above): a flagged delivery without a claim never started and may
+run; costs one claim write per keyed call (measured below) and lives in the idempotency store of octo-asset-repo-services.
 
 **Claim write, majority write concern** (single-node replica set, loopback):
 

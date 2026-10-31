@@ -35,13 +35,18 @@ public sealed record MeasurementResult
 /// <summary>Records the execution first (so a hard kill during the work still counts as an execution), then works.</summary>
 public sealed class MeasurementHandler(MeasurementProbe probe) : ICkMethodHandler<MeasurementParameters, MeasurementResult>
 {
+    private static readonly bool Jitter = Environment.GetEnvironmentVariable("OCTO_METHOD_MEASURE_JITTER") == "1";
+
     public async Task<CkMethodOutcome<MeasurementResult>> HandleAsync(CkMethodContext<MeasurementParameters> context,
         CancellationToken cancellationToken)
     {
         probe.Executed(context.InvocationId);
         if (probe.Work > TimeSpan.Zero)
         {
-            await Task.Delay(probe.Work, cancellationToken);
+            // OCTO_METHOD_MEASURE_JITTER=1: work time 0.5 to 1.5 times the nominal one, so the calls of the caller threads
+            // do not complete in lock step (steady arrivals instead of synchronized batches).
+            var work = Jitter ? probe.Work * (0.5 + Random.Shared.NextDouble()) : probe.Work;
+            await Task.Delay(work, cancellationToken);
         }
 
         return new MeasurementResult { Value = context.Parameters.NewPassword.Length };
