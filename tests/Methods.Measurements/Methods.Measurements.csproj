@@ -1,0 +1,52 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+    <!--
+        Measurements of the method runtime (AB#7823): broker redelivery under forced failure and the cost of a claim write.
+        NOT part of the default test run: the project name does not end in "Tests" (the CI glob is **/*Tests.csproj) and every
+        test is skipped unless OCTO_METHOD_MEASURE=1 (a plain "dotnet test" of the solution only reports skips and starts
+        no container). Command: docs/method-performance.md, "Measurements (AB#7823)".
+    -->
+    <PropertyGroup>
+        <IsPackable>false</IsPackable>
+        <IsTestProject>true</IsTestProject>
+        <OutputType>Exe</OutputType>
+        <RootNamespace>Meshmakers.Octo.Services.Methods.Measurements</RootNamespace>
+        <Configurations>Debug;Release;DebugL</Configurations>
+        <Platforms>AnyCPU</Platforms>
+        <!-- xUnit1051 (pass TestContext.Current.CancellationToken): the timed loops are the measurement; a token on every driver call would only add noise. -->
+        <NoWarn>$(NoWarn);xUnit1051</NoWarn>
+    </PropertyGroup>
+
+    <ItemGroup>
+        <PackageReference Include="coverlet.collector" Version="10.0.1">
+            <PrivateAssets>all</PrivateAssets>
+            <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
+        </PackageReference>
+        <PackageReference Include="Microsoft.NET.Test.Sdk" Version="18.9.0" />
+        <PackageReference Include="MongoDB.Driver" Version="3.11.1" />
+        <PackageReference Include="Testcontainers.MongoDb" Version="4.14.0" />
+        <PackageReference Include="Testcontainers.RabbitMq" Version="4.14.0" />
+        <PackageReference Include="xunit.v3.mtp-off" Version="4.0.0" />
+        <PackageReference Include="xunit.runner.visualstudio" Version="4.0.0">
+            <PrivateAssets>all</PrivateAssets>
+            <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
+        </PackageReference>
+    </ItemGroup>
+
+    <ItemGroup>
+        <ProjectReference Include="..\..\src\Methods\Methods.csproj" />
+        <ProjectReference Include="..\..\src\Observability\Observability.csproj" />
+        <!-- The hard-kill scenario starts this as a child process; the reference only orders the build and copies the output. -->
+        <ProjectReference Include="..\Methods.Measurements.Worker\Methods.Measurements.Worker.csproj" ReferenceOutputAssembly="false" />
+    </ItemGroup>
+
+    <ItemGroup>
+        <!-- where the hard-kill scenario finds the worker it starts as a child process -->
+        <AssemblyAttribute Include="System.Reflection.AssemblyMetadataAttribute">
+            <_Parameter1>WorkerDll</_Parameter1>
+            <_Parameter2>$(MSBuildProjectDirectory)/../Methods.Measurements.Worker/bin/$(Configuration)/net10.0/Methods.Measurements.Worker.dll</_Parameter2>
+        </AssemblyAttribute>
+        <Using Include="Xunit" />
+    </ItemGroup>
+
+</Project>
