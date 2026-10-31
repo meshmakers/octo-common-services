@@ -204,4 +204,74 @@ public class CkMethodBusConsumerTests
         Assert.Equal(CkMethodErrorCodes.MethodOutcomeUnknown, redelivery.Error!.Code);
         Assert.Equal(1, handler.Calls);
     }
+
+    // ---- duplicate cases a broker cannot produce (AB#7936): simulated deliveries -------------------------------------
+
+    [Fact]
+    public async Task SameInvocationId_DeliveredToTwoInstances_RunsOnEachOne_BecauseTheMemoryIsPerInstance()
+    {
+        var handlerA = new ChangePasswordHandler();
+        var handlerB = new ChangePasswordHandler();
+        var hostA = HostFixture.With(handlerA, TestData.Definition());
+        var hostB = HostFixture.With(handlerB, TestData.Definition());
+        var request = TestData.Request(hostA.InSeconds(15));
+
+        // neither delivery carries a broker flag: a caller that re-sends the request unchanged
+        var first = await hostA.BusConsumer.HandleAsync(request, TestDelivery.First);
+        var second = await hostB.BusConsumer.HandleAsync(request, TestDelivery.First);
+
+        Assert.True(first.Success);
+        Assert.True(second.Success); // documented limit (methodConsistency.md, R4): not recognized across instances
+        Assert.Equal(1, handlerA.Calls);
+        Assert.Equal(1, handlerB.Calls);
+    }
+
+    [Fact]
+    public async Task SameInvocationId_DeliveredToTwoInstances_WithTheBrokerFlag_RunsOnlyOnTheFirst()
+    {
+        var handlerA = new ChangePasswordHandler();
+        var handlerB = new ChangePasswordHandler();
+        var hostA = HostFixture.With(handlerA, TestData.Definition());
+        var hostB = HostFixture.With(handlerB, TestData.Definition());
+        var request = TestData.Request(hostA.InSeconds(15));
+
+        await hostA.BusConsumer.HandleAsync(request, TestDelivery.First);
+        var redelivery = await hostB.BusConsumer.HandleAsync(request, TestDelivery.Redelivered);
+
+        Assert.Equal(CkMethodErrorCodes.MethodOutcomeUnknown, redelivery.Error!.Code);
+        Assert.Equal(1, handlerA.Calls);
+        Assert.Equal(0, handlerB.Calls);
+    }
+
+    [Fact]
+    public async Task AckAfterTheConsumerTimeout_TheFlaggedRedeliveryIsRefused_WhileTheFirstExecutionIsStillRunning()
+    {
+        // A runs the call and does not finish; the broker's consumer timeout closes A's channel and requeues the
+        // message flagged as redelivered; B (or A again) gets it while the first execution still runs.
+        var entered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var handlerA = new ChangePasswordHandler(async (_, _) =>
+        {
+            entered.TrySetResult();
+            await release.Task;
+            return new UserChangePasswordResult { Value = "changed" };
+        });
+        var handlerB = new ChangePasswordHandler();
+        var hostA = HostFixture.With(handlerA, TestData.Definition());
+        var hostB = HostFixture.With(handlerB, TestData.Definition());
+        var request = TestData.Request(hostA.InSeconds(300));
+
+        var running = hostA.BusConsumer.HandleAsync(request, TestDelivery.First);
+        await entered.Task;
+        var onOtherInstance = await hostB.BusConsumer.HandleAsync(request, TestDelivery.Redelivered);
+        var onSameInstance = await hostA.BusConsumer.HandleAsync(request, TestDelivery.Redelivered);
+        release.SetResult(); // the late ack: the first execution finishes after the redelivery was handled
+        var late = await running;
+
+        Assert.Equal(CkMethodErrorCodes.MethodOutcomeUnknown, onOtherInstance.Error!.Code);
+        Assert.Equal(CkMethodErrorCodes.MethodOutcomeUnknown, onSameInstance.Error!.Code);
+        Assert.True(late.Success); // the first execution still answers; the caller took the first envelope it got
+        Assert.Equal(1, handlerA.Calls);
+        Assert.Equal(0, handlerB.Calls);
+    }
 }

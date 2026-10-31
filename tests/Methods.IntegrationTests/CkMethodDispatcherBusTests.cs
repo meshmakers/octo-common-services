@@ -24,7 +24,7 @@ namespace Meshmakers.Octo.Services.Methods.IntegrationTests;
 /// </summary>
 [Collection(RabbitMqCollection.Name)]
 [Trait("Category", "Integration")]
-public sealed class CkMethodDispatcherBusTests(RabbitMqFixture rabbitMq) : IAsyncLifetime
+public sealed partial class CkMethodDispatcherBusTests(RabbitMqFixture rabbitMq) : IAsyncLifetime
 {
     private const string MethodId = "Sample.Accounts/Account.ChangePassword-1";
     private const string DerivedMethodId = "Sample.Accounts/AdminAccount.ChangePassword-1";
@@ -35,6 +35,7 @@ public sealed class CkMethodDispatcherBusTests(RabbitMqFixture rabbitMq) : IAsyn
 
     private readonly string _instancePrefix = $"dispatch-{Guid.NewGuid():N}";
     private readonly List<Host> _hosts = [];
+    private RabbitMqFixture.PrivateBroker? _broker; // a broker of its own (consumer timeout), when a test starts one
 
     public ValueTask InitializeAsync() => ValueTask.CompletedTask;
 
@@ -43,6 +44,11 @@ public sealed class CkMethodDispatcherBusTests(RabbitMqFixture rabbitMq) : IAsyn
         foreach (var host in _hosts)
         {
             await host.DisposeAsync();
+        }
+
+        if (_broker is not null)
+        {
+            await _broker.DisposeAsync();
         }
     }
 
@@ -210,8 +216,8 @@ public sealed class CkMethodDispatcherBusTests(RabbitMqFixture rabbitMq) : IAsyn
         services.Configure<DistributionEventHubOptions>(o =>
         {
             o.InstancePrefix = _instancePrefix;
-            o.BrokerHost = rabbitMq.Host;
-            o.BrokerPort = (ushort)rabbitMq.Port;
+            o.BrokerHost = _broker?.Host ?? rabbitMq.Host;
+            o.BrokerPort = (ushort)(_broker?.Port ?? rabbitMq.Port);
             o.BrokerUser = "guest";
             o.BrokerPassword = "guest";
         });

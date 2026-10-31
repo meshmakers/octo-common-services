@@ -161,9 +161,24 @@ Reading:
   were refused without having run. They show as `METHOD_OUTCOME_UNKNOWN` to the caller although the handler never ran, and as
   `ck.method.duplicate_refused{reason=broker_flag}`. Not a correctness problem of option A (nothing ran twice); it is a rate to know for
   rolling updates.
-- Not covered, because the broker cannot produce them: a caller that re-sends the same invocation id (the dispatcher never does) and
-  a consumer that acknowledges late after the broker's consumer timeout. A duplicate of that kind would run on a second instance without a
-  flag; the metric would not show it either.
+- Not produced by this measurement, because the broker cannot produce them: a caller that re-sends the same invocation id (the dispatcher
+  never does) and a consumer that acknowledges late after the broker's consumer timeout. Both are pinned by targeted tests (below).
+
+### Duplicate cases a broker cannot produce (AB#7936)
+
+Simulated deliveries instead of forced failures. Unit level: `CkMethodBusConsumerTests` (two handler hosts, delivery info set by the test);
+bus level against a private RabbitMQ: `CkMethodDispatcherBusTests.DuplicateCases.cs`. The behaviour matches the duplicate table of
+`methodConsistency.md` ("Limits: what is not detected"):
+
+| Case | Behaviour pinned by the test |
+|------|------------------------------|
+| Same invocation id sent twice to **one** instance, no broker flag | the first call runs; the second is refused by the same instance (`seen_id`), caller gets `METHOD_OUTCOME_UNKNOWN`, handler ran once |
+| Same invocation id sent twice, **two** instances share the queue, no flag | each instance runs it once (the memory of seen ids is per instance): **not recognized**, the documented limit; nothing in the platform produces it (the gateway creates a new id per call) |
+| Same invocation id, first delivery plain, second flagged redelivered, on the other instance | refused (`broker_flag`), handler of the second instance did not run |
+| Handler holds the delivery beyond the broker's `consumer_timeout` (bus test: 5 s broker timeout, call timeout 5 min) | the broker closes the channel and requeues the delivery **flagged**; the other instance refuses it, caller gets `METHOD_OUTCOME_UNKNOWN` after about one minute (the broker checks the timeout once a minute) while the first execution is still running; its late completion changes nothing, the handler ran once. The instance that lost its channel took **no further call** in the test (20 follow-up calls all went to the other instance): restart such a replica |
+
+The bus test starts its own broker container with `RABBITMQ_SERVER_ADDITIONAL_ERL_ARGS="-rabbit consumer_timeout 5000"`
+(`RabbitMqFixture.StartBrokerWithConsumerTimeoutAsync`) and takes about one minute.
 
 **Claim write, majority write concern** (single-node replica set, loopback):
 
