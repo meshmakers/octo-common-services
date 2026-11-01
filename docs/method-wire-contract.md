@@ -87,7 +87,7 @@ fails when this table lacks a code or a well-known parameter.
 | `METHOD_VALIDATION_FAILED` | no | `methodId`, `field`, `reason` | A parameter is missing or invalid. Fix `field` and call again. |
 | `METHOD_TARGET_NOT_FOUND` | no | `methodId` | Target does not exist or is not visible. |
 | `METHOD_HANDLER_FAILED` | yes, failed | `methodId`, `correlationId` | Unexpected handler failure; details only in the handler log under `correlationId`. No stack trace on the wire. |
-| `METHOD_OUTCOME_UNKNOWN` | unknown | `methodId` | Possible duplicate delivery, not executed again. Check state before calling again. |
+| `METHOD_OUTCOME_UNKNOWN` | unknown | `methodId`, `correlationId` (unacknowledged write only) | Possible duplicate delivery, not executed again; or the handler's writes were not acknowledged by the database in time (write-concern error such as the 30 s `wtimeout` of `w:majority`, unknown transaction commit result; rule R3, AB#8020), so they may still have taken effect - details in the handler log under `correlationId`. Check state before calling again. |
 | `METHOD_NOT_SUPPORTED_BY_HANDLER_VERSION` | no | `methodId`, `supportedVersion` | Reserved: handler does not support the method version. |
 | `METHOD_CONTRACT_VERSION_UNSUPPORTED` | no | `requestedVersion`, `supportedVersion` | Message uses a newer wire contract version than the receiver understands. Wait for the rolling update. |
 | `METHOD_PARAMETERS_TOO_LARGE` | no | `methodId`, `maxBytes`, `actualBytes` | The UTF-8 byte length of `ParametersJson` is above the limit of the service (`Methods:MaxParametersBytes`, default 1 MiB = 1048576; exactly the limit passes). The gateway refuses before it validates the parameters, the host re-checks before it deserializes them. Do not retry unchanged. |

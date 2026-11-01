@@ -60,6 +60,7 @@ The wire carries a stable **code and parameters, never message text**; clients r
 |---|---|
 | `return CkMethodOutcome<T>.Fail("MY_CODE", ("name", "value"))` or `throw new CkMethodException("MY_CODE", ...)` | `error.code = MY_CODE`, `error.parameters` |
 | `ValidationFailed(field, reason)`, `TargetNotFound()`, `Forbidden(reason)` | `METHOD_VALIDATION_FAILED` / `METHOD_TARGET_NOT_FOUND` / `METHOD_FORBIDDEN` with `methodId` |
+| a write the database did not acknowledge in time: a MongoDB write-concern error (e.g. the 30 s `wtimeout` of `w:majority`, code 64) or an `UnknownTransactionCommitResult` commit error, also wrapped by the repository (AB#8020, rule R3) | `METHOD_OUTCOME_UNKNOWN` with `correlationId`: the write may still be on the primary, so the caller must check the state; the exception is logged with that id |
 | any other exception | `METHOD_HANDLER_FAILED` with `correlationId`; the exception is logged with that id |
 | a code the method does not declare | `METHOD_HANDLER_FAILED` (a handler bug, logged) |
 
@@ -302,7 +303,8 @@ fingerprint value, and a filter must not log or audit it either.
 
 A filter refuses with a normal failed `CkMethodResponse` (for example `METHOD_FORBIDDEN`), may continue with a modified request
 (`next(request with { IdempotencyKey = ... })`) and must not log `ParametersJson` or the token. An exception escaping a filter is
-answered `METHOD_HANDLER_FAILED`. The dispatcher of F3.3 runs its bus send as the terminal delegate of the same pipeline
+answered `METHOD_HANDLER_FAILED` (`METHOD_OUTCOME_UNKNOWN` when it is an unacknowledged write, see section 3; the audit event
+records the same code). The dispatcher of F3.3 runs its bus send as the terminal delegate of the same pipeline
 (`pipeline.ExecuteAsync(CkMethodTransportNames.Bus, request, send, ct)`), so authorization and audit see local and remote calls alike.
 
 ### Authorization: the declared `authorization` is enforced for every call (F3.4)

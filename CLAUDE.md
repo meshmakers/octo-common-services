@@ -789,6 +789,13 @@ and registry (F3.2/F3.3) and the pipeline handler (AB#6879) are other stories. D
   code (declared shape or platform code). With CK validation on, a code the method does not declare becomes
   `METHOD_HANDLER_FAILED` (handler bug). Any other exception becomes `METHOD_HANDLER_FAILED` with a `correlationId`
   parameter (request correlation id, else the invocation id); the exception is logged with that id, never sent.
+  **Unacknowledged write (AB#8020, rule R3):** a MongoDB write-concern error (`MongoWriteConcernException`, or a
+  `MongoWriteException` / `MongoBulkWriteException` with `WriteConcernError`; e.g. the 30 s `wtimeout` of `w:majority`, code 64)
+  or the error label `UnknownTransactionCommitResult`, anywhere in the inner-exception chain (the repositories wrap driver
+  exceptions), becomes `METHOD_OUTCOME_UNKNOWN` + `correlationId` instead (`CkMethodWriteOutcome`; same in the pipeline's
+  filter catch and the audit filter, so answer, audit outcome and `ck.method.calls` label agree). The SDK recognises the
+  driver types by name and public members: `Methods.csproj` must not reference `MongoDB.*`
+  (`CkMethodContextSessionFreeTests`). Tests: `CkMethodWriteOutcomeTests` (real driver exceptions, `MongoWriteFaults`).
 - **Host core** `ICkMethodHandlerInvoker` (public, transport independent): contract version check
   (`METHOD_CONTRACT_VERSION_UNSUPPORTED`), unknown method (`METHOD_HANDLER_NOT_AVAILABLE`, reason `method-not-registered`),
   deadline already passed (`METHOD_TIMEOUT`, not executed), deadline cancellation of the handler token (`METHOD_TIMEOUT`; `timeoutSeconds` =

@@ -227,11 +227,15 @@ internal sealed class CkMethodInvocationPipeline(
         catch (Exception e)
         {
             var correlationId = request.CorrelationId ?? request.InvocationId;
+            // R3 (AB#8020): a write a filter made that the database did not acknowledge may have taken effect
+            var code = CkMethodWriteOutcome.IsUnknown(e)
+                ? CkMethodErrorCodes.MethodOutcomeUnknown
+                : CkMethodErrorCodes.MethodHandlerFailed;
             logger.LogError(CkMethodRedactor.For(sensitive, request).Redact(e),
-                "CK method {MethodId} invocation {InvocationId} failed in an invocation filter (transport {Transport}, correlation {CorrelationId})",
-                request.MethodId, request.InvocationId, transportName, correlationId);
+                "CK method {MethodId} invocation {InvocationId} failed in an invocation filter (transport {Transport}, correlation {CorrelationId}, answer {Code})",
+                request.MethodId, request.InvocationId, transportName, correlationId, code);
             return CkMethodResponse.Failed(request.InvocationId, string.Empty,
-                CkMethodError.Create(CkMethodErrorCodes.MethodHandlerFailed,
+                CkMethodError.Create(code,
                     (CkMethodErrorParameters.MethodId, request.MethodId),
                     (CkMethodErrorParameters.CorrelationId, correlationId.ToString())));
         }

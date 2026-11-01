@@ -449,6 +449,24 @@ public class CkMethodMetricsTests
         Assert.Equal(CkMethodAuditOutcomes.Success, calls.Tag(CkMethodMetrics.OutcomeTag));
     }
 
+    [Fact]
+    public async Task HandlerWriteNotAcknowledged_IsCountedOnce_AsOutcomeUnknown()
+    {
+        // AB#8020 (R3): the outcome label follows the answer, no parameter in any label
+        using var capture = new MetricCapture();
+        var methodId = NewMethodId();
+        var handler = new ChangePasswordHandler((_, _) => throw MongoWriteFaults.WriteConcernTimeoutOnSingleWrite());
+        var host = InProcessFixture.With(handler, TestData.Definition(), methodId);
+
+        var response = await host.Transport.InvokeAsync(
+            TestData.Request(host.InSeconds(15)) with { MethodId = methodId }, TestContext.Current.CancellationToken);
+
+        Assert.Equal(CkMethodErrorCodes.MethodOutcomeUnknown, response.Error!.Code);
+        var calls = Assert.Single(capture.Calls(methodId));
+        Assert.Equal(CkMethodErrorCodes.MethodOutcomeUnknown, calls.Tag(CkMethodMetrics.OutcomeTag));
+        Assert.DoesNotContain(calls.Tags.Values, v => v?.Contains(TestData.Secret, StringComparison.Ordinal) == true);
+    }
+
     // ---------------------------------------------------------------- gateway refusals
 
     [Fact]

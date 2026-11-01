@@ -89,7 +89,10 @@ first invocation (never the key or the fingerprint). `METHOD_REQUEST_IN_PROGRESS
 
 ## Exceptions and cancellation
 
-* An inner filter throws: one event with `METHOD_HANDLER_FAILED`, the exception propagates and the pipeline answers as before.
+* An inner filter throws: one event with `METHOD_HANDLER_FAILED`, the exception propagates and the pipeline answers with the same
+  code. An unacknowledged write (MongoDB write-concern error, unknown commit result; AB#8020, rule R3) is recorded and answered as
+  `METHOD_OUTCOME_UNKNOWN` instead; a handler that throws it inside the host is answered `METHOD_OUTCOME_UNKNOWN` by the host and recorded
+  like any other answer.
 * The caller cancels (`OperationCanceledException` of the caller's token): one event with `CALLER_CANCELLED`, the exception
   propagates. The method may or may not have run. The event is written with a token that is not cancelled. Where it is
   written depends on where the cancellation surfaces: in the pipeline by the filter, in the dispatcher before the pipeline by the
