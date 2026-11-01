@@ -51,11 +51,13 @@ public static partial class CkMethodErrorCodes
     public const string MethodHandlerFailed = "METHOD_HANDLER_FAILED";
 
     /// <summary>
-    ///     The method may or may not have taken effect; clients must check the state before retrying. Two causes: the
-    ///     handler received an invocation that may already have been executed (broker redelivery after a lost
-    ///     acknowledgement, or a duplicate invocation id) and did not execute it again; or the handler's writes were not
-    ///     acknowledged by the database in time (write-concern error such as the <c>wtimeout</c>, unknown transaction commit
-    ///     result; rule R3, AB#8020) - such an answer carries a <c>correlationId</c> for the handler log.
+    ///     The method may or may not have taken effect; clients must check the state before retrying. Causes: the handler
+    ///     received an invocation that may already have been executed (broker redelivery after a lost acknowledgement, or a
+    ///     duplicate invocation id) and did not execute it again; the handler's (or a filter's) writes were not acknowledged
+    ///     by the database in time (write-concern error such as the <c>wtimeout</c>, unknown transaction commit result; rule
+    ///     R3, AB#8020); or the audit event of an executed call could not be written while
+    ///     <c>Methods:Audit:FailCallOnAuditFailure</c> is on. Only the unacknowledged write carries a <c>correlationId</c>
+    ///     (for the handler log); the other causes carry <c>methodId</c> only.
     /// </summary>
     public const string MethodOutcomeUnknown = "METHOD_OUTCOME_UNKNOWN";
 
@@ -113,7 +115,7 @@ public static partial class CkMethodErrorCodes
             [CkMethodErrorParameters.MethodId, CkMethodErrorParameters.CorrelationId],
             "Report the correlation id to an operator; retry only if the method is idempotent."),
         new(MethodOutcomeUnknown, CkMethodExecutionState.Unknown,
-            "A possible duplicate delivery was detected and not executed again, or the handler's writes were not acknowledged by the database in time (write-concern error, unknown commit result); the method may or may not have taken effect.",
+            "The method may or may not have taken effect: a possible duplicate delivery was detected and not executed again, the handler's writes were not acknowledged by the database in time (write-concern error, unknown commit result; only this cause carries 'correlationId'), or the audit event of an executed call could not be written with FailCallOnAuditFailure on.",
             [CkMethodErrorParameters.MethodId, CkMethodErrorParameters.CorrelationId],
             "Check the state of the target before calling again."),
         new(MethodNotSupportedByHandlerVersion, CkMethodExecutionState.NotExecuted,
