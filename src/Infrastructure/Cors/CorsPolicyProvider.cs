@@ -15,16 +15,20 @@ internal class CorsPolicyProvider : ICorsPolicyProvider
 {
     private readonly ILogger<CorsPolicyProvider> _logger;
     private readonly IOptions<OctoSystemConfiguration> _octoSystemConfiguration;
+    private readonly IOptions<OctoCorsOptions> _corsOptions;
     private readonly ConcurrentDictionary<string, CorsPolicy> _corsPolicyDictionary;
 
     /// <summary>
     ///     Constructor
     /// </summary>
-    public CorsPolicyProvider(ILogger<CorsPolicyProvider> logger, IOptions<OctoSystemConfiguration> octoSystemConfiguration)
+    public CorsPolicyProvider(ILogger<CorsPolicyProvider> logger, IOptions<OctoSystemConfiguration> octoSystemConfiguration,
+        IOptions<OctoCorsOptions> corsOptions)
     {
         ArgumentNullException.ThrowIfNull(octoSystemConfiguration);
+        ArgumentNullException.ThrowIfNull(corsOptions);
         _logger = logger;
         _octoSystemConfiguration = octoSystemConfiguration;
+        _corsOptions = corsOptions;
 
         _corsPolicyDictionary = new ConcurrentDictionary<string, CorsPolicy>();
     }
@@ -45,10 +49,24 @@ internal class CorsPolicyProvider : ICorsPolicyProvider
 
         _logger.LogInformation("Creating CORS policy for tenant '{TenantId}': {Origins}", tenantId, string.Join(", ", origins));
 
+        // AB#7270: origins only from the registered clients, never credentials. OctoCorsOptions may add
+        // exposed headers and a preflight lifetime; it cannot widen the origin list.
         var policyBuilder = new CorsPolicyBuilder()
             .WithOrigins(origins.ToArray())
             .AllowAnyHeader()
             .AllowAnyMethod();
+
+        var options = _corsOptions.Value;
+        if (options.ExposedHeaders.Count > 0)
+        {
+            policyBuilder.WithExposedHeaders(options.ExposedHeaders.ToArray());
+        }
+
+        if (options.PreflightMaxAge.HasValue)
+        {
+            policyBuilder.SetPreflightMaxAge(options.PreflightMaxAge.Value);
+        }
+
         corsPolicy = policyBuilder.Build();
         _corsPolicyDictionary.TryAdd(tenantId, corsPolicy);
 
