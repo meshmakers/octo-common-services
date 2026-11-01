@@ -792,7 +792,9 @@ and registry (F3.2/F3.3) and the pipeline handler (AB#6879) are other stories. D
   **Unacknowledged write (AB#8020, rule R3):** a MongoDB write-concern error (`MongoWriteConcernException`, or a
   `MongoWriteException` / `MongoBulkWriteException` with `WriteConcernError`; e.g. the 30 s `wtimeout` of `w:majority`, code 64)
   or the error label `UnknownTransactionCommitResult`, anywhere in the inner-exception chain (the repositories wrap driver
-  exceptions), becomes `METHOD_OUTCOME_UNKNOWN` + `correlationId` instead (`CkMethodWriteOutcome`; same in the pipeline's
+  exceptions), becomes `METHOD_OUTCOME_UNKNOWN` + `correlationId` instead (`CkMethodWriteOutcome`, since AB#8037 a facade over the
+  engine's `UnacknowledgedWriteClassifier` in `Runtime.Contracts`, which the mesh adapter and the SDK adapters use for pipeline
+  methods too (`PipelineExecutionFailureKind.OutcomeUnknown`); same in the pipeline's
   filter catch and the audit filter, so answer, audit outcome and `ck.method.calls` label agree). The SDK recognises the
   driver types by name and public members: `Methods.csproj` must not reference `MongoDB.*`
   (`CkMethodContextSessionFreeTests`). Tests: `CkMethodWriteOutcomeTests` (real driver exceptions, `MongoWriteFaults`).
