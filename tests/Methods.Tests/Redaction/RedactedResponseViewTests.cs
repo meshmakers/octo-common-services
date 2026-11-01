@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using System.Diagnostics;
 using System.Text.Json;
 using System.Text.Json.Serialization;
@@ -256,12 +257,14 @@ public class RedactedResponseViewTests
     [InlineData("bus")]
     public async Task AdversarialScan_TheSentinelAppearsInNoLogNoTraceAndNoAuditRecord(string transport)
     {
-        var activities = new List<string>();
+        // The listener hears every source of the process, so activities of tests running in parallel arrive on other
+        // threads while this test reads the collection: a List here failed with "Collection was modified" (AB#8020).
+        var activities = new ConcurrentQueue<string>();
         using var listener = new ActivityListener
         {
             ShouldListenTo = _ => true,
             Sample = (ref ActivityCreationOptions<ActivityContext> _) => ActivitySamplingResult.AllDataAndRecorded,
-            ActivityStopped = a => activities.Add(Describe(a))
+            ActivityStopped = a => activities.Enqueue(Describe(a))
         };
         ActivitySource.AddActivityListener(listener);
         var audit = new RecordingAudit();
@@ -285,7 +288,7 @@ public class RedactedResponseViewTests
         Assert.NotEmpty(audit.Records);
         Assert.All(audit.Records, r => Assert.DoesNotContain(Sentinel, r));
         Assert.DoesNotContain(Sentinel, AllText(logs));
-        Assert.DoesNotContain(activities, a => a.Contains(Sentinel));
+        Assert.DoesNotContain(activities.ToArray(), a => a.Contains(Sentinel));
     }
 
     [Fact]

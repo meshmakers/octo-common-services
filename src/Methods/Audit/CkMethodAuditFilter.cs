@@ -1,6 +1,7 @@
 using System.Diagnostics;
 using Meshmakers.Octo.Services.Contracts.DistributionEventHub.Methods;
 using Meshmakers.Octo.Services.Methods.Authorization;
+using Meshmakers.Octo.Services.Methods.Handlers;
 using Microsoft.Extensions.Logging;
 
 namespace Meshmakers.Octo.Services.Methods.Audit;
@@ -14,7 +15,8 @@ namespace Meshmakers.Octo.Services.Methods.Audit;
 /// <remarks>
 ///     It sees only the redacted view of the request and reads nothing of the parameters, the result, the token, the
 ///     idempotency key or the fingerprint: the record has no place for them. An exception from an inner filter is recorded
-///     as <c>METHOD_HANDLER_FAILED</c> and rethrown (the pipeline answers as before); a cancellation by the caller is recorded
+///     as <c>METHOD_HANDLER_FAILED</c> (<c>METHOD_OUTCOME_UNKNOWN</c> for a write the database did not acknowledge, AB#8020) and
+///     rethrown (the pipeline answers with the same code); a cancellation by the caller is recorded
 ///     as <see cref="CkMethodAuditOutcomes.CallerCancelled" /> and rethrown. The caller is the trusted
 ///     <see cref="ICkMethodPrincipalProvider" /> principal, falling back to <c>request.Caller</c>.
 /// </remarks>
@@ -49,10 +51,13 @@ public sealed class CkMethodAuditFilter(
                 .ConfigureAwait(false);
             throw;
         }
-        catch
+        catch (Exception e)
         {
-            await RecordOrFailAsync(context, subject, started, CkMethodErrorCodes.MethodHandlerFailed, null)
-                .ConfigureAwait(false);
+            // the same outcome the pipeline answers for the exception (AB#8020: an unacknowledged write is unknown)
+            var outcome = CkMethodWriteOutcome.IsUnknown(e)
+                ? CkMethodErrorCodes.MethodOutcomeUnknown
+                : CkMethodErrorCodes.MethodHandlerFailed;
+            await RecordOrFailAsync(context, subject, started, outcome, null).ConfigureAwait(false);
             throw;
         }
 

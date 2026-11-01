@@ -394,6 +394,22 @@ public class CkMethodAuditTests
     }
 
     [Fact]
+    public async Task InnerFilterWriteNotAcknowledged_ExactlyOneOutcomeUnknownEvent_AndThePipelineAnswersTheSame()
+    {
+        // AB#8020 (R3): a write-concern timeout may have left the write on the primary
+        var rig = new Rig(innerThrows: MongoWriteFaults.WriteConcernTimeoutOnCommand());
+
+        var response = await rig.Call(rig.Request(), token: TestContext.Current.CancellationToken);
+
+        Assert.Equal(CkMethodErrorCodes.MethodOutcomeUnknown, response.Error!.Code);
+        var e = Assert.Single(rig.Sink.Events);
+        Assert.Equal(CkMethodErrorCodes.MethodOutcomeUnknown, Meta(e, CkMethodAuditEvent.Keys.Outcome));
+        Assert.Equal(AuditEventLevel.Error, e.Level);
+        Assert.DoesNotContain("replication", e.Message + JsonSerializer.Serialize(e.Metadata), StringComparison.Ordinal);
+        Assert.DoesNotContain(TestData.Secret, e.Message + JsonSerializer.Serialize(e.Metadata), StringComparison.Ordinal);
+    }
+
+    [Fact]
     public async Task CallerCancellation_IsRecordedOnce_AsCallerCancelled_AndStillPropagates()
     {
         var rig = new Rig();

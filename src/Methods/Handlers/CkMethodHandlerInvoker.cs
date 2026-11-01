@@ -217,6 +217,16 @@ internal sealed class CkMethodHandlerInvoker(
         {
             throw;
         }
+        catch (Exception e) when (CkMethodWriteOutcome.IsUnknown(e))
+        {
+            // R3 (AB#8020): a write the database did not acknowledge in time (write-concern error, unknown commit result)
+            // may still be on the primary. "Failed" would tell the caller nothing happened; the outcome is unknown.
+            logger.LogError(LoggedException(registration, redactor, e),
+                "CK method {MethodId} invocation {InvocationId} outcome unknown: a write was not acknowledged by the database (correlation {CorrelationId})",
+                request.MethodId, request.InvocationId, correlationId);
+            return Failed(request, CkMethodErrorCodes.MethodOutcomeUnknown,
+                (CkMethodErrorParameters.CorrelationId, correlationId.ToString()));
+        }
         catch (Exception e)
         {
             // The id in the log is the id the caller got in the error parameters. Secrets a handler put into its
