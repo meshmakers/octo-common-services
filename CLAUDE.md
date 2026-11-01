@@ -1145,3 +1145,18 @@ publishes nothing. Reason: a new System* version breaks exact-pinned dependents 
 `az pipelines run --id 90 --branch main --parameters publishSystemCkModels=true`. `r*` tags (release train) publish as
 before; `dev/*`/`test/*` builds never publish to the shared catalogs. A merge that bumps the model therefore leaves the version
 unpublished until that run; repos that restore it from the catalog must wait for it.
+
+## CORS policy and the access-token cookie (AB#7270)
+
+- `CorsPolicyProvider` (registered by `AddOctoServiceInfrastructure()`, used by `app.UseCors()` without a policy name) allows
+  exactly the registered client origins of the tenant in the first path segment (unknown tenant: system tenant), any header
+  and method, **never credentials**. `OctoCorsOptions` (`services.Configure<OctoCorsOptions>(…)`) may add exposed headers
+  and a preflight max-age; it cannot widen the origin list. bot-services uses it for the tus headers.
+- `UseOctoCookieBasedAuthentication(path)` turns `?jwt_token=` into the Authorization header and the `OctoIdentityAccessToken`
+  cookie **only below `path`** (default `/ui`, the Hangfire dashboard of bot-services; the root is refused). The cookie is
+  HttpOnly, Secure, `SameSite=Strict`, `Path = PathBase + path`. Outside the path neither the query token nor the cookie is
+  used, so API routes stay bearer-header only (`TenantAuthorizationMiddleware` no longer sees cookie-injected headers there).
+  Consumers: bot-services (`/ui`); identity-services calls the parameterless overload but serves nothing below `/ui`.
+- Tests: `tests/Infrastructure.Tests/Cors/KnownOriginsCorsPolicyTests.cs` (TestServer: unknown origin → no ACAO/ACAC on
+  200/401/404/500 and preflight, known origin → ACAO + exposed headers, tenant-specific origins, no ACAC on bearer routes) and
+  `tests/Infrastructure.Tests/Middleware/CookieBasedAuthenticationMiddlewareTests.cs` (Set-Cookie attributes, path scope).

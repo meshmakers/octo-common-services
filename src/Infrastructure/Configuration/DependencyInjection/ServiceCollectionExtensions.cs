@@ -43,6 +43,7 @@ public static class ServiceCollectionExtensions
         // Singleton because it owns the parent/child cache that keeps the parent-tenant
         // administration rule (AB#5060) off the database on every request.
         services.TryAddSingleton<ITenantHierarchyReader, TenantHierarchyReader>();
+        services.AddOptions<OctoCorsOptions>();
         services.AddSingletonMultipleInterfaces<CorsPolicyProvider, ICorsPolicyProvider>();
         services.AddExceptionHandler<OctoExceptionHandler>();
         return new OctoInfrastructureBuilder(services);

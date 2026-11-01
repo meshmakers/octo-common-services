@@ -34,13 +34,36 @@ public static class ApplicationBuilderExtensions
     }
 
     /// <summary>
-    ///     Adds authentication using jwt tokens from the request
+    ///     Default path of <see cref="UseOctoCookieBasedAuthentication(IApplicationBuilder)" />: the branch the
+    ///     Hangfire dashboard of bot-services is mapped to.
+    /// </summary>
+    public const string DefaultCookieBasedAuthenticationPath = "/ui";
+
+    /// <summary>
+    ///     Adds authentication using jwt tokens from the request (<c>?jwt_token=</c> or the
+    ///     <c>OctoIdentityAccessToken</c> cookie), limited to <see cref="DefaultCookieBasedAuthenticationPath" />.
     /// </summary>
     /// <param name="app"></param>
     /// <returns></returns>
     public static IApplicationBuilder UseOctoCookieBasedAuthentication(this IApplicationBuilder app)
     {
-        return app.UseMiddleware<CookieBasedAuthenticationMiddleware>();
+        return app.UseOctoCookieBasedAuthentication(DefaultCookieBasedAuthenticationPath);
+    }
+
+    /// <summary>
+    ///     Adds authentication using jwt tokens from the request (<c>?jwt_token=</c> or the
+    ///     <c>OctoIdentityAccessToken</c> cookie), limited to requests below <paramref name="path" />.
+    /// </summary>
+    /// <remarks>
+    ///     AB#7270: the cookie is set <c>HttpOnly</c>, <c>Secure</c>, <c>SameSite=Strict</c> with
+    ///     <c>Path</c> = <paramref name="path" />; outside that path the middleware does nothing.
+    /// </remarks>
+    /// <param name="app"></param>
+    /// <param name="path">Path of the browser surface that needs the token cookie, e.g. <c>/ui</c>; not the root.</param>
+    /// <returns></returns>
+    public static IApplicationBuilder UseOctoCookieBasedAuthentication(this IApplicationBuilder app, PathString path)
+    {
+        return app.UseMiddleware<CookieBasedAuthenticationMiddleware>(path);
     }
 
     /// <summary>
