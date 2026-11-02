@@ -162,7 +162,8 @@ public abstract class DefaultConfigurationCreatorServiceStandardized : DefaultCo
             try
             {
                 claimed = await TenantLifecycleStore
-                    .TryClaimForReconcileAsync(_reconcilerOwnerId, ReconcileLeaseDuration)
+                    .TryClaimForReconcileAsync(_reconcilerOwnerId, ReconcileLeaseDuration,
+                        TenantReconcilerOptions.Current.MinimumAge)
                     .ConfigureAwait(false);
             }
             catch (Exception ex)
@@ -214,12 +215,30 @@ public abstract class DefaultConfigurationCreatorServiceStandardized : DefaultCo
             {
                 // Leave the lease to expire (ReconcileLeaseDuration) so the tenant is retried on a later
                 // tick instead of being immediately re-claimed in this same loop.
+                if (ex is IdentityDataSeedPendingException && IsYoung(claimed))
+                {
+                    // AB#8117: expected while Identity is still seeding a young tenant — not a warning.
+                    _logger.LogInformation(
+                        "Reconcile attempt for tenant '{TenantId}': identity data not seeded yet; it will be retried " +
+                        "after the lease expires.", tenantId);
+                    continue;
+                }
+
                 _logger.LogWarning(ex,
                     "Reconcile attempt for tenant '{TenantId}' failed; it will be retried after the lease expires.",
                     tenantId);
             }
         }
     }
+
+    /// <summary>
+    ///     A tenant counts as young for log classification while its creation cycle is younger than the
+    ///     reconciler's minimum age plus one lease: a "not seeded yet" failure then is the normal setup race, not a
+    ///     stall (AB#8117). A record without a creation time (legacy) is never young.
+    /// </summary>
+    private static bool IsYoung(TenantLifecycleRecord record) =>
+        record.CreatedUtc != default &&
+        DateTime.UtcNow - record.CreatedUtc < TenantReconcilerOptions.Current.MinimumAge + ReconcileLeaseDuration;
 
     /// <summary>
     ///     How long a completed delete's Deleting tombstone is held before the sweep finishes it. Must
@@ -772,9 +791,7 @@ public abstract class DefaultConfigurationCreatorServiceStandardized : DefaultCo
                 s => s.SetPhaseAsync(tenantContext.TenantId, TenantLifecyclePhase.IdentityDataPending,
                     "Identity default configuration (roles) is not seeded yet.")).ConfigureAwait(false);
 
-            throw new InvalidOperationException(
-                $"Identity default configuration for tenant '{tenantContext.TenantId}' is not seeded yet " +
-                "(the tenant has no roles); retry pending");
+            throw new IdentityDataSeedPendingException(tenantContext.TenantId);
         }
         else if (r.Response == CreateIdentityDataResult.FailedTenantHasNoIdentityCk)
         {
