@@ -67,13 +67,14 @@ public sealed class TenantDatabaseUserHealer(TimeProvider? timeProvider = null, 
     ///     tenant's cached repository clients are also evicted after the ensure, whether the user was just created or
     ///     already present: the user may have been re-created by another service or an operator, and this process's
     ///     pooled connections that lost their authentication would otherwise keep failing with error 13 until a
-    ///     restart. Any other cause (or none) never evicts. Eviction shares the per-tenant rate limit.
+    ///     restart. A caller that already knows the tenant is stalled (the reconciler) passes <c>evictClients: true</c>
+    ///     to evict regardless of a cause. Any other call never evicts. Eviction shares the per-tenant rate limit.
     /// </summary>
     /// <returns>
     ///     The ensure result, or <c>null</c> when the attempt was skipped by the rate limit or failed (logged).
     /// </returns>
     public async Task<TenantDatabaseUserEnsureResult?> TryHealAsync(ISystemContext systemContext, string tenantId,
-        ILogger logger, Exception? cause = null)
+        ILogger logger, Exception? cause = null, bool evictClients = false)
     {
         if (!TryReserve(tenantId))
         {
@@ -90,7 +91,7 @@ public sealed class TenantDatabaseUserHealer(TimeProvider? timeProvider = null, 
                     "without a restart", tenantId);
             }
 
-            if (IsAuthenticationFailure(cause))
+            if (evictClients || IsAuthenticationFailure(cause))
             {
                 await EvictPooledClientsAsync(systemContext, tenantId, logger).ConfigureAwait(false);
             }
