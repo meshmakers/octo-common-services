@@ -49,7 +49,7 @@ members above marked sensitive must never reach a log, an exception message or a
 | `invocationId` | Guid | The request's invocation id. |
 | `success` | bool | True for a result or for acceptance of an asynchronous method. |
 | `error` | `CkMethodError`? | Set when `success` is false. |
-| `resultJson` | string? | camelCase JSON result of a synchronous method that declares a result. |
+| `resultJson` | string? | camelCase JSON result of a synchronous method that declares a result: the **bare** JSON value of the declared result type (String `"abc"`, Int `42`, Boolean `true`, Enum `"MemberName"`, Record `{"name":...}`, arrays `[...]`), never the `{"value": ...}` wrapper of the generated `{Type}{Method}Result` record (AB#8079). Null when the method has no result or the result value is null. |
 | `operation` | `CkMethodOperationHandle`? | Set when an asynchronous method was accepted. |
 | `handlerInstanceId` | string | Instance that answered; empty for platform outcomes (no handler answered). |
 
@@ -63,6 +63,13 @@ Exactly one of three shapes:
 
 Construct them with `CkMethodResponse.Succeeded`, `.Failed` and `.Accepted`; `IsAccepted` is a convenience that is not
 serialized.
+
+**Result form (AB#8079).** A handler returns the generated `{Type}{Method}Result { Value }`; the host (`CkMethodResultShape`,
+used by the bus and the in-process transport) writes only `Value` into `resultJson`. Before AB#8079 the host serialized the
+whole wrapper (`{"value":"..."}`), and the gateway passed that object text to the client as a String result. Idempotency records
+stored before the fix replay the old shape until their TTL expires (`Methods:Idempotency:Ttl`, default 24 h, at most 7 d); there is
+no migration. A pipeline-implemented method (communication controller) still writes the wrapper until its result mapper emits the
+bare value as well.
 
 **Error model.** `CkMethodError` has a stable `code`, a `parameters` dictionary (string to string) and optional `details`
 (`code` + `parameters`). There is no message text on the wire: clients map `code` + `parameters` to text in their own

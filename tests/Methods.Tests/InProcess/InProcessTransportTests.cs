@@ -69,7 +69,7 @@ public class InProcessTransportTests
         var (bus, local) = await RunBoth(() => Handler());
 
         Assert.True(local.Success);
-        Assert.Equal("{\"value\":\"changed\"}", local.ResultJson);
+        Assert.Equal("\"changed\"", local.ResultJson);
         Assert.Equal(Normalized(bus), Normalized(local));
     }
 

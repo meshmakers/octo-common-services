@@ -801,7 +801,11 @@ and registry (F3.2/F3.3) and the pipeline handler (AB#6879) are other stories. D
   deadline already passed (`METHOD_TIMEOUT`, not executed), deadline cancellation of the handler token (`METHOD_TIMEOUT`; `timeoutSeconds` =
   `request.TimeoutSeconds`, the definition's value only as fallback),
   parameter deserialization with `CkMethodJson.Options` (invalid or missing member -> `METHOD_VALIDATION_FAILED` with the
-  member name only, never the value), result serialization. It never throws for a request; only the caller's own
+  member name only, never the value), result serialization. **Result form (AB#8079)**: `CkMethodResultShape` writes only
+  `Value` of the generated `{Type}{Method}Result` as the bare JSON value (`"abc"`, `42`, `{...}`), never `{"value": ...}`; a null
+  `Value` = no `resultJson`. A result type without a public `Value` fails the registration, a `Value` whose scalar type does not
+  fit the declared result fails the startup validation. Tests: `CkMethodResultWireFormTests` (String, Int, Boolean, Enum, Record,
+  StringArray, null). Idempotency records stored before the fix replay the old wrapper until their TTL (no migration). It never throws for a request; only the caller's own
   `CancellationToken` surfaces as `OperationCanceledException`. Other transports call this instead of re-implementing it.
 - **Bus transport** (`CkMethodBusConsumer`, internal): one shared command endpoint per method (`CkMethodQueueNames.For`, registered
   with `RegisterCommandConsumer(name, handler, CommandConsumerOptions { SuppressFaults = true })`; senders use

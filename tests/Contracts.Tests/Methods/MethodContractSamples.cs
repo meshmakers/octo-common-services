@@ -30,7 +30,7 @@ internal static class MethodContractSamples
     };
 
     public static CkMethodResponse Success() =>
-        CkMethodResponse.Succeeded(InvocationId, "abc123", "{\"value\":true}");
+        CkMethodResponse.Succeeded(InvocationId, "abc123", "true");
 
     public static CkMethodResponse Error() => CkMethodResponse.Failed(InvocationId, "abc123",
         new CkMethodError

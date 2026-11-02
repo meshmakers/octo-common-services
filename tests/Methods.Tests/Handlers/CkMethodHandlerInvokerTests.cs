@@ -28,7 +28,7 @@ public class CkMethodHandlerInvokerTests
 
         Assert.True(response.Success);
         Assert.Null(response.Error);
-        Assert.Equal("{\"value\":\"changed\"}", response.ResultJson);
+        Assert.Equal("\"changed\"", response.ResultJson);
         Assert.Equal(request.InvocationId, response.InvocationId);
         Assert.Equal(host.Instance.InstanceId, response.HandlerInstanceId);
         Assert.Equal(TestData.Secret, handler.LastContext!.Parameters.NewPassword);

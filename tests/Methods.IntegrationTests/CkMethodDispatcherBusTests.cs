@@ -369,7 +369,7 @@ public sealed partial class CkMethodDispatcherBusTests(RabbitMqFixture rabbitMq)
         {
             case "success":
                 Assert.True(local.Success);
-                Assert.Equal("{\"value\":21}", local.ResultJson);
+                Assert.Equal("21", local.ResultJson);
                 Assert.NotEmpty(overBus.HandlerInstanceId);
                 Assert.NotEmpty(local.HandlerInstanceId);
                 Assert.NotEqual(overBus.HandlerInstanceId, local.HandlerInstanceId); // different hosts, same envelope
@@ -407,7 +407,7 @@ public sealed partial class CkMethodDispatcherBusTests(RabbitMqFixture rabbitMq)
         var local = await inProcess.InvokeAsync(request, TestContext.Current.CancellationToken);
 
         Assert.True(local.Success);
-        Assert.Equal("{\"value\":0}", local.ResultJson); // empty inside the handler, also after its first await
+        Assert.Equal("0", local.ResultJson); // empty inside the handler, also after its first await
         Assert.Equal(Normalized(overBus), Normalized(local));
         Assert.Equal("request-session", RequestAmbient.Value); // the caller keeps its own context
     }
@@ -647,7 +647,7 @@ public sealed partial class CkMethodDispatcherBusTests(RabbitMqFixture rabbitMq)
             TestContext.Current.CancellationToken);
 
         Assert.True(response.Success, JsonSerializer.Serialize(response, Wire));
-        Assert.Equal("{\"value\":21}", response.ResultJson);
+        Assert.Equal("21", response.ResultJson);
         Assert.Single(filter.Transports);
     }
 
