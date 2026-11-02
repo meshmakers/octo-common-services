@@ -119,6 +119,8 @@ internal sealed class FailedTenantRetryLoop(
                 try
                 {
                     using var scope = serviceScopeFactory.CreateScope();
+                    // Resolving the bound options publishes TenantReconcilerOptions.Current (AB#8117).
+                    _ = scope.ServiceProvider.GetService<TenantReconcilerOptions>();
                     var service = scope.ServiceProvider.GetRequiredService<IDefaultConfigurationCreatorService>();
                     await service.RetryFailedTenantsAsync().ConfigureAwait(false);
                 }
