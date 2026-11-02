@@ -13,6 +13,12 @@ Code"): `AccountChangePasswordParameters` (required parameters are `required` pr
 when the method has a result, and the method id constant in the model's `*CkIds` class, for example
 `Sample.Accounts/Account.ChangePassword-1`. Use the constant; never type the id by hand.
 
+**The result on the wire is the bare `Value` (AB#8079).** The host serializes only `Value` of the result record with
+`CkMethodJson.Options`: `new AccountChangePasswordResult { Value = 12 }` becomes `resultJson` `12`, a String `"abc"`, a record
+`{"name":...}`; never `{"value": 12}`. A null `Value` is a success without `resultJson`. The registration refuses a result type
+without a public `Value` property, and the startup validation refuses a `Value` whose scalar type does not fit the declared result
+(`the result is String in the model but property X.Value is Int32`). Members you add to the partial result record are not sent.
+
 ## 2. The handler
 
 ```csharp
@@ -232,7 +238,7 @@ public sealed class Caller(ICkInProcessMethodTransport methods)
 ```
 
 * **Same answer as on the bus.** The transport uses the same invoker core: contract version check, deadline,
-  parameter/result JSON (`{"value": ...}`, `CkMethodJson.Options`), declared errors, `METHOD_HANDLER_FAILED` with a
+  parameter/result JSON (`CkMethodJson.Options`; the result is the bare `Value`, see section 1), declared errors, `METHOD_HANDLER_FAILED` with a
   `correlationId`, redaction. `InProcessTransportTests` compares the serialized envelopes of both paths. Only
   `handlerInstanceId` differs (it names the answering host).
 * **Deadline.** `DeadlineUtc` works as on the bus: the handler token fires there, and a handler that ignores it is not waited for;
@@ -326,6 +332,9 @@ using (CkMethodPrincipalScope.Begin(CkMethodPrincipal.FromClaimsPrincipal(httpCo
 }
 // a job or a pipeline opens the scope with its own identity: new CkMethodPrincipal(subjectOrNull, roles, scopes)
 ```
+
+`FromClaimsPrincipal` reads `sub` (or the mapped `NameIdentifier`), the roles and the scopes. It maps `client_id` to `ClientId` **only when the
+token has no `sub`** (client credentials, AB#8078); for a user token `ClientId` stays `null`, so `Subject` is always the user's `sub`.
 
 | Rule | Meaning |
 |------|---------|
@@ -423,7 +432,7 @@ the claim is stored):
 | Situation | Answer |
 |---|---|
 | The method's result is sensitive, or the method is unknown (OD-4 G2) | `METHOD_VALIDATION_FAILED`, `field` `idempotencyKey`, `reason` `result-sensitive`. Nothing is stored; call without a key. |
-| No authenticated subject from `ICkMethodPrincipalProvider` | same, `reason` `caller-unknown` (a key has no scope without a caller; `CkMethodRequest.Caller` is never used). |
+| Neither a `sub` nor a `client_id` on the principal from `ICkMethodPrincipalProvider`, or a `sub` that starts with `client:` | same, `reason` `caller-unknown` (a key has no scope without a caller; `CkMethodRequest.Caller` is never used). |
 | Key longer than 128 characters | same, `reason` `key-too-long`. |
 | No parameter fingerprint on the invocation (idempotency options not registered) | same, `reason` `fingerprint-unavailable` (fail closed). |
 | Store cannot decide (throws) | `METHOD_HANDLER_NOT_AVAILABLE`, `reason` `idempotency-store-unavailable`; not executed, retry later. |
@@ -433,7 +442,12 @@ the claim is stored):
 | Existing record, outcome unknown (stored `Unknown`, or the lease lapsed) | `METHOD_OUTCOME_UNKNOWN`: neither executed nor answered; the key is burned, use a new key. |
 | Existing record, completed | the stored envelope, with the `invocationId` of **this** call; `Facts.ReplayOf` = invocation id of the first call. |
 
-**Scope and position:** tenant + qualified method id + caller subject (sub, else client_id; from the principal provider) + key, stored as a hash. The
+**Scope and position:** tenant + qualified method id + caller scope + key, stored as a hash. The caller scope comes from the principal provider
+(`CkMethodIdempotencyKey.ScopeOf`, AB#8078): a user is scoped by its `sub`; a client-credentials caller (no `sub`) by `client:<client_id>`, so a
+user id and a client id never share a scope, even when they are the same string; a user whose `sub` itself starts with `client:` has no
+scope (`caller-unknown`), so the two namespaces stay disjoint (platform subs are object ids and never do). Only the idempotency scope carries the prefix: the audit
+`callerSubject` of a service caller stays the plain client id. `CkMethodPrincipal.FromClaimsPrincipal` maps `client_id` only for a token without
+`sub`, so a service caller (pipeline, bot, CLI with client credentials) can send a key through the gateway. The
 filter sits inside authorization, so an unauthorized caller never learns whether a key exists, and behind the fingerprint-key refusal of the pipeline.
 The audit filter (100) sees every outcome and reads `Facts.ReplayOf` after `next()`.
 

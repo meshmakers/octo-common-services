@@ -243,7 +243,7 @@ public sealed class CkMethodAuthorizationBusTests(RabbitMqFixture rabbitMq) : IA
 
         var allowed = await CallAsync(dispatcher, Caller(Other, "assetmanagement"));
         Assert.True(allowed.Success, allowed.Error?.Code);
-        Assert.Equal("{\"value\":21}", allowed.ResultJson);
+        Assert.Equal("21", allowed.ResultJson);
         Assert.Equal(1, probe.Calls);
 
         var refused = await CallAsync(dispatcher, Caller(Other, "Other"));

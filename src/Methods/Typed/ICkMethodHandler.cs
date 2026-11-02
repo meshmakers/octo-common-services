@@ -12,7 +12,10 @@ public interface ICkMethodHandler;
 ///     may take scoped services (repositories, units of work) through the constructor.
 /// </summary>
 /// <typeparam name="TParameters">The generated <c>{Type}{Method}Parameters</c> record.</typeparam>
-/// <typeparam name="TResult">The generated <c>{Type}{Method}Result</c> record.</typeparam>
+/// <typeparam name="TResult">
+///     The generated <c>{Type}{Method}Result</c> record. Only its <c>Value</c> goes on the wire, as the bare JSON value
+///     (AB#8079); a type without a public <c>Value</c> property is refused at registration.
+/// </typeparam>
 public interface ICkMethodHandler<TParameters, TResult> : ICkMethodHandler
     where TParameters : class
     where TResult : class
