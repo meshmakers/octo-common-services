@@ -8,7 +8,7 @@ namespace Meshmakers.Octo.Services.Methods.Idempotency;
 /// <summary>
 ///     The idempotency filter of the invocation pipeline (band <see cref="CkMethodInvocationFilterOrder.Idempotency" />,
 ///     AB#7820, decided in OD-4 AB#6922). A call that carries <c>IdempotencyKey</c> runs at most once per
-///     (tenant, method, caller subject, key): the first call claims the key, executes and stores its outcome; a repeat is
+///     (tenant, method, caller scope, key): the first call claims the key, executes and stores its outcome; a repeat is
 ///     answered from the store and never reaches the handler. A call without a key passes straight through (no store
 ///     access, no allocation). A key sent to a method that declares <c>execution.idempotent: true</c> is accepted and
 ///     ignored (AB#7896): the call runs as an unkeyed one, so none of the rules below applies to it.
@@ -24,8 +24,10 @@ namespace Meshmakers.Octo.Services.Methods.Idempotency;
 ///         </item>
 ///         <item>
 ///             <description>
-///                 <b>Scope:</b> the caller subject comes from <see cref="ICkMethodPrincipalProvider" />, never from
-///                 <c>CkMethodRequest.Caller</c>. A call without a subject is refused, not executed unkeyed.
+///                 <b>Scope:</b> the caller comes from <see cref="ICkMethodPrincipalProvider" />, never from
+///                 <c>CkMethodRequest.Caller</c>. A user is scoped by its <c>sub</c>, a client-credentials caller by
+///                 <c>client:&lt;client_id&gt;</c> (<see cref="CkMethodIdempotencyKey.ScopeOf" />, AB#8078). A call with
+///                 neither is refused (<c>caller-unknown</c>), not executed unkeyed.
 ///             </description>
 ///         </item>
 ///         <item>
@@ -97,7 +99,8 @@ public sealed class CkMethodIdempotencyFilter(
             return Refuse(request, CkMethodIdempotencyRefusal.ResultSensitive);
         }
 
-        var subject = principalProvider.GetPrincipal(context)?.Subject;
+        // user: sub; client credentials: client:<client_id> (AB#8078), so the two never share a scope
+        var subject = CkMethodIdempotencyKey.ScopeOf(principalProvider.GetPrincipal(context));
         if (string.IsNullOrWhiteSpace(subject))
         {
             return Refuse(request, CkMethodIdempotencyRefusal.CallerUnknown);
