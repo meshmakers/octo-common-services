@@ -292,6 +292,55 @@ public class DefaultConfigurationCreatorServiceStandardizedTests
         Assert.True(TenantReconcilerOptions.Current.MinimumAge >= TimeSpan.FromSeconds(30));
     }
 
+    [Fact]
+    public async Task Reconciler_RecreatesTheMissingTenantUser_BeforeTheAttemptCounts()
+    {
+        // AB#8177: a user dropped under a running tenant used to burn the whole attempt budget on authentication errors.
+        var lifecycleStore = A.Fake<ITenantLifecycleStore>();
+        A.CallTo(() => lifecycleStore.TryClaimForReconcileAsync(A<string>._, A<TimeSpan>._, A<TimeSpan?>._,
+                A<CancellationToken>._))
+            .Returns(new TenantLifecycleRecord
+            {
+                TenantId = "heal-tenant-1", State = TenantLifecycleState.Creating, AttemptCount = 3,
+                CreatedUtc = DateTime.UtcNow.AddHours(-1)
+            }).Once().Then.Returns((TenantLifecycleRecord?)null);
+        A.CallTo(() => _systemContext.EnsureTenantDatabaseUserAsync("heal-tenant-1"))
+            .Returns(TenantDatabaseUserEnsureResult.Created);
+        A.CallTo(() => _systemContext.FindTenantContextAsync("heal-tenant-1"))
+            .Throws(new InvalidOperationException("stop after the ensure"));
+        var sut = new TestCreator(_systemContext, _commandClient,
+            blueprintService: null, embeddedSources: null, prefix: null, lifecycleStore: lifecycleStore);
+
+        await sut.RetryFailedTenantsAsync();
+
+        A.CallTo(() => _systemContext.EnsureTenantDatabaseUserAsync("heal-tenant-1")).MustHaveHappenedOnceExactly();
+        A.CallTo(() => _systemContext.FindTenantContextAsync("heal-tenant-1")).MustHaveHappenedOnceExactly();
+    }
+
+    [Fact]
+    public async Task Reconciler_DoesNotGiveUp_WhenTheBudgetWasSpentOnAMissingUser_ThatIsRecreatedNow()
+    {
+        var lifecycleStore = A.Fake<ITenantLifecycleStore>();
+        A.CallTo(() => lifecycleStore.TryClaimForReconcileAsync(A<string>._, A<TimeSpan>._, A<TimeSpan?>._,
+                A<CancellationToken>._))
+            .Returns(new TenantLifecycleRecord
+            {
+                TenantId = "heal-tenant-2", State = TenantLifecycleState.Creating, AttemptCount = 99,
+                CreatedUtc = DateTime.UtcNow.AddHours(-1)
+            }).Once().Then.Returns((TenantLifecycleRecord?)null);
+        A.CallTo(() => _systemContext.EnsureTenantDatabaseUserAsync("heal-tenant-2"))
+            .Returns(TenantDatabaseUserEnsureResult.Created);
+        var sut = new TestCreator(_systemContext, _commandClient,
+            blueprintService: null, embeddedSources: null, prefix: null, lifecycleStore: lifecycleStore);
+
+        await sut.RetryFailedTenantsAsync();
+
+        A.CallTo(() => lifecycleStore.RequeueForReconcileAsync("heal-tenant-2", A<CancellationToken>._))
+            .MustHaveHappenedOnceExactly();
+        A.CallTo(() => lifecycleStore.MarkFailedAsync("heal-tenant-2", A<string>._, A<CancellationToken>._))
+            .MustNotHaveHappened();
+    }
+
     [Theory]
     [InlineData(10, LogLevel.Information)] // young tenant: the normal setup race
     [InlineData(3600, LogLevel.Warning)] // a stall: worth a warning

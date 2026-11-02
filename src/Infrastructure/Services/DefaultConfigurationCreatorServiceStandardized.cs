@@ -180,6 +180,19 @@ public abstract class DefaultConfigurationCreatorServiceStandardized : DefaultCo
 
             var tenantId = claimed.TenantId;
 
+            // AB#8177: a MongoDB user that vanished under a running tenant makes every attempt fail with an
+            // authentication error and burns the budget until the tenant is marked Failed. Re-ensure the user before
+            // this attempt counts (rate-limited per tenant, cheap when the user exists).
+            var healed = await TenantDatabaseUserHealer.Default.TryHealAsync(_systemContext, tenantId, _logger)
+                .ConfigureAwait(false);
+            if (healed == TenantDatabaseUserEnsureResult.Created && claimed.AttemptCount > MaxRetries)
+            {
+                // The budget was spent on a cause that is fixed now: start over instead of giving up.
+                await TryUpdateLifecycleAsync(tenantId, s => s.RequeueForReconcileAsync(tenantId))
+                    .ConfigureAwait(false);
+                continue;
+            }
+
             if (claimed.AttemptCount > MaxRetries)
             {
                 _logger.LogError(

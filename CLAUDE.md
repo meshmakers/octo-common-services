@@ -1184,3 +1184,14 @@ stack) because the user is created only on tenant create/attach; one retry cycle
 completes. The call is idempotent and best-effort: a service without `ISystemContext` or without admin credentials
 logs a warning and retries as before. The degraded `TenantSetup` health check keeps naming the failing tenant.
 Test: `FailedTenantRetryLoopDatabaseUserTests`.
+
+### Healing a RUNNING tenant (AB#8177, round 2)
+
+`TenantDatabaseUserHealer` (`Services/`) is the shared helper for a user that vanishes under a tenant that already runs:
+`TryHealAsync(systemContext, tenantId, logger)` calls `EnsureTenantDatabaseUserAsync` at most once a minute per tenant
+(process-wide `TenantDatabaseUserHealer.Default`), never throws and returns `null` when skipped or failed;
+`IsAuthenticationFailure(ex)` recognises MongoDB error 18/13 (also inside write/bulk-write/inner/aggregate exceptions)
+and failed SCRAM authentication. `ReconcileStalledTenantsAsync` heals before an attempt counts and, when the budget was
+spent on a missing user, requeues the tenant (`RequeueForReconcileAsync`) instead of marking it Failed. identity-services
+uses the same helper in its `TenantProbeGuard`. Tests: `TenantDatabaseUserHealerTests`,
+`DefaultConfigurationCreatorServiceStandardizedTests.Reconciler_*`.
