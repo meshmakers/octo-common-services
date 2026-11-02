@@ -49,6 +49,9 @@ internal sealed class FailedTenantRetryLoop(
     /// <summary>Tick of the loop: the cadence at which due retries are picked up.</summary>
     internal static readonly TimeSpan RetryInterval = TimeSpan.FromSeconds(30);
 
+    /// <summary>Same as the per-tick batch of the in-memory retry queue in <c>DefaultConfigurationCreatorServiceBase</c>.</summary>
+    private const int MaxTrackerRetriesPerTick = 10;
+
     private readonly TenantSetupMetrics _tenantSetupMetrics = tenantSetupMetrics;
     private readonly TimeProvider _timeProvider = timeProvider ?? TimeProvider.System;
     private readonly object _gate = new();
@@ -149,7 +152,9 @@ internal sealed class FailedTenantRetryLoop(
     /// </summary>
     private async Task EnsureTenantDatabaseUsersAsync(IServiceProvider services)
     {
-        var due = setupRetryTracker.GetDue().Select(e => e.TenantId)
+        // The tracker batch matches what RetryInMemorySetupsAsync retries per tick (oldest failure first), so a large
+        // backlog does not delay the first retries behind checks of tenants that are not retried in this tick.
+        var due = setupRetryTracker.GetDue().Take(MaxTrackerRetriesPerTick).Select(e => e.TenantId)
             .Concat(failedTenantRegistry.GetDue().Select(e => e.Key))
             .Distinct(StringComparer.Ordinal)
             .ToList();
