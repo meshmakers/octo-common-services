@@ -323,6 +323,20 @@ public class IdempotencyFilterTests
         Assert.Equal(2, rig.Memory.Count);
     }
 
+    [Fact]
+    public async Task AUserWhoseSubStartsWithTheClientPrefix_IsRefusedAsCallerUnknown_NotScopedAsTheClient()
+    {
+        var store = new ThrowingStore();
+        var rig = new Rig(store: store);
+        rig.Principal.Subject = "client:pipeline-client";
+
+        var response = await rig.Call(rig.Request());
+
+        AssertRefused(response, CkMethodIdempotencyRefusal.CallerUnknown);
+        Assert.Equal(0, rig.Executions);
+        Assert.Equal(0, store.Calls);
+    }
+
     // ---------------------------------------------------------------- in flight and the race
 
     [Fact]

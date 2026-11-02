@@ -426,7 +426,7 @@ the claim is stored):
 | Situation | Answer |
 |---|---|
 | The method's result is sensitive, or the method is unknown (OD-4 G2) | `METHOD_VALIDATION_FAILED`, `field` `idempotencyKey`, `reason` `result-sensitive`. Nothing is stored; call without a key. |
-| Neither a `sub` nor a `client_id` on the principal from `ICkMethodPrincipalProvider` | same, `reason` `caller-unknown` (a key has no scope without a caller; `CkMethodRequest.Caller` is never used). |
+| Neither a `sub` nor a `client_id` on the principal from `ICkMethodPrincipalProvider`, or a `sub` that starts with `client:` | same, `reason` `caller-unknown` (a key has no scope without a caller; `CkMethodRequest.Caller` is never used). |
 | Key longer than 128 characters | same, `reason` `key-too-long`. |
 | No parameter fingerprint on the invocation (idempotency options not registered) | same, `reason` `fingerprint-unavailable` (fail closed). |
 | Store cannot decide (throws) | `METHOD_HANDLER_NOT_AVAILABLE`, `reason` `idempotency-store-unavailable`; not executed, retry later. |
@@ -438,7 +438,8 @@ the claim is stored):
 
 **Scope and position:** tenant + qualified method id + caller scope + key, stored as a hash. The caller scope comes from the principal provider
 (`CkMethodIdempotencyKey.ScopeOf`, AB#8078): a user is scoped by its `sub`; a client-credentials caller (no `sub`) by `client:<client_id>`, so a
-user id and a client id never share a scope, even when they are the same string. Only the idempotency scope carries the prefix: the audit
+user id and a client id never share a scope, even when they are the same string; a user whose `sub` itself starts with `client:` has no
+scope (`caller-unknown`), so the two namespaces stay disjoint (platform subs are object ids and never do). Only the idempotency scope carries the prefix: the audit
 `callerSubject` of a service caller stays the plain client id. `CkMethodPrincipal.FromClaimsPrincipal` maps `client_id` only for a token without
 `sub`, so a service caller (pipeline, bot, CLI with client credentials) can send a key through the gateway. The
 filter sits inside authorization, so an unauthorized caller never learns whether a key exists, and behind the fingerprint-key refusal of the pipeline.

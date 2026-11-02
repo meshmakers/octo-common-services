@@ -50,7 +50,8 @@ public sealed class CkMethodIdempotencyKey
     /// <summary>
     ///     The idempotency scope of a caller (decided by Odin in AB#7829, AB#8078): a user is scoped by its <c>sub</c>
     ///     (<see cref="CkMethodPrincipal.SubjectId" />); a client-credentials caller (no <c>sub</c>) by
-    ///     <c>client:&lt;client_id&gt;</c>, so a user id and a client id never share a scope. The audit keeps the plain
+    ///     <c>client:&lt;client_id&gt;</c>, so a user id and a client id never share a scope. A user whose <c>sub</c>
+    ///     starts with <see cref="ClientScopePrefix" /> has no scope (the two namespaces stay disjoint). The audit keeps the plain
     ///     <see cref="CkMethodPrincipal.Subject" />; only the idempotency scope carries the prefix.
     /// </summary>
     /// <param name="principal">The trusted principal of the call, or <c>null</c>.</param>
@@ -64,7 +65,12 @@ public sealed class CkMethodIdempotencyKey
 
         if (!string.IsNullOrWhiteSpace(principal.SubjectId))
         {
-            return principal.SubjectId;
+            // A sub that itself starts with the client prefix would land in the client namespace; such a caller has no
+            // scope (caller-unknown) instead, so user scopes and client scopes stay disjoint. Platform subs are object
+            // ids and never start with it, so no existing user record changes.
+            return principal.SubjectId.StartsWith(ClientScopePrefix, StringComparison.Ordinal)
+                ? null
+                : principal.SubjectId;
         }
 
         return string.IsNullOrWhiteSpace(principal.ClientId) ? null : ClientScopePrefix + principal.ClientId;

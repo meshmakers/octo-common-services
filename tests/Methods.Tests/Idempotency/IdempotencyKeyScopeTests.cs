@@ -48,6 +48,15 @@ public class IdempotencyKeyScopeTests
     }
 
     [Fact]
+    public void AUserWhoseSubStartsWithTheClientPrefix_HasNoScope_SoItCanNeverShareAClientScope()
+    {
+        // review finding PR #99: sub "client:pipeline-client" must not land in the scope of client "pipeline-client"
+        Assert.Null(CkMethodIdempotencyKey.ScopeOf(new CkMethodPrincipal("client:pipeline-client", [], [])));
+        Assert.Equal("client:pipeline-client",
+            CkMethodIdempotencyKey.ScopeOf(new CkMethodPrincipal(null, [], [], "pipeline-client")));
+    }
+
+    [Fact]
     public void TheAuditSubjectOfAClient_StaysThePlainClientId()
     {
         var principal = new CkMethodPrincipal(null, [], [], "pipeline-client");
