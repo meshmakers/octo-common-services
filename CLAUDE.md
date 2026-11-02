@@ -1174,3 +1174,13 @@ unpublished until that run; repos that restore it from the catalog must wait for
 - Tests: `tests/Infrastructure.Tests/Cors/KnownOriginsCorsPolicyTests.cs` (TestServer: unknown origin → no ACAO/ACAC on
   200/401/404/500 and preflight, known origin → ACAO + exposed headers, tenant-specific origins, no ACAC on bearer routes) and
   `tests/Infrastructure.Tests/Middleware/CookieBasedAuthenticationMiddlewareTests.cs` (Set-Cookie attributes, path scope).
+
+## The retry loop re-ensures the tenant's MongoDB user (AB#8177)
+
+`FailedTenantRetryLoop` calls `ISystemContext.EnsureTenantDatabaseUserAsync` for every tenant whose retry is due
+(in-memory tracker and deferred-start registry) **before** `RetryFailedTenantsAsync`. A tenant whose MongoDB user is
+gone failed its setup with the same `MongoAuthenticationException` on every attempt (617 attempts in 7 days on a local
+stack) because the user is created only on tenant create/attach; one retry cycle now re-creates it and the setup
+completes. The call is idempotent and best-effort: a service without `ISystemContext` or without admin credentials
+logs a warning and retries as before. The degraded `TenantSetup` health check keeps naming the failing tenant.
+Test: `FailedTenantRetryLoopDatabaseUserTests`.
