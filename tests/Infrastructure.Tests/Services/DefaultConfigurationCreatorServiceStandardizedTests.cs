@@ -9,6 +9,7 @@ using Meshmakers.Octo.Runtime.Contracts.MongoDb.TenantLifecycle;
 using Meshmakers.Octo.Services.Contracts.DistributionEventHub.Commands;
 using Meshmakers.Octo.Services.Infrastructure;
 using Meshmakers.Octo.Services.Infrastructure.Services;
+using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 using Xunit;
 
@@ -266,13 +267,77 @@ public class DefaultConfigurationCreatorServiceStandardizedTests
             blueprintService: null, embeddedSources: null, prefix: null, lifecycleStore: lifecycleStore);
 
         // Act + Assert
-        await Assert.ThrowsAsync<InvalidOperationException>(() =>
+        await Assert.ThrowsAsync<IdentityDataSeedPendingException>(() =>
             sut.PublicCheckSetupIdentityDataAsync(session, tenantContext));
 
         A.CallTo(() => lifecycleStore.MarkActiveAsync(A<string>._, A<string>._, A<CancellationToken>._))
             .MustNotHaveHappened();
         A.CallTo(() => lifecycleStore.SetPhaseAsync("child-tenant", TenantLifecyclePhase.IdentityDataPending,
             A<string>._, A<CancellationToken>._)).MustHaveHappenedOnceExactly();
+    }
+
+    [Fact]
+    public async Task Reconciler_ClaimsOnlyTenantsOlderThanTheConfiguredMinimumAge()
+    {
+        // AB#8117: the claim carries the minimum age, so a brand-new tenant is left to the normal setup path.
+        var lifecycleStore = A.Fake<ITenantLifecycleStore>();
+        var sut = new TestCreator(_systemContext, _commandClient,
+            blueprintService: null, embeddedSources: null, prefix: null, lifecycleStore: lifecycleStore);
+
+        await sut.RetryFailedTenantsAsync();
+
+        A.CallTo(() => lifecycleStore.TryClaimForReconcileAsync(A<string>._, A<TimeSpan>._,
+                TenantReconcilerOptions.Current.MinimumAge, A<CancellationToken>._))
+            .MustHaveHappened();
+        Assert.True(TenantReconcilerOptions.Current.MinimumAge >= TimeSpan.FromSeconds(30));
+    }
+
+    [Theory]
+    [InlineData(10, LogLevel.Information)] // young tenant: the normal setup race
+    [InlineData(3600, LogLevel.Warning)] // a stall: worth a warning
+    public async Task Reconciler_SeedPendingFailure_IsLoggedBelowWarning_OnlyForYoungTenants(
+        int ageSeconds, LogLevel expected)
+    {
+        StubCreateIdentityDataResponse(CreateIdentityDataResult.SuccessIdentityDataSeedPending);
+        A.CallTo(() => _systemContext.TenantId).Returns("octosystem");
+        var tenantContext = A.Fake<ITenantContext>();
+        A.CallTo(() => tenantContext.TenantId).Returns("child-tenant");
+        A.CallTo(() => tenantContext.GetAdminSessionAsync())
+            .Returns(A.Fake<Meshmakers.Octo.Runtime.Contracts.MongoDb.Repositories.IOctoAdminSession>());
+        A.CallTo(() => _systemContext.FindTenantContextAsync("child-tenant")).Returns(tenantContext);
+
+        var lifecycleStore = A.Fake<ITenantLifecycleStore>();
+        A.CallTo(() => lifecycleStore.TryClaimForReconcileAsync(A<string>._, A<TimeSpan>._, A<TimeSpan?>._,
+                A<CancellationToken>._))
+            .Returns(new TenantLifecycleRecord
+            {
+                TenantId = "child-tenant",
+                State = TenantLifecycleState.Creating,
+                AttemptCount = 1,
+                CreatedUtc = DateTime.UtcNow.AddSeconds(-ageSeconds)
+            }).Once().Then.Returns((TenantLifecycleRecord?)null);
+
+        var logger = new CapturingLogger();
+        var sut = new TestCreator(_systemContext, _commandClient,
+            blueprintService: null, embeddedSources: null, prefix: null, lifecycleStore: lifecycleStore,
+            logger: logger);
+
+        await sut.RetryFailedTenantsAsync();
+
+        Assert.Contains(logger.Entries, e => e.Message.Contains("child-tenant") && e.Message.Contains("Reconcile attempt"));
+        Assert.DoesNotContain(logger.Entries, e => e.Message.Contains("Reconcile attempt") && e.Level != expected);
+    }
+
+    private sealed class CapturingLogger : Microsoft.Extensions.Logging.ILogger<DefaultConfigurationCreatorServiceStandardized>
+    {
+        public List<(LogLevel Level, string Message)> Entries { get; } = new();
+
+        public IDisposable? BeginScope<TState>(TState state) where TState : notnull => null;
+
+        public bool IsEnabled(LogLevel logLevel) => true;
+
+        public void Log<TState>(LogLevel logLevel, EventId eventId, TState state, Exception? exception,
+            Func<TState, Exception?, string> formatter) => Entries.Add((logLevel, formatter(state, exception)));
     }
 
     [Fact]
@@ -372,9 +437,10 @@ public class DefaultConfigurationCreatorServiceStandardizedTests
             IBlueprintService? blueprintService,
             IEnumerable<IBlueprintEmbeddedSource>? embeddedSources,
             string? prefix,
-            ITenantLifecycleStore? lifecycleStore = null)
+            ITenantLifecycleStore? lifecycleStore = null,
+            Microsoft.Extensions.Logging.ILogger<DefaultConfigurationCreatorServiceStandardized>? logger = null)
             : base(
-                NullLogger<DefaultConfigurationCreatorServiceStandardized>.Instance,
+                logger ?? NullLogger<DefaultConfigurationCreatorServiceStandardized>.Instance,
                 systemContext,
                 commandClient,
                 identityDataVersionKey: "test-id-data-version",

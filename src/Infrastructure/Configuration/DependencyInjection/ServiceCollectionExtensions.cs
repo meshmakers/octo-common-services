@@ -116,6 +116,14 @@ public static class ServiceCollectionExtensions
             tracker.Configure(sp.GetRequiredService<IOptions<TenantSetupRetryOptions>>().Value);
             return tracker;
         });
+        // Stalled-tenant reconciler minimum age (AB#8117): bound once, published process-wide for the scoped creators.
+        services.AddOptions<TenantReconcilerOptions>().BindConfiguration(TenantReconcilerOptions.SectionName);
+        services.AddSingleton(sp =>
+        {
+            var options = sp.GetRequiredService<IOptions<TenantReconcilerOptions>>().Value;
+            TenantReconcilerOptions.Current = options;
+            return options;
+        });
         services.AddSingleton<FailedTenantRegistry>();
         services.AddSingleton<TenantSetupMetrics>();
         services.AddHealthChecks().AddCheck<TenantSetupHealthCheck>("TenantSetup");
