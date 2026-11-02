@@ -742,7 +742,7 @@ evolution: `docs/method-wire-contract.md`.
 - **Parameter size limit** (AB#7665, F-2): `METHOD_PARAMETERS_TOO_LARGE` (parameters `methodId`, `maxBytes`, `actualBytes`); limit = UTF-8 byte length of `ParametersJson`, option `Methods:MaxParametersBytes` (`CkMethodLimitsOptions`, default 1 MiB, one name for gateway and host, bound by `AddCkMethodDispatcher`, `AddCkMethodHandlers`, `AddCkInProcessMethodHandlers`). `CkMethodParameterLimit.Exceeds/TooLarge` is the one check: the gateway (asset-repo) calls it before validation, `CkMethodHandlerInvoker` before the token is validated and before deserialization. Tests: `CkMethodHandlerInvokerTests`, adversarial C12.
 - **Idempotency store contract** (AB#7817, F3.5, decided in OD-4 AB#6922; `src/Methods/Idempotency/`, tests `tests/Methods.Tests/Idempotency/IdempotencyStoreTests.cs`): `ICkMethodIdempotencyStore`
   (`ClaimAsync` atomic, expired record taken over by a conditional replace; `CompleteAsync(Completed|Unknown)`; `ReleaseAsync`; owner-only, only while `InProgress`; fails closed by
-  throwing `CkMethodIdempotencyStoreException`), `CkMethodIdempotencyKey` (tenant + method + caller subject from the principal provider + key, stored `Id` = SHA-256 hex, raw key not at rest, max 128 chars),
+  throwing `CkMethodIdempotencyStoreException`), `CkMethodIdempotencyKey` (tenant + method + caller scope from the principal provider + key; scope = `ScopeOf(principal)`: user `sub`, client-credentials caller `client:<client_id>` (AB#8078), so user and client never share a scope; audit keeps the plain subject; stored `Id` = SHA-256 hex, raw key not at rest, max 128 chars),
   `CkMethodIdempotencyRecord` (reference equality for the conditional replace; `ToString` prints no fingerprint or response), `CkMethodInMemoryIdempotencyStore` (tests and single-replica hosts; the Mongo store is AB#7824 in
   asset-repo). Row 4: only not-executed codes `ReleaseAsync`; an unknown outcome and `METHOD_HANDLER_FAILED` burn the key. Option `Methods:Idempotency:Ttl` (`CkMethodIdempotencyOptions`,
   `CkMethodIdempotencyLifetime`): default 24 h, max 7 d (clamped + one warning), zero/negative fails start. New platform code `METHOD_REQUEST_IN_PROGRESS` (`NotExecuted`, parameter `methodId`; additive, wire contract version unchanged).
@@ -754,7 +754,7 @@ evolution: `docs/method-wire-contract.md`.
   does not compute a fingerprint for it either, so the `fingerprint-key-missing` refusal does not apply. Audit and `ck.method.calls` are untouched (still one event and one count per call); the
   filter logs one Debug line. It does not change the duplicate-delivery refusal of the bus consumer (OD-3), which still treats every method as non-idempotent. Tests: `IdempotencyFilterTests`
   (store spy), `CkMethodAuditTests`, `CkMethodMetricsTests`.
-  Keyed call order (a method not declared idempotent): sensitive/unknown result -> `METHOD_VALIDATION_FAILED` `result-sensitive` (G2=A, nothing stored); no subject from `ICkMethodPrincipalProvider` -> `caller-unknown`; key > 128 -> `key-too-long`; no fingerprint on the
+  Keyed call order (a method not declared idempotent): sensitive/unknown result -> `METHOD_VALIDATION_FAILED` `result-sensitive` (G2=A, nothing stored); neither `sub` nor `client_id` on the principal from `ICkMethodPrincipalProvider` -> `caller-unknown`; key > 128 -> `key-too-long`; no fingerprint on the
   facts -> `fingerprint-unavailable`; store throws -> `METHOD_HANDLER_NOT_AVAILABLE` `idempotency-store-unavailable` (fail closed). Existing record: `MatchesStoredFingerprint` false (also an unconfigured key id or an empty fingerprint) ->
   `parameters-changed` (before the state); in flight (until deadline + `ResponseGrace`) -> `METHOD_REQUEST_IN_PROGRESS`; `Unknown`/lapsed -> `METHOD_OUTCOME_UNKNOWN`; completed -> stored envelope with this call's `invocationId`,
   `Facts.ReplayOf` = first invocation id. After the run: success/accepted/declared code/`METHOD_HANDLER_FAILED` -> `Completed` (replayed); not-executed platform code (via `CkMethodErrorCodes.Catalog`) -> `ReleaseAsync`;
@@ -881,7 +881,8 @@ tests `tests/Methods.Tests/InProcess/`. Guide: `docs/method-handler-sdk.md` sect
   `CkMethodAuthorizationFilter` at band 200 through `AddCkMethodInvocationFilter<T>()` (once per service) plus the shared
   `ICkMethodAuthorizationEvaluator` (public, pure: `Evaluate(authorization, kind, targetRtId, principal)`; the gateway gate AB#6912 uses
   the same instance), `ICkMethodPrincipalProvider` (default `CkMethodPrincipalScope`, an `AsyncLocal` the gateway or job opens with
-  `CkMethodPrincipalScope.Begin(CkMethodPrincipal.FromClaimsPrincipal(user))` around the call) and `ICkMethodAuthorizationDefinitionSource`
+  `CkMethodPrincipalScope.Begin(CkMethodPrincipal.FromClaimsPrincipal(user))` around the call; `FromClaimsPrincipal` maps `client_id` only for a
+  token without `sub`, AB#8078, tests `CkMethodPrincipalTests`) and `ICkMethodAuthorizationDefinitionSource`
   (CK cache: concrete target type `AllMethods`, then the declaring type). **The principal is never read from `CkMethodRequest.Caller` or the
   forwarded token**; no principal = refused. Rules: `octo_api` always required, then all declared `scopes` (administrators too); `roles` any-of,
   case-insensitive; `allowSelf` compares parsed `OctoObjectId`s (instance methods with a target only; honoured also with empty roles);

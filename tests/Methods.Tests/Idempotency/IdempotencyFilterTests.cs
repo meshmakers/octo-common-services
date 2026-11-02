@@ -88,8 +88,11 @@ public class IdempotencyFilterTests
     {
         public string? Subject { get; set; }
 
+        /// <summary>The client id of a client-credentials caller (used only while <see cref="Subject" /> is null).</summary>
+        public string? ClientId { get; set; }
+
         public CkMethodPrincipal? GetPrincipal(CkMethodInvocationContext context) =>
-            Subject == null ? null : new CkMethodPrincipal(Subject, [], []);
+            Subject == null && ClientId == null ? null : new CkMethodPrincipal(Subject, [], [], ClientId);
     }
 
     private sealed class ThrowingStore(bool claim = true, bool complete = false, bool release = false)
@@ -273,6 +276,51 @@ public class IdempotencyFilterTests
 
         Assert.Equal(1, rig.Executions);
         Assert.True(again.Success);
+    }
+
+    // ---------------------------------------------------------------- client-credentials callers (AB#8078)
+
+    [Fact]
+    public async Task AClientCredentialsCaller_ClaimsAndReplays_InsteadOfCallerUnknown()
+    {
+        var rig = new Rig();
+        rig.Principal.Subject = null;
+        rig.Principal.ClientId = "pipeline-client";
+        var first = rig.Request();
+        var second = rig.Request();
+        var facts = new FactsProbe(rig);
+
+        var one = await rig.Call(first);
+        var two = await facts.Call(second);
+
+        Assert.True(one.Success);
+        Assert.True(two.Success);
+        Assert.Equal(1, rig.Executions);
+        Assert.Equal(first.InvocationId, facts.ReplayOf);
+        // stored under the client scope: a claim of that identity finds the record of the first call
+        var clientKey = CkMethodIdempotencyKey.Create(first.TenantId, first.MethodId, "client:pipeline-client",
+            first.IdempotencyKey!);
+        var probe = await rig.Memory.ClaimAsync(new CkMethodIdempotencyClaimRequest(clientKey, Guid.NewGuid(),
+            rig.Time.GetUtcNow().UtcDateTime.AddMinutes(1)), TestContext.Current.CancellationToken);
+        Assert.False(probe.Claimed);
+        Assert.Equal(first.InvocationId, probe.Record.FirstInvocationId);
+    }
+
+    [Fact]
+    public async Task AClientAndAUserWhoseSubEqualsTheClientId_NeverShareAScope()
+    {
+        var rig = new Rig();
+        rig.Principal.Subject = null;
+        rig.Principal.ClientId = "shared-name";
+        await rig.Call(rig.Request());
+
+        rig.Principal.Subject = "shared-name";
+        rig.Principal.ClientId = null;
+        var user = await rig.Call(rig.Request());
+
+        Assert.True(user.Success);
+        Assert.Equal(2, rig.Executions); // the user's call ran: no replay of the client's result
+        Assert.Equal(2, rig.Memory.Count);
     }
 
     // ---------------------------------------------------------------- in flight and the race
