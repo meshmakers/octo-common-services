@@ -98,4 +98,79 @@ public class TenantDatabaseUserHealerTests
         Assert.Null(await sut.TryHealAsync(_systemContext, "x", NullLogger.Instance));
         A.CallTo(() => _systemContext.EnsureTenantDatabaseUserAsync("x")).MustHaveHappenedTwiceExactly();
     }
+
+    [Theory]
+    [InlineData(TenantDatabaseUserEnsureResult.AlreadyPresent)]
+    [InlineData(TenantDatabaseUserEnsureResult.Created)]
+    public async Task An_authentication_failure_evicts_the_pooled_clients_whatever_the_ensure_result(
+        TenantDatabaseUserEnsureResult ensureResult)
+    {
+        A.CallTo(() => _systemContext.EnsureTenantDatabaseUserAsync("x")).Returns(ensureResult);
+        var sut = new TenantDatabaseUserHealer(_time);
+
+        var result = await sut.TryHealAsync(_systemContext, "x", NullLogger.Instance, CommandFailure(13));
+
+        Assert.Equal(ensureResult, result);
+        A.CallTo(() => _systemContext.InvalidateTenantRepositoryClientsAsync("x", A<string?>._, A<CancellationToken>._))
+            .MustHaveHappenedOnceExactly();
+    }
+
+    [Fact]
+    public async Task Eviction_respects_the_per_tenant_rate_limit()
+    {
+        A.CallTo(() => _systemContext.EnsureTenantDatabaseUserAsync("x"))
+            .Returns(TenantDatabaseUserEnsureResult.AlreadyPresent);
+        var sut = new TenantDatabaseUserHealer(_time);
+
+        await sut.TryHealAsync(_systemContext, "x", NullLogger.Instance, CommandFailure(13));
+        await sut.TryHealAsync(_systemContext, "x", NullLogger.Instance, CommandFailure(13));
+        A.CallTo(() => _systemContext.InvalidateTenantRepositoryClientsAsync("x", A<string?>._, A<CancellationToken>._))
+            .MustHaveHappenedOnceExactly();
+
+        _time.Advance(sut.MinimumInterval + TimeSpan.FromSeconds(1));
+        await sut.TryHealAsync(_systemContext, "x", NullLogger.Instance, CommandFailure(18));
+        A.CallTo(() => _systemContext.InvalidateTenantRepositoryClientsAsync("x", A<string?>._, A<CancellationToken>._))
+            .MustHaveHappenedTwiceExactly();
+    }
+
+    [Fact]
+    public async Task A_non_authentication_cause_or_no_cause_never_evicts()
+    {
+        A.CallTo(() => _systemContext.EnsureTenantDatabaseUserAsync(A<string>._))
+            .Returns(TenantDatabaseUserEnsureResult.AlreadyPresent);
+        var sut = new TenantDatabaseUserHealer(_time);
+
+        await sut.TryHealAsync(_systemContext, "x", NullLogger.Instance, new TimeoutException());
+        await sut.TryHealAsync(_systemContext, "y", NullLogger.Instance, CommandFailure(11000));
+        await sut.TryHealAsync(_systemContext, "z", NullLogger.Instance);
+
+        A.CallTo(() => _systemContext.InvalidateTenantRepositoryClientsAsync(A<string>._, A<string?>._, A<CancellationToken>._))
+            .MustNotHaveHappened();
+    }
+
+    [Fact]
+    public async Task A_failing_eviction_does_not_throw_and_keeps_the_ensure_result()
+    {
+        A.CallTo(() => _systemContext.EnsureTenantDatabaseUserAsync("x"))
+            .Returns(TenantDatabaseUserEnsureResult.AlreadyPresent);
+        A.CallTo(() => _systemContext.InvalidateTenantRepositoryClientsAsync("x", A<string?>._, A<CancellationToken>._))
+            .ThrowsAsync(new InvalidOperationException("boom"));
+        var sut = new TenantDatabaseUserHealer(_time);
+
+        var result = await sut.TryHealAsync(_systemContext, "x", NullLogger.Instance, CommandFailure(13));
+
+        Assert.Equal(TenantDatabaseUserEnsureResult.AlreadyPresent, result);
+    }
+
+    [Fact]
+    public async Task A_skipped_heal_does_not_evict()
+    {
+        var sut = new TenantDatabaseUserHealer(_time);
+        await sut.TryHealAsync(_systemContext, "x", NullLogger.Instance);
+
+        await sut.TryHealAsync(_systemContext, "x", NullLogger.Instance, CommandFailure(13));
+
+        A.CallTo(() => _systemContext.InvalidateTenantRepositoryClientsAsync(A<string>._, A<string?>._, A<CancellationToken>._))
+            .MustNotHaveHappened();
+    }
 }
