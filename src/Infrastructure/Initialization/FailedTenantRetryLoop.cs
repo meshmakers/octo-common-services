@@ -1,3 +1,4 @@
+using Meshmakers.Octo.Runtime.Contracts.MongoDb;
 using Meshmakers.Octo.Services.Infrastructure.Services;
 
 namespace Meshmakers.Octo.Services.Infrastructure.Initialization;
@@ -41,6 +42,8 @@ internal sealed class FailedTenantRetryLoop(
     // Resolved here so the tenant-setup metrics exist from startup and the tracker is configured before
     // its first use (AB#7249). Not used otherwise.
     TenantSetupMetrics tenantSetupMetrics,
+    TenantSetupRetryTracker setupRetryTracker,
+    FailedTenantRegistry failedTenantRegistry,
     TimeProvider? timeProvider = null)
 {
     /// <summary>Tick of the loop: the cadence at which due retries are picked up.</summary>
@@ -121,6 +124,7 @@ internal sealed class FailedTenantRetryLoop(
                     using var scope = serviceScopeFactory.CreateScope();
                     // Resolving the bound options publishes TenantReconcilerOptions.Current (AB#8117).
                     _ = scope.ServiceProvider.GetService<TenantReconcilerOptions>();
+                    await EnsureTenantDatabaseUsersAsync(scope.ServiceProvider).ConfigureAwait(false);
                     var service = scope.ServiceProvider.GetRequiredService<IDefaultConfigurationCreatorService>();
                     await service.RetryFailedTenantsAsync().ConfigureAwait(false);
                 }
@@ -133,6 +137,51 @@ internal sealed class FailedTenantRetryLoop(
         catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
         {
             // shutdown
+        }
+    }
+
+    /// <summary>
+    ///     AB#8177 — before a due retry runs, re-ensure the MongoDB user of each failing tenant. The user is
+    ///     created only when a tenant is created or attached; when it is gone, every retry used to fail with the
+    ///     same authentication error forever (617 attempts in 7 days on a local stack). The call is idempotent
+    ///     (one <c>usersInfo</c> when the user exists) and best-effort: a service without admin credentials or
+    ///     without an <see cref="ISystemContext"/> just retries as before.
+    /// </summary>
+    private async Task EnsureTenantDatabaseUsersAsync(IServiceProvider services)
+    {
+        var due = setupRetryTracker.GetDue().Select(e => e.TenantId)
+            .Concat(failedTenantRegistry.GetDue().Select(e => e.Key))
+            .Distinct(StringComparer.Ordinal)
+            .ToList();
+        if (due.Count == 0)
+        {
+            return;
+        }
+
+        var systemContext = services.GetService<ISystemContext>();
+        if (systemContext is null)
+        {
+            return;
+        }
+
+        foreach (var tenantId in due)
+        {
+            try
+            {
+                var result = await systemContext.EnsureTenantDatabaseUserAsync(tenantId).ConfigureAwait(false);
+                if (result == TenantDatabaseUserEnsureResult.Created)
+                {
+                    logger.LogWarning(
+                        "Re-created the missing MongoDB user of tenant '{TenantId}' before retrying its setup",
+                        tenantId);
+                }
+            }
+            catch (Exception ex)
+            {
+                logger.LogWarning(ex,
+                    "Could not verify the MongoDB user of tenant '{TenantId}' before retrying its setup; retrying anyway",
+                    tenantId);
+            }
         }
     }
 }
