@@ -1,4 +1,3 @@
-using System.Text.Json;
 using Meshmakers.Octo.Services.Contracts.DistributionEventHub.Methods;
 using Meshmakers.Octo.Services.Methods.Authorization;
 
@@ -37,7 +36,8 @@ internal sealed class CkMethodHandlerAdapter<THandler, TParameters, TResult> : C
 
         try
         {
-            return new CkMethodAdapterOutcome(null, JsonSerializer.Serialize(outcome.Value, CkMethodJson.Options));
+            // AB#8079: the wire carries the bare value of the generated {Type}{Method}Result, not the wrapper
+            return new CkMethodAdapterOutcome(null, CkMethodResultShape.Serialize(outcome.Value));
         }
         catch (Exception e) when (e is not OperationCanceledException)
         {

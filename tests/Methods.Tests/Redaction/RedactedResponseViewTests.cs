@@ -38,8 +38,8 @@ public class RedactedResponseViewTests
         new((_, _) => Task.FromResult<CkMethodOutcome<UserChangePasswordResult>>(
             new UserChangePasswordResult { Value = value }));
 
-    private static string ExpectedResult(string value) => JsonSerializer.Serialize(
-        new UserChangePasswordResult { Value = value }, CkMethodJson.Options);
+    // AB#8079: the wire carries the bare value of the result record, not the {"value": ...} wrapper
+    private static string ExpectedResult(string value) => JsonSerializer.Serialize(value, CkMethodJson.Options);
 
     [Theory]
     [InlineData(true)]

@@ -300,7 +300,7 @@ public sealed class CkMethodHandlerBusTests(RabbitMqFixture rabbitMq) : IAsyncLi
 
         Assert.True(response.Success);
         Assert.Equal(request.InvocationId, response.InvocationId);
-        Assert.Equal("{\"value\":21}", response.ResultJson);
+        Assert.Equal("21", response.ResultJson);
         Assert.NotEmpty(response.HandlerInstanceId);
     }
 

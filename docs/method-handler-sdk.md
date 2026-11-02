@@ -13,6 +13,12 @@ Code"): `AccountChangePasswordParameters` (required parameters are `required` pr
 when the method has a result, and the method id constant in the model's `*CkIds` class, for example
 `Sample.Accounts/Account.ChangePassword-1`. Use the constant; never type the id by hand.
 
+**The result on the wire is the bare `Value` (AB#8079).** The host serializes only `Value` of the result record with
+`CkMethodJson.Options`: `new AccountChangePasswordResult { Value = 12 }` becomes `resultJson` `12`, a String `"abc"`, a record
+`{"name":...}`; never `{"value": 12}`. A null `Value` is a success without `resultJson`. The registration refuses a result type
+without a public `Value` property, and the startup validation refuses a `Value` whose scalar type does not fit the declared result
+(`the result is String in the model but property X.Value is Int32`). Members you add to the partial result record are not sent.
+
 ## 2. The handler
 
 ```csharp
@@ -232,7 +238,7 @@ public sealed class Caller(ICkInProcessMethodTransport methods)
 ```
 
 * **Same answer as on the bus.** The transport uses the same invoker core: contract version check, deadline,
-  parameter/result JSON (`{"value": ...}`, `CkMethodJson.Options`), declared errors, `METHOD_HANDLER_FAILED` with a
+  parameter/result JSON (`CkMethodJson.Options`; the result is the bare `Value`, see section 1), declared errors, `METHOD_HANDLER_FAILED` with a
   `correlationId`, redaction. `InProcessTransportTests` compares the serialized envelopes of both paths. Only
   `handlerInstanceId` differs (it names the answering host).
 * **Deadline.** `DeadlineUtc` works as on the bus: the handler token fires there, and a handler that ignores it is not waited for;

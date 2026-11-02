@@ -86,6 +86,16 @@ internal sealed class CkMethodRegistrationValidator(ICkMethodDefinitionSource de
                 $"the method declares no result, but the handler implements ICkMethodHandler<TParameters, {registration.ResultType.Name}>. " +
                 "Implement ICkMethodHandler<TParameters>");
         }
+
+        // AB#8079: the Value of the result record is what goes on the wire, so its type must fit the declared result
+        if (method.Result != null && registration.ResultType != null &&
+            CkMethodResultShape.ValueProperty(registration.ResultType).AttributeProvider is PropertyInfo value &&
+            !IsCompatible(method.Result.ValueType, value.PropertyType))
+        {
+            throw Invalid(registration,
+                $"the result is {method.Result.ValueType} in the model but property " +
+                $"{registration.ResultType.Name}.{value.Name} is {value.PropertyType.Name}");
+        }
     }
 
     // Only the unambiguous scalar types are checked; records, enums and arrays of the model are generated types.

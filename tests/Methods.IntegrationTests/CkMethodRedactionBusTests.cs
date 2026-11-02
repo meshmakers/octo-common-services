@@ -147,14 +147,14 @@ public sealed class CkMethodRedactionBusTests(RabbitMqFixture rabbitMq) : IAsync
 
     public sealed record IssueApiKeyResult
     {
-        public required string ApiKey { get; init; }
+        public string? Value { get; init; }
     }
 
     public sealed class IssueApiKeyHandler : ICkMethodHandler<IssueApiKeyParameters, IssueApiKeyResult>
     {
         public Task<CkMethodOutcome<IssueApiKeyResult>> HandleAsync(CkMethodContext<IssueApiKeyParameters> context,
             CancellationToken cancellationToken) =>
-            Task.FromResult<CkMethodOutcome<IssueApiKeyResult>>(new IssueApiKeyResult { ApiKey = ResultCanary });
+            Task.FromResult<CkMethodOutcome<IssueApiKeyResult>>(new IssueApiKeyResult { Value = ResultCanary });
     }
 
     private static readonly CkMethodDto SecretDefinition = new()
@@ -431,7 +431,7 @@ public sealed class CkMethodRedactionBusTests(RabbitMqFixture rabbitMq) : IAsync
         var response = await CallAsync(dispatcher, "{}", methodId: SecretMethodId);
 
         Assert.True(response.Success, response.Error?.Code);
-        Assert.Equal(ResultCanary, JsonDocument.Parse(response.ResultJson!).RootElement.GetProperty("apiKey").GetString());
+        Assert.Equal(ResultCanary, JsonDocument.Parse(response.ResultJson!).RootElement.GetString());
         await Task.Delay(500, TestContext.Current.CancellationToken);
         _sink.Add("response-text", response.ToString());
 

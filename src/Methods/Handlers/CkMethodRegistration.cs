@@ -57,6 +57,20 @@ internal sealed class CkMethodRegistration
         }
 
         var arguments = typed[0].GetGenericArguments();
+        if (arguments.Length > 1)
+        {
+            // AB#8079: the result must be the generated {Type}{Method}Result wrapper; its Value goes on the wire
+            try
+            {
+                CkMethodResultShape.ValueProperty(arguments[1]);
+            }
+            catch (InvalidOperationException e)
+            {
+                throw new InvalidOperationException(
+                    $"Handler {handlerType.Name} for CK method '{methodId}' has an invalid result type: {e.Message}", e);
+            }
+        }
+
         var adapterType = arguments.Length > 1
             ? typeof(CkMethodHandlerAdapter<,,>).MakeGenericType(handlerType, arguments[0], arguments[1])
             : typeof(CkMethodHandlerAdapter<,>).MakeGenericType(handlerType, arguments[0]);
