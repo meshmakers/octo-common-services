@@ -3,7 +3,7 @@ description: CK method metrics and traces: instruments, labels, where a call is 
 applies_to: src/Methods/Metrics/**, src/Observability/ObservabilityBuilder.cs
 ---
 
-# CK method metrics and traces (AB#6920, F3.5)
+# CK method metrics and traces
 
 An operator sees the rate, duration and failures of method calls per method, and follows one call from the gateway over
 the event hub into the handler in a single trace. Everything is on the meter and the span source named
@@ -18,7 +18,7 @@ the event hub into the handler in a single trace. Everything is on the meter and
 | `ck.method.duration` | histogram, seconds (buckets 5 ms to 300 s) | `method_id`, `transport`, `outcome` | duration of the same call as the caller sees it |
 | `ck.method.no_handler` | counter | `method_id`, `transport` | calls nobody could take: outcome `METHOD_HANDLER_NOT_AVAILABLE` (no live handler, tenant not served, method not registered). A refusal because the idempotency store was down carries the same code but is not counted here. |
 | `ck.method.duplicate_refused` | counter | `reason`, `method_id` | deliveries a handler host refused as a possible duplicate and did **not** execute |
-| `ck.method.audit.failures` | counter | `transport` | audit events that could not be written (AB#6919) |
+| `ck.method.audit.failures` | counter | `transport` | audit events that could not be written |
 
 In Prometheus/Dash0 the names appear with underscores (`ck_method_calls_total`, `ck_method_duration_seconds_bucket`,
 `ck_method_no_handler_total`, `ck_method_duplicate_refused_total`).
@@ -29,7 +29,7 @@ Label values:
 |-------|--------|
 | `method_id` | qualified method id without model version, e.g. `System.Identity/User.ChangePassword-1`; at most 1000 distinct values per process, further ones are `other` |
 | `transport` | `bus` (remote handler over the event hub), `in-process` (handler in the calling service), `gateway` (refused by the gateway before the pipeline; only calls and duration), `other` |
-| `outcome` | `SUCCESS`, `ACCEPTED` (long-running operation), `CALLER_CANCELLED`, a platform error code (`METHOD_FORBIDDEN`, `METHOD_TIMEOUT`, `METHOD_HANDLER_FAILED`, `METHOD_HANDLER_NOT_AVAILABLE`, `METHOD_OUTCOME_UNKNOWN`, ...) or an error code the method declares; `invalid_code` for anything else. Same vocabulary as the audit event. A handler or filter whose write the database did not acknowledge in time (write-concern error, unknown commit result) counts as `METHOD_OUTCOME_UNKNOWN`, not `METHOD_HANDLER_FAILED` (AB#8020). |
+| `outcome` | `SUCCESS`, `ACCEPTED` (long-running operation), `CALLER_CANCELLED`, a platform error code (`METHOD_FORBIDDEN`, `METHOD_TIMEOUT`, `METHOD_HANDLER_FAILED`, `METHOD_HANDLER_NOT_AVAILABLE`, `METHOD_OUTCOME_UNKNOWN`, ...) or an error code the method declares; `invalid_code` for anything else. Same vocabulary as the audit event. A handler or filter whose write the database did not acknowledge in time (write-concern error, unknown commit result) counts as `METHOD_OUTCOME_UNKNOWN`, not `METHOD_HANDLER_FAILED`. |
 | `reason` | `broker_flag` (the broker flagged the delivery as a possible duplicate), `seen_id` (no broker flag, but this instance has seen the invocation id) |
 
 **Never in a label:** parameter values, results, tokens, idempotency keys, entity ids (`targetRtId`), user names or subjects,

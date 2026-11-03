@@ -3,7 +3,7 @@ description: Measured replica sharing, dispatch overhead, redelivery and claim w
 background: true
 ---
 
-# CK method dispatch: replica sharing and dispatch overhead (AB#6908, F3.3)
+# CK method dispatch: replica sharing and dispatch overhead
 
 What is proven, how to repeat it, and the numbers. All tests run against a **private RabbitMQ container** (Testcontainers,
 `rabbitmq:3-management`, started per test run) and several handler hosts inside one test process; every host has its own
@@ -34,7 +34,7 @@ If an older build declared the method queue with other arguments than the new bu
 and the new replica cannot attach. Behaviour (`CkMethodQueueArgumentsBusTests`):
 
 - The new replica does **not** take the queue over, delete it or announce itself. Its start fails after `Methods:EndpointReadyTimeout`
-  (30 s) with a `TimeoutException` that names the queue and the likely cause (the message did not name it before AB#6908).
+  (30 s) with a `TimeoutException` that names the queue and the likely cause (the message did not name it before).
 - The old queue and the old replicas are untouched and keep serving; callers see no failure. In Kubernetes the new pod does not become
   ready, so the rollout stalls on the old pods instead of causing an outage (restart loop of the new pod until the rollout is fixed).
 - As soon as the old queue is gone (last old replica stopped, auto-delete) the new build starts and serves.
@@ -77,20 +77,20 @@ dotnet test tests/Methods.IntegrationTests/Methods.IntegrationTests.csproj -c De
 ```
 
 Needs Docker. Close other heavy processes for the strict run. Not covered: the identity service as a real replica set (no method
-handler there yet, F4.2, AB#5672; re-run when the first identity handler exists), long-running soak, and cross-node broker clusters.
+handler there yet, F4.2; re-run when the first identity handler exists), long-running soak, and cross-node broker clusters.
 
-## Idempotency store latency (AB#7824, F3.5)
+## Idempotency store latency
 
 A call with an idempotency key adds two writes to the dispatch path: claim (insert) and completion (update) in the tenant database
 (`MethodIdempotency`, asset-repo `MongoMethodIdempotencyStore`). Unkeyed calls are not affected. Measured on a single-node replica
 set in a container with majority write concern: claim p50 3.4 ms / p95 6.0 ms, completion p50 3.8 ms / p95 7.0 ms, **claim + complete
-p50 7.5 ms / p95 12.0 ms**. Method, repeat command and the full table: `docs/method-idempotency-store.md` in
-octo-asset-repo-services. The 20 ms dispatch budget above is for the unkeyed path; test-2 numbers follow at the Phase 3 gate (AB#7829).
+p50 7.5 ms / p95 12.0 ms**. Method, repeat command and the full table are kept with the store's tests in
+octo-asset-repo-services. The 20 ms dispatch budget above is for the unkeyed path; test-2 numbers follow at the Phase 3 gate.
 
-## Measurements: redelivery under forced failure and claim write cost (AB#7823, F3.5)
+## Measurements: redelivery under forced failure and claim write cost
 
 Numbers behind OD-3 option A (handler host refuses a flagged redelivery, caller gets `METHOD_OUTCOME_UNKNOWN`) and the trigger for option
-B' (handler-side claim for keyed calls), instead of derived ones. Also the baseline for the idempotency store (AB#7824).
+B' (handler-side claim for keyed calls), instead of derived ones. Also the baseline for the idempotency store.
 
 Project `tests/Methods.Measurements` (+ `tests/Methods.Measurements.Worker`, the replica that is hard-killed). It is **not part of the
 default run**: the CI test step takes `**/*Tests.csproj` and the project name does not match; every test is additionally skipped unless
@@ -124,7 +124,7 @@ still counts) and then works 400 ms. After the 10th completed call one failure i
 10 rounds per scenario, each with fresh hosts and a fresh instance prefix: **3000 invocations per scenario**, one forced failure per
 round. Per invocation id the test counts how often the handler body ran. An id that ran twice is a duplicate the broker did **not**
 flag (the flag makes a host refuse the delivery without running the handler). Two runs on different instances are the *unrecognized
-cross-instance duplicate*: `ck.method.duplicate_refused` (AB#6920) counts only recognized duplicates (a `seen_id` refusal needs the same
+cross-instance duplicate*: `ck.method.duplicate_refused` counts only recognized duplicates (a `seen_id` refusal needs the same
 instance) and can never show it, so this measurement is the only evidence for it. The library's own count comes from a `MeterListener` on
 `ck.method.duplicate_refused` (reason `broker_flag` / `seen_id`); the broker's own `redeliver` counter (management API) is the independent
 witness.
@@ -170,7 +170,7 @@ Reading:
 - Not produced by this measurement, because the broker cannot produce them: a caller that re-sends the same invocation id (the dispatcher
   never does) and a consumer that acknowledges late after the broker's consumer timeout. Both are pinned by targeted tests (below).
 
-### Duplicate cases a broker cannot produce (AB#7936)
+### Duplicate cases a broker cannot produce
 
 Simulated deliveries instead of forced failures. Unit level: `CkMethodBusConsumerTests` (two handler hosts, delivery info set by the test);
 bus level against a private RabbitMQ: `CkMethodDispatcherBusTests.DuplicateCases.cs`. The behaviour matches the duplicate table of
@@ -186,7 +186,7 @@ bus level against a private RabbitMQ: `CkMethodDispatcherBusTests.DuplicateCases
 The bus test starts its own broker container with `RABBITMQ_SERVER_ADDITIONAL_ERL_ARGS="-rabbit consumer_timeout 5000"`
 (`RabbitMqFixture.StartBrokerWithConsumerTimeoutAsync`) and takes about one minute.
 
-### Graceful stop: mechanism, rate, options (AB#7935)
+### Graceful stop: mechanism, rate, options
 
 **Mechanism** (MassTransit 8.5.10, read from the library; the timeline of one round confirmed it). A graceful stop of a handler host
 withdraws the instance, then stops the method endpoint. MassTransit marks the consumer as stopping (`IsStopping`) and only then sends
@@ -207,7 +207,7 @@ call takes exactly 400 ms), and the stop is triggered by the tenth completion, i
 With steady traffic the expected number is the arrival rate of the stopping replica times the round trip of `basic.cancel`, a few
 thousandths to a few hundredths per stop at the measured rate; it grows with bursts that coincide with the stop.
 
-**Decision (Odin, AB#7935): accept the residual, keep OD-3 option A.** The call that never ran is answered `METHOD_OUTCOME_UNKNOWN`, the
+**Decision (Odin): accept the residual, keep OD-3 option A.** The call that never ran is answered `METHOD_OUTCOME_UNKNOWN`, the
 safe answer (nothing runs twice). No runtime change was made, because every variant that stays inside the handler host is worse or
 unsafe:
 
@@ -241,8 +241,8 @@ run; costs one claim write per keyed call (measured below) and lives in the idem
 
 Throughput of claim + complete on one node: about 2600 per second with 8 and 4900 per second with 32 in flight. These are the cost of
 the two writes on the driver level; the store in octo-asset-repo-services adds its own overhead (tenant database lookup, admin client,
-timeouts), which is why its figures in `docs/method-idempotency-store.md` (claim + complete p50 7.5 ms / p95 12 ms) are higher. A replica
-set across nodes adds the majority acknowledgement round trip (network); test-2 numbers follow at the Phase 3 gate (AB#7829).
+timeouts), which is why its figures (claim + complete p50 7.5 ms / p95 12 ms) are higher. A replica
+set across nodes adds the majority acknowledgement round trip (network); test-2 numbers follow at the Phase 3 gate.
 
 ### Replica sharing and dispatch overhead
 

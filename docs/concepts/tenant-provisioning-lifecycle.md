@@ -4,7 +4,7 @@
 
 **Status:** Draft
 **Date:** 2026-07-10
-**Work item:** AB#4348 — *Delete+Create of a tenant with the same tenantId leaves a half-provisioned tenant*
+**Problem:** *Delete+Create of a tenant with the same tenantId leaves a half-provisioned tenant*
 **Scope:** Make tenant create/delete a durable, resumable, single-flight lifecycle across `octo-asset-repo-services`, `octo-identity-services`, and `octo-common-services`.
 
 ---
@@ -21,7 +21,7 @@ asset-repo (Create)
             → provision identity DB → distribute System.Identity CK → seed roles/groups/clients
 ```
 
-The process works on the happy path but its **coordination and retry state lives entirely in process memory**. That is the conceptual defect behind AB#4348. Three concrete failure modes were confirmed against the source (2026-07-10):
+The process works on the happy path but its **coordination and retry state lives entirely in process memory**. That is the conceptual defect behind the half-provisioned tenant. Three concrete failure modes were confirmed against the source (2026-07-10):
 
 | # | Confirmed defect | Location |
 |---|---|---|
@@ -222,12 +222,12 @@ Expose `octo-cli` commands (thin wrappers over lifecycle-record edits):
 The concept originally called for deleting the in-memory sets "in favour of the reconciler". On implementation this proved **unsafe**, because the Phase 2 reconciler is deliberately narrow:
 
 - It runs **only in the store owner (asset-repo)**; the other services (identity, bot, reporting, comms) run their own `SetupTenantAsync` and still rely on `_pendingIdentityDataTenantIds` / `FailedTenantRegistry` for their per-service retry.
-- It re-runs **only `CheckSetupIdentityDataAsync`** (identity default-config seeding — the shared, AB#4348-relevant invariant). It does **not** re-drive each service's own CK-model import or `StartTenantAsync`, which `FailedTenantRegistry` still owns.
+- It re-runs **only `CheckSetupIdentityDataAsync`** (identity default-config seeding — the shared invariant behind the half-provisioned tenant). It does **not** re-drive each service's own CK-model import or `StartTenantAsync`, which `FailedTenantRegistry` still owns.
 - `TenantsInHandling` is the **create-consumer concurrency guard**, a different concern from the reconcile lease.
 
 Crucially, defect 2's "silently dropped message → permanent stall" is **already neutralised** by Phase 2: a tenant left `Creating` by a dropped message is driven to completion by the durable reconciler regardless. So the in-memory paths are now a **redundant-but-harmless fast path**, not a correctness risk. Fully removing them (and wiring a durable DLQ) would require a **per-service reconciler** that re-drives each service's full setup — the endpoints are intentionally `Temporary = true` (ephemeral, non-durable), so a durable dead-letter queue is architecturally inconsistent with the current design. That is tracked as potential **future work (Phase 6)**, not forced here.
 
-Phase 0 can ship immediately and independently (it maps to the AB#4348 "quick wins"). Phases 1–3 are the concept core.
+Phase 0 can ship immediately and independently (it maps to the "quick wins" of the problem above). Phases 1–3 are the concept core.
 
 ---
 
@@ -257,4 +257,4 @@ Still to be measured (not a design decision):
 
 ## 8. Summary
 
-The reproducible AB#4348 failures are three symptoms of one missing abstraction: **durable, single-flight, resumable lifecycle state**. The fix is not more retries — it is to persist the tenant's lifecycle in the system DB and drive it with a reconciler that leases each tenant, resumes partial work, and serializes Delete against Create. Almost all supporting primitives (MassTransit request/response, correlation IDs, idempotent steps, a periodic background service) already exist; the net-new pieces are a non-CK lifecycle collection, a Mongo lease, and the reconciler that ties them together. Quick wins (Phase 0) can ship independently to relieve the immediate operator pain.
+The reproducible half-provisioned-tenant failures are three symptoms of one missing abstraction: **durable, single-flight, resumable lifecycle state**. The fix is not more retries — it is to persist the tenant's lifecycle in the system DB and drive it with a reconciler that leases each tenant, resumes partial work, and serializes Delete against Create. Almost all supporting primitives (MassTransit request/response, correlation IDs, idempotent steps, a periodic background service) already exist; the net-new pieces are a non-CK lifecycle collection, a Mongo lease, and the reconciler that ties them together. Quick wins (Phase 0) can ship independently to relieve the immediate operator pain.

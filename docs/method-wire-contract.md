@@ -5,8 +5,8 @@ applies_to: src/Contracts/DistributionEventHub/Methods/**, tests/Contracts.Tests
 
 # CK method wire contract (v1)
 
-Owner: AB#6874 (F3.1). Consumers: the handler SDK (AB#6875), the in-process transport (AB#6876), the pipeline handler
-(AB#6879), the dispatcher and queues (F3.3, AB#5691), the registry (F3.2, AB#5690), authorization and audit (F3.4/F3.5)
+Consumers: the handler SDK, the in-process transport, the pipeline handler,
+the dispatcher and queues, the registry, authorization and audit (F3.4/F3.5)
 and operations (F3.6).
 
 Namespace `Meshmakers.Octo.Services.Contracts.DistributionEventHub.Methods`
@@ -54,7 +54,7 @@ members above marked sensitive must never reach a log, an exception message or a
 | `invocationId` | Guid | The request's invocation id. |
 | `success` | bool | True for a result or for acceptance of an asynchronous method. |
 | `error` | `CkMethodError`? | Set when `success` is false. |
-| `resultJson` | string? | camelCase JSON result of a synchronous method that declares a result: the **bare** JSON value of the declared result type (String `"abc"`, Int `42`, Boolean `true`, Enum `"MemberName"`, Record `{"name":...}`, arrays `[...]`), never the `{"value": ...}` wrapper of the generated `{Type}{Method}Result` record (AB#8079). Null when the method has no result or the result value is null. |
+| `resultJson` | string? | camelCase JSON result of a synchronous method that declares a result: the **bare** JSON value of the declared result type (String `"abc"`, Int `42`, Boolean `true`, Enum `"MemberName"`, Record `{"name":...}`, arrays `[...]`), never the `{"value": ...}` wrapper of the generated `{Type}{Method}Result` record. Null when the method has no result or the result value is null. |
 | `operation` | `CkMethodOperationHandle`? | Set when an asynchronous method was accepted. |
 | `handlerInstanceId` | string | Instance that answered; empty for platform outcomes (no handler answered). |
 
@@ -69,8 +69,8 @@ Exactly one of three shapes:
 Construct them with `CkMethodResponse.Succeeded`, `.Failed` and `.Accepted`; `IsAccepted` is a convenience that is not
 serialized.
 
-**Result form (AB#8079).** A handler returns the generated `{Type}{Method}Result { Value }`; the host (`CkMethodResultShape`,
-used by the bus and the in-process transport) writes only `Value` into `resultJson`. Before AB#8079 the host serialized the
+**Result form.** A handler returns the generated `{Type}{Method}Result { Value }`; the host (`CkMethodResultShape`,
+used by the bus and the in-process transport) writes only `Value` into `resultJson`. Before this was fixed, the host serialized the
 whole wrapper (`{"value":"..."}`), and the gateway passed that object text to the client as a String result. Idempotency records
 stored before the fix replay the old shape until their TTL expires (`Methods:Idempotency:Ttl`, default 24 h, at most 7 d); there is
 no migration. A pipeline-implemented method (communication controller) still writes the wrapper until its result mapper emits the
@@ -99,7 +99,7 @@ fails when this table lacks a code or a well-known parameter.
 | `METHOD_VALIDATION_FAILED` | no | `methodId`, `field`, `reason` | A parameter is missing or invalid. Fix `field` and call again. |
 | `METHOD_TARGET_NOT_FOUND` | no | `methodId` | Target does not exist or is not visible. |
 | `METHOD_HANDLER_FAILED` | yes, failed | `methodId`, `correlationId` | Unexpected handler failure; details only in the handler log under `correlationId`. No stack trace on the wire. |
-| `METHOD_OUTCOME_UNKNOWN` | unknown | `methodId`, `correlationId` (unacknowledged write only) | Possible duplicate delivery, not executed again; or the handler's writes were not acknowledged by the database in time (write-concern error such as the 30 s `wtimeout` of `w:majority`, unknown transaction commit result; rule R3, AB#8020), so they may still have taken effect - details in the handler log under `correlationId`; or the audit event of an executed call could not be written with `Methods:Audit:FailCallOnAuditFailure` on (`method-audit.md`). Only the unacknowledged write carries `correlationId`. Check state before calling again. |
+| `METHOD_OUTCOME_UNKNOWN` | unknown | `methodId`, `correlationId` (unacknowledged write only) | Possible duplicate delivery, not executed again; or the handler's writes were not acknowledged by the database in time (write-concern error such as the 30 s `wtimeout` of `w:majority`, unknown transaction commit result; rule R3), so they may still have taken effect - details in the handler log under `correlationId`; or the audit event of an executed call could not be written with `Methods:Audit:FailCallOnAuditFailure` on (`method-audit.md`). Only the unacknowledged write carries `correlationId`. Check state before calling again. |
 | `METHOD_NOT_SUPPORTED_BY_HANDLER_VERSION` | no | `methodId`, `supportedVersion` | Reserved: handler does not support the method version. |
 | `METHOD_CONTRACT_VERSION_UNSUPPORTED` | no | `requestedVersion`, `supportedVersion` | Message uses a newer wire contract version than the receiver understands. Wait for the rolling update. |
 | `METHOD_PARAMETERS_TOO_LARGE` | no | `methodId`, `maxBytes`, `actualBytes` | The UTF-8 byte length of `ParametersJson` is above the limit of the service (`Methods:MaxParametersBytes`, default 1 MiB = 1048576; exactly the limit passes). The gateway refuses before it validates the parameters, the host re-checks before it deserializes them. Do not retry unchanged. |
