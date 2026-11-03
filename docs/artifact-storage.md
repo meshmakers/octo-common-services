@@ -5,7 +5,7 @@ applies_to: src/ArtifactStorage/**, tests/ArtifactStorage.Tests/**
 
 # Artifact storage
 
-## Artifact store: nested keys and the archive copy staging location (AB#5967 / AB#6969)
+## Artifact store: nested keys and the archive copy staging location
 
 `src/ArtifactStorage` (package `Meshmakers.Octo.Services.ArtifactStorage`, docs: `README.md`, "Artifact storage configuration" and
 "Key layout and categories") is the platform artifact store. Native archive dump and restore (CrateDB `COPY TO` / `COPY FROM`,

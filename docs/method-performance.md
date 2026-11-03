@@ -244,7 +244,7 @@ the two writes on the driver level; the store in octo-asset-repo-services adds i
 timeouts), which is why its figures in `docs/method-idempotency-store.md` (claim + complete p50 7.5 ms / p95 12 ms) are higher. A replica
 set across nodes adds the majority acknowledgement round trip (network); test-2 numbers follow at the Phase 3 gate (AB#7829).
 
-### Replica sharing and dispatch overhead (AB#6908, F3.3)
+### Replica sharing and dispatch overhead
 
 Tests `tests/Methods.IntegrationTests/CkMethodReplicaSharingBusTests.cs` and `CkMethodQueueArgumentsBusTests.cs`; report with numbers,
 setup and the repeat command: `docs/method-performance.md`. Replicas of one service share the one non-exclusive method queue (each call
@@ -254,7 +254,7 @@ is about 1 ms (1 or 3 replicas, Apple M4 Pro, loopback). A shared method queue m
 would fail its start with `PRECONDITION_FAILED` behind an `EndpointReadyTimeout` `TimeoutException`; the old replicas keep serving): a
 change needs a new queue name.
 
-### Measurements: redelivery and claim write cost (AB#7823, F3.5)
+### Measurements: redelivery and claim write cost
 
 `tests/Methods.Measurements` (+ `Methods.Measurements.Worker`, a handler replica as a child process for the hard-kill scenario) measures how
 often the broker flags a redelivery under forced failure (connection close, hard kill, graceful stop; 2 replicas) and what a claim insert /
@@ -262,4 +262,4 @@ conditional update costs on a private single-node MongoDB replica set. **Not par
 and the project is not named `*Tests`; each test also skips unless `OCTO_METHOD_MEASURE=1`. One command (Docker, about 5 minutes):
 `OCTO_METHOD_MEASURE=1 dotnet test tests/Methods.Measurements/Methods.Measurements.csproj -c DebugL --logger "console;verbosity=detailed"`
 (build the solution first so the worker exists). Results, method and the B' reading (no unflagged duplicate observed): `docs/method-performance.md`,
-"Measurements (AB#7823)". `Methods.csproj` lists the two projects under `InternalsVisibleTo` (they start real handler hosts).
+"Measurements". `Methods.csproj` lists the two projects under `InternalsVisibleTo` (they start real handler hosts).

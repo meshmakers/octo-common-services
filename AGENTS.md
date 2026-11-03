@@ -39,7 +39,7 @@ dotnet build Octo.Common.Services.sln -c DebugL
 dotnet test  Octo.Common.Services.sln -c DebugL --filter "FullyQualifiedName!~SystemTests"
 ```
 
-Versions come only from the pipeline (AB#6291): `Directory.Build.props` has no release fallback, so a
+Versions come only from the pipeline: `Directory.Build.props` has no release fallback, so a
 Debug/Release build without `-p:OctoVersion=X.Y.Z` (or `-p:OctoNugetPrivateServer=<feed>` for the main
 line `0.1.*`) fails fast with MSBuild error `OCTO0001`. Use `-c DebugL` locally. Every project in
 `Octo.Common.Services.sln` must map the solution configuration `DebugL` to the project configuration
@@ -85,7 +85,7 @@ assembly via `<InternalsVisibleTo Include="Infrastructure.Tests" />` so internal
 - **A merge to `main` does not publish System.Notification.** Publishing is an explicit pipeline run
   (`docs/notification-ck-model.md`).
 
-## Cache streams: missing file is `null` (AB#7256)
+## Cache streams: missing file is `null`
 
 `OctoRepository` (`src/Infrastructure/DistributionEventHub`, the `IRepository` of `IDistributedCacheService`) returns
 `null` from both `DownloadBinaryAsync` overloads when the cache file does not exist (it used to leak the repository's

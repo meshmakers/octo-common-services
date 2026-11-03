@@ -5,7 +5,7 @@ applies_to: src/Infrastructure/Services/**, src/Infrastructure/Consumers/**, src
 
 # Tenant setup and lifecycle
 
-## Tenant Setup — Failure Handling (AB#4690)
+## Tenant Setup — Failure Handling
 
 `DefaultConfigurationCreatorServiceBase.SetupAsync` is the entry point every service uses to provision a
 tenant (driven by `PosCreateTenant` / `PosUpdateTenant` and by the startup loop). A setup that throws
@@ -18,13 +18,13 @@ Two mechanisms now prevent that:
 user, which invalidates the authentication of every connection already open in this process's cached
 client for that database — and the driver never re-authenticates an existing connection. A tenant
 re-created under the same name would inherit a pool that can only answer MongoDB error 13
-(`"... requires authentication"`), which is the root cause of AB#4690. `PreUpdatePreDeleteTenantConsumer`
+(`"... requires authentication"`), which was the root cause of half-provisioned re-created tenants. `PreUpdatePreDeleteTenantConsumer`
 therefore calls `ISystemContext.InvalidateTenantRepositoryClientsAsync` on `PreDeleteTenant` (while the
 tenant record still exists, so the database name resolves), and `PosCreatePosUpdateTenantConsumer`
 repeats it on `PosCreateTenant` before running setup, which closes the window where a resolve between
 the two re-populated the cache. Invalidation **evicts without disposing** (the evicted client may still
 be held by live tenant contexts) and is deliberately **not** called on `PosUpdateTenant`: that event
-fires on every CK model import and drops no database user — the first AB#4690 iteration invalidated
+fires on every CK model import and drops no database user — the first iteration of this fix invalidated
 (and disposed) there, which made every sequential CK batch import (FixAll) fail from the second model
 on with `ObjectDisposedException('CoreServerSessionPool')`.
 
@@ -60,10 +60,10 @@ unchanged, because the whole path is a no-op when the store is null.
 > `RetryPendingTenantSetupsAsync()`, otherwise its queue is never drained.
 > `DefaultConfigurationCreatorServiceStandardized` does this alongside its own reconcile pass.
 
-**In-memory retry that needs no MongoDB (AB#7249).** The durable store above is optional (only Identity and
+**In-memory retry that needs no MongoDB.** The durable store above is optional (only Identity and
 Asset-Repo wired it) and best-effort: during a MongoDB primary election its own write times out and is swallowed.
 Staging-1, 2026-10-21: the communication controller logged "this tenant will be retried in the background" for
-`sbeg` and `eegroider`, but wired no store, so nothing was ever retried and their adapters stayed offline until a
+two customer tenants, but wired no store, so nothing was ever retried and their adapters stayed offline until a
 manual pod restart. `SetupAsync` therefore **always** queues a failed tenant in `TenantSetupRetryTracker`
 (`src/Infrastructure/Services/`, a process-wide singleton; the creator falls back to
 `TenantSetupRetryTracker.Default`, so a service benefits **without any wiring** — comm controller and bot-services
@@ -87,7 +87,7 @@ pass the DI instance explicitly, Identity/Asset-Repo and the rest inherit it). `
   `octo.tenant_setup.failed` (1 per failing tenant) and `octo.tenant_setup.pending_seconds` (age of the failure),
   tags `octo.tenant.id` and `octo.tenant_setup.phase` (`setup` | `start`). Series exist only while the tenant is
   failing. The Dash0 alert rule on them lives in `meshmakers-infrastructure`.
-- **The retry loop runs during the startup pass (AB#7271).** `FailedTenantRetryLoop` is not a hosted service any more:
+- **The retry loop runs during the startup pass.** `FailedTenantRetryLoop` is not a hosted service any more:
   hosted services start sequentially and `HostedInitializer.StartAsync` blocks for the whole pass (all tenants), so a
   loop registered behind it only started once the slowest tenant was done (test-2, 2026-10-22: announced "+30 s",
   actual ~5 min). `HostedInitializer` now starts the loop (if `AddOctoServiceInfrastructure` registered it) **before**
@@ -96,7 +96,7 @@ pass the DI instance explicitly, Identity/Asset-Repo and the rest inherit it). `
   log line, as long as the previous tick has finished: a tick retries tenants one after the other, so a slow tenant delays
   the rest — unchanged). `StopAsync` waits for a running tick only until the host's shutdown deadline. Consumers need no change. Test: `FailedTenantRetryLoopTests` (fake time, retry due before the pass ends
   runs while the pass is still running).
-- **System tenant: fail-fast stays (AB#7271 decision).** If `SetupAsync` of the system tenant (`octosystem`) fails,
+- **System tenant: fail-fast stays by decision.** If `SetupAsync` of the system tenant (`octosystem`) fails,
   `DefaultConfigurationInitializationService` still throws, `HostedInitializer` fails the host start (and stops the
   retry loop, since the host does not call `StopAsync` of a service whose start failed) and the container restarts.
   Reasons: without the system tenant nothing works (no tenant list, no identity, no CK cache), so there is nothing a
@@ -121,7 +121,7 @@ and throws, so the tenant stays `Creating` and every retry path keeps driving it
 additive — an older producer never sends it, an older consumer falls into its unexpected-result branch,
 which does not mark the tenant provisioned either.
 
-## `DistClientDto` — secrets and roles over the bus (AB#5027)
+## `DistClientDto` — secrets and roles over the bus
 
 `CreateIdentityDataCommandRequest.Clients` is the only channel a backend service has for creating an
 OAuth client: the identity REST API needs an `octo_api` bearer token, i.e. an identity the caller does
@@ -144,7 +144,7 @@ Two rules for anyone touching this DTO:
 - The properties are additive, so an **older identity service silently ignores them** and would
   create a secretless client. Ship identity before any producer that relies on them.
 
-## Tenant Delete — Settle Semantics (AB#4829)
+## Tenant Delete — Settle Semantics
 
 A tenant delete cannot stop events and setups already in flight (broadcast queues are per-instance and
 unordered relative to the delete, and `PosUpdateTenant` fires on every CK model import, so provisioning
@@ -161,9 +161,9 @@ is an event storm that trails the delete by seconds to minutes). Four mechanisms
   — PosUpdateTenant fires per CK import, so a full resolve here would double every setup pass's
   resolve work, and it would throw during system-tenant bootstrap where the old flow skipped
   quietly). `PosCreateTenant` is deliberately NOT gated: its record may legitimately not be committed
-  yet (see AB#4690 above); the durable retry covers that race.
-- **`PosUpdateTenant` scope guard (AB#5497).** After the echo guard, the consumer checks
-  `PosUpdateTenant.Scope`: a `TenantUpdateScope.CacheOnly` update (AB#4895 — the nightly
+  yet (see Tenant Setup — Failure Handling above); the durable retry covers that race.
+- **`PosUpdateTenant` scope guard.** After the echo guard, the consumer checks
+  `PosUpdateTenant.Scope`: a `TenantUpdateScope.CacheOnly` update (the nightly
   `AttributeValueAggregatorJob` in bot-services writing `AutoCompleteValues` onto CK attributes, published
   for every tenant at 00:00Z) only unloads the CK cache and **skips `SetupAsync`**. Before, the setup ran
   for every scope, and in platform-services `RefreshTenantStateAsync` force re-applies the
@@ -186,7 +186,7 @@ is an event storm that trails the delete by seconds to minutes). Four mechanisms
   crashed deletes converge in both directions. The delete endpoint (asset-repo) writes the settle
   tombstone via `ITenantLifecycleStore.EnsureDeletingAsync` after the drop.
 
-## Tenant Capability Keys and State Reader (AB#4255)
+## Tenant Capability Keys and State Reader
 
 Every capability an operator can switch per tenant — Stream Data, Communication, Reporting, AI
 Services — is backed by one enabled flag stored as an `RtTenantConfiguration` document **in the
@@ -212,9 +212,9 @@ service needs that flag:
   `TenantException.TenantDoesNotExist` for anything that is not a direct child.
 
 First consumer: the asset repository's tenant `Delete`/`Detach` refuse with 409 while any capability is
-enabled (AB#4255 step 1).
+enabled.
 
-### Disable is a verified precondition, not a teardown (AB#4255 step 2)
+### Disable is a verified precondition, not a teardown
 
 `DefaultConfigurationCreatorServiceStandardized.DisableAsync` consults
 `protected virtual Task<string?> GetDisableBlockerAsync(tenantId)` **after** the already-disabled check
@@ -231,7 +231,7 @@ operator mirrors back (reverse-sync), so checking it before the flag flip *is* c
 state; a flag flip that helm-uninstalls a production tenant's workloads would be a dangerous side effect;
 and a refusal is remediable through the existing undeploy paths, whereas an automatic cascade silently
 no-ops for Edge pools and after a controller restart. The hook answers the Communication and Reporting
-requirements of AB#4255 in one shape. **Reporting and AI Services never override it**: Reporting owns
+requirements in one shape. **Reporting and AI Services never override it**: Reporting owns
 no resources outside the tenant database and renders synchronously inside the request; the AI service's
 per-tenant worker pod is operator-owned and its sessions/leases are tenant data. Their controllers still
 map `IsConflict` to 409 for contract parity, so a future blocker cannot degrade to a 400. A failing read
@@ -250,7 +250,7 @@ so a Delete leaves no orphaned tables and the guard only has to ensure nothing i
 settle sweep here re-drops only the database (its handle carries no archives — the tables were dropped
 by the original delete).
 
-## The retry loop re-ensures the tenant's MongoDB user (AB#8177)
+## The retry loop re-ensures the tenant's MongoDB user
 
 `FailedTenantRetryLoop` calls `ISystemContext.EnsureTenantDatabaseUserAsync` for every tenant whose retry is due
 (in-memory tracker and deferred-start registry) **before** `RetryFailedTenantsAsync`. A tenant whose MongoDB user is
@@ -260,7 +260,7 @@ completes. The call is idempotent and best-effort: a service without `ISystemCon
 logs a warning and retries as before. The degraded `TenantSetup` health check keeps naming the failing tenant.
 Test: `FailedTenantRetryLoopDatabaseUserTests`.
 
-### Healing a RUNNING tenant (AB#8177, round 2)
+### Healing a RUNNING tenant
 
 `TenantDatabaseUserHealer` (`Services/`) is the shared helper for a user that vanishes under a tenant that already runs:
 `TryHealAsync(systemContext, tenantId, logger)` calls `EnsureTenantDatabaseUserAsync` at most once a minute per tenant

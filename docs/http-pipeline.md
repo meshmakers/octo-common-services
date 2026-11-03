@@ -5,7 +5,7 @@ applies_to: src/Observability/**, src/Infrastructure/Routing/**, src/Infrastruct
 
 # HTTP pipeline
 
-## `/metrics` is internal-only (AB#5868)
+## `/metrics` is internal-only
 
 `MapObservability()` serves the Prometheus scrape endpoint `/metrics` only to connections that arrive on
 the port named by `Observability:PrometheusPort` (env `Observability__PrometheusPort`). Unset or `0` (the
@@ -18,7 +18,7 @@ reachable unauthenticated through every public ingress, with tenant ids, pipelin
 the output. Do not map `/metrics` (or `MapPrometheusScrapingEndpoint`) on the main listener again;
 `PrometheusEndpointTests` fails if you do.
 
-## `/health` needs a Bearer token (AB#6739)
+## `/health` needs a Bearer token
 
 `/health` writes the full health report (check names, status, descriptions, CPU/memory figures), so
 `MapObservability()` lets only callers through that authenticate with the `Bearer` (JWT) scheme; anonymous
@@ -26,7 +26,7 @@ callers get `401` with `WWW-Authenticate: Bearer` and no body. Any valid token i
 check runs inside the endpoint (`WebApplicationExtensions.IsAuthenticatedAsync`), not through
 `RequireAuthorization()`: it must not depend on `UseAuthorization()` (the mesh adapter never calls it) and
 it fails closed (401) on hosts that register no `Bearer` scheme (EDA and FinAPI adapters). The browser
-consumers (Studio / MeshBoard `HealthService`, AB#6739) send the user's token. `/healthz/live` and
+consumers (Studio / MeshBoard `HealthService`) send the user's token. `/healthz/live` and
 `/healthz/ready` stay anonymous endpoints that return a plain-text status body for the kubelet probes. `HealthEndpointTests` fails
 if `/health` becomes anonymous again.
 
@@ -38,14 +38,14 @@ route it resolves the tenant repository (404 if the tenant does not exist) and s
 `context.Items`. When the hosting feature `CanBeEnabled()` and is NOT enabled for the tenant, the
 middleware short-circuits with **403 Forbidden**.
 
-### Enabled-gate exemptions (AB#4287)
+### Enabled-gate exemptions
 
 The 403 enabled-gate is skipped for:
 
 - The exact `SystemEndpoints` paths: `/system`, `/signin-oidc`, `/healthz`.
 - **Feature lifecycle endpoints** — any path ending in `/enable` or `/disable`
   (case-insensitive). These endpoints manage the enabled-state itself, so gating them would make a
-  disabled feature impossible to re-enable via its own API (the AB#4287 regression: tenant-scoped
+  disabled feature impossible to re-enable via its own API (a past regression: tenant-scoped
   `POST {tenantId}/v1/reporting/enable` returned 403 once reporting was disabled). Tenant resolution
   (404-if-missing + `context.Items`) still runs for these paths — only the enabled-check is skipped.
 
@@ -53,7 +53,7 @@ This relaxation is safe for all consumers: the gate only fires when `CanBeEnable
 services with no toggleable feature (e.g. Identity Services) never define `/enable` `/disable`
 tenant routes, so their behaviour is unchanged.
 
-## The `{tenantId:tenantId}` route constraint (AB#5060)
+## The `{tenantId:tenantId}` route constraint
 
 `TenantIdRouteConstraint` (`src/Infrastructure/Routing/`) decides whether a path segment **can be** a
 tenant id. Register it with `builder.Services.AddOctoTenantIdRouteConstraint()` — every host that
@@ -78,7 +78,7 @@ wrote an untyped `HttpContext.Items["d"]` that nothing read, and only platform-s
 empty string. Nothing made the divergence visible, which is the reason it is one implementation now.
 Do not add a local copy back.
 
-## CORS policy and the access-token cookie (AB#7270)
+## CORS policy and the access-token cookie
 
 - `CorsPolicyProvider` (registered by `AddOctoServiceInfrastructure()`, used by `app.UseCors()` without a policy name) allows
   exactly the registered client origins of the tenant in the first path segment (unknown tenant: system tenant), any header

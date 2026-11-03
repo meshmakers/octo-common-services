@@ -5,17 +5,17 @@ applies_to: src/Notifications/**, tests/Notifications.Tests/**, tests/Notificati
 
 # System.Notification CK model
 
-## System.Notification CK model: ownership markers are enforced (AB#6326)
+## System.Notification CK model: ownership markers are enforced
 
 `src/Notifications/Notifications.csproj` sets `OctoEnforceRuntimeStateMarkers=true`: the `CkLintRuntimeStateMarkers` task (CK
 MsBuildTasks package) fails the build with `OCTO-CK001` when an attribute in `ConstructionKit/attributes/*.yaml` declares no `ownership`
-(or the deprecated `isRuntimeState`). AB#6326 restated the existing behaviour: 8 attributes got `ownership: SeedOwned`; the five
-`TenantOwned` attributes of AB#5359 (mail switch, redirect URL, template subject/body/rendering) are unchanged. Same resolved ownership,
-so `octo-ckc ValidateVersion` reported "no bump required" and System.Notification stayed 2.4.0; AB#6691 re-pinned it to 2.5.0 after the range-retention flip, and AB#2585 raised it to 2.6.0.
+(or the deprecated `isRuntimeState`). The marker change restated the existing behaviour: 8 attributes got `ownership: SeedOwned`; the five
+`TenantOwned` attributes (mail switch, redirect URL, template subject/body/rendering) are unchanged. Same resolved ownership,
+so `octo-ckc ValidateVersion` reported "no bump required" and System.Notification stayed 2.4.0; it was later re-pinned to 2.5.0 after the range-retention flip and raised to 2.6.0 for subscriptions.
 **Review question for every new attribute:** could an operator or user type this value in the product? Yes → `TenantOwned` (or `Secret`
 for a credential); a service writes it → `RuntimeState`; the product ships and corrects it → `SeedOwned`.
 
-## System.Notification 2.6.0: notification subscriptions (AB#2585)
+## System.Notification 2.6.0: notification subscriptions
 
 Three types and four associations (`types/notificationSubscription.yaml`, `notificationPreference.yaml`,
 `notificationDeliveryState.yaml`, `associations/subscription-associations.yaml`, attributes in `attributes/subscription-attributes.yaml`):
@@ -35,7 +35,7 @@ Three types and four associations (`types/notificationSubscription.yaml`, `notif
   listens on it, so it is a cross-repo contract (pinned in the adapter by `FromNotificationScheduleNodeTests`). The message itself,
   `NotificationScheduleTick`, is pinned by `NotificationScheduleTickWireContractTests`.
 
-## System.Notification 2.7.0: event log category and structured details (AB#7821)
+## System.Notification 2.7.0: event log category and structured details
 
 Changelog of the model (Minor, `octo-ckc ValidateVersion` against the published 2.6.0: VALID, required level MINOR): the `Event`
 type (and so `StatefulEvent`) gets two optional attributes, nothing that exists changes. No CK model depends on System.Notification;
@@ -61,7 +61,7 @@ Both are `SeedOwned` like the other `Event` attributes (an event travels with an
   category round-trips, filter by `Category`). The integration project is skipped without Docker or with `OCTO_SKIP_CONTAINER_TESTS=true`.
 - **Producer inventory (state of origin/main, 2026-10-30).** Metadata is persisted verbatim, so every `new AuditEvent(...)` was
   checked: none carries a credential, token or parameter value; the keys are identifiers, names, counts and timestamps. A new
-  producer (AB#6919 method invocations, AB#7826 refused calls) must keep it that way and never put parameter values or tokens into `Metadata`.
+  producer (method invocations, refused method calls) must keep it that way and never put parameter values or tokens into `Metadata`.
 
 | Category | Producer | Metadata keys |
 |----------|----------|---------------|
@@ -81,10 +81,10 @@ Both are `SeedOwned` like the other `Event` attributes (an event travels with an
 | `Tenant.CreateFailed` | engine-mongodb `TenantContext` | `tenantId`, `databaseName`, `correlationId` |
 | `DataPermissions.WriteViolation` / `ReadViolation` / `BlueprintLockViolation` | engine `DataPermissionRules`, `RtDataPermissionEvaluator`, `DataPermissionWriteGuard`, `ImportBlueprintLockEnforcer`; engine-mongodb `TenantRepository` | none (the message names subject and type) |
 
-## Publishing the system CK model: explicit release decision (AB#7433)
+## Publishing the system CK model: explicit release decision
 
 A merge to `main` does **not** publish `System.Notification` to the CK catalogs. The pipeline parameter `publishSystemCkModels`
-(boolean, **default false**; same name and semantics as AB#7343 in `octo-construction-kit-engine`, AB#7432 in the
+(boolean, **default false**; same name and semantics as in `octo-construction-kit-engine` and in the
 communication controller) feeds `publishOnMain` of `validate-and-publish-ck-versions.yml` (`tpl-v1.8.0`). A main build still
 runs ValidateVersion, the schema compile and the cascade check, logs `CK publish on main is OFF (publishOnMain=false)` and
 publishes nothing. Reason: a new System* version breaks exact-pinned dependents on live tenants until they are re-pinned.
