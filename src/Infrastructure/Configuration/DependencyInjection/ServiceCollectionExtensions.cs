@@ -28,6 +28,17 @@ namespace Microsoft.Extensions.DependencyInjection;
 public static class ServiceCollectionExtensions
 {
     /// <summary>
+    ///     AB#8228: the outermost middleware and the MVC exception filter that evict a tenant's stale pooled MongoDB
+    ///     clients on an authentication failure (the exception handler does it too, see <c>OctoExceptionHandler</c>).
+    /// </summary>
+    internal static IServiceCollection AddTenantPoolEviction(this IServiceCollection services)
+    {
+        services.AddTransient<IStartupFilter, TenantPoolEvictionStartupFilter>();
+        services.Configure<Microsoft.AspNetCore.Mvc.MvcOptions>(o => o.Filters.Add<TenantPoolEvictionExceptionFilter>());
+        return services;
+    }
+
+    /// <summary>
     ///     Adds infrastructure components to all octo services
     /// </summary>
     /// <param name="services"></param>
@@ -49,7 +60,7 @@ public static class ServiceCollectionExtensions
         services.AddSingletonMultipleInterfaces<CorsPolicyProvider, ICorsPolicyProvider>();
         services.AddExceptionHandler<OctoExceptionHandler>();
         // AB#8228: evict a tenant's stale pooled MongoDB clients on an authentication failure (outermost middleware).
-        services.AddTransient<IStartupFilter, TenantPoolEvictionStartupFilter>();
+        services.AddTenantPoolEviction();
         return new OctoInfrastructureBuilder(services);
     }
 
