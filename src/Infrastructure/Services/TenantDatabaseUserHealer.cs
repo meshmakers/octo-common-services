@@ -63,12 +63,18 @@ public sealed class TenantDatabaseUserHealer(TimeProvider? timeProvider = null, 
 
     /// <summary>
     ///     Re-ensures the MongoDB user of a registered tenant, at most once per <see cref="MinimumInterval" />.
+    ///     When <paramref name="cause" /> is an authentication failure (see <see cref="IsAuthenticationFailure" />) the
+    ///     tenant's cached repository clients are also evicted after the ensure, whether the user was just created or
+    ///     already present: the user may have been re-created by another service or an operator, and this process's
+    ///     pooled connections that lost their authentication would otherwise keep failing with error 13 until a
+    ///     restart. A caller that already knows the tenant is stalled (the reconciler) passes <c>evictClients: true</c>
+    ///     to evict regardless of a cause. Any other call never evicts. Eviction shares the per-tenant rate limit.
     /// </summary>
     /// <returns>
     ///     The ensure result, or <c>null</c> when the attempt was skipped by the rate limit or failed (logged).
     /// </returns>
     public async Task<TenantDatabaseUserEnsureResult?> TryHealAsync(ISystemContext systemContext, string tenantId,
-        ILogger logger)
+        ILogger logger, Exception? cause = null, bool evictClients = false)
     {
         if (!TryReserve(tenantId))
         {
@@ -85,6 +91,11 @@ public sealed class TenantDatabaseUserHealer(TimeProvider? timeProvider = null, 
                     "without a restart", tenantId);
             }
 
+            if (evictClients || IsAuthenticationFailure(cause))
+            {
+                await EvictPooledClientsAsync(systemContext, tenantId, logger).ConfigureAwait(false);
+            }
+
             return result;
         }
         catch (Exception ex)
@@ -93,6 +104,21 @@ public sealed class TenantDatabaseUserHealer(TimeProvider? timeProvider = null, 
                 "Could not verify or re-create the MongoDB user of tenant '{TenantId}' (this service may lack admin " +
                 "access to MongoDB); next attempt in {Interval:F0} s", tenantId, MinimumInterval.TotalSeconds);
             return null;
+        }
+    }
+
+    private static async Task EvictPooledClientsAsync(ISystemContext systemContext, string tenantId, ILogger logger)
+    {
+        try
+        {
+            await systemContext.InvalidateTenantRepositoryClientsAsync(tenantId).ConfigureAwait(false);
+            logger.LogInformation(
+                "Evicted the cached MongoDB clients of tenant '{TenantId}' after an authentication failure; " +
+                "connections authenticate anew", tenantId);
+        }
+        catch (Exception ex)
+        {
+            logger.LogWarning(ex, "Could not evict the cached MongoDB clients of tenant '{TenantId}'", tenantId);
         }
     }
 

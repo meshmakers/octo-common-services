@@ -317,6 +317,36 @@ public class DefaultConfigurationCreatorServiceStandardizedTests
         A.CallTo(() => _systemContext.FindTenantContextAsync("heal-tenant-1")).MustHaveHappenedOnceExactly();
     }
 
+    [Theory]
+    [InlineData(TenantDatabaseUserEnsureResult.AlreadyPresent, "evict-tenant-1")]
+    [InlineData(TenantDatabaseUserEnsureResult.Created, "evict-tenant-2")]
+    public async Task Reconciler_EvictsThePooledClientsOfAStalledTenant_OnceRateLimited(
+        TenantDatabaseUserEnsureResult ensureResult, string tenantId)
+    {
+        // AB#8177: stale pooled connections of a stalled tenant keep failing with error 13 after the user is fixed.
+        var lifecycleStore = A.Fake<ITenantLifecycleStore>();
+        A.CallTo(() => lifecycleStore.TryClaimForReconcileAsync(A<string>._, A<TimeSpan>._, A<TimeSpan?>._,
+                A<CancellationToken>._))
+            .Returns(new TenantLifecycleRecord
+            {
+                TenantId = tenantId, State = TenantLifecycleState.Creating, AttemptCount = 1,
+                CreatedUtc = DateTime.UtcNow.AddHours(-1)
+            }).Twice().Then.Returns((TenantLifecycleRecord?)null);
+        A.CallTo(() => _systemContext.EnsureTenantDatabaseUserAsync(tenantId)).Returns(ensureResult);
+        A.CallTo(() => _systemContext.FindTenantContextAsync(tenantId))
+            .Throws(new InvalidOperationException("stop after the ensure"));
+        var sut = new TestCreator(_systemContext, _commandClient,
+            blueprintService: null, embeddedSources: null, prefix: null, lifecycleStore: lifecycleStore);
+
+        // The same tenant is claimed twice within the heal interval: the second heal is rate limited.
+        await sut.RetryFailedTenantsAsync();
+
+        A.CallTo(() => _systemContext.EnsureTenantDatabaseUserAsync(tenantId)).MustHaveHappenedOnceExactly();
+        A.CallTo(() => _systemContext.InvalidateTenantRepositoryClientsAsync(tenantId, A<string?>._,
+                A<CancellationToken>._))
+            .MustHaveHappenedOnceExactly();
+    }
+
     [Fact]
     public async Task Reconciler_DoesNotGiveUp_WhenTheBudgetWasSpentOnAMissingUser_ThatIsRecreatedNow()
     {

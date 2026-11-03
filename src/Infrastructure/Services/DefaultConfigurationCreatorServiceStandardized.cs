@@ -182,8 +182,9 @@ public abstract class DefaultConfigurationCreatorServiceStandardized : DefaultCo
 
             // AB#8177: a MongoDB user that vanished under a running tenant makes every attempt fail with an
             // authentication error and burns the budget until the tenant is marked Failed. Re-ensure the user before
-            // this attempt counts (rate-limited per tenant, cheap when the user exists).
-            var healed = await TenantDatabaseUserHealer.Default.TryHealAsync(_systemContext, tenantId, _logger)
+            // this attempt counts (rate-limited per tenant, cheap when the user exists). Pooled clients are evicted too: a stalled
+            // tenant may hold connections that lost their authentication.
+            var healed = await TenantDatabaseUserHealer.Default.TryHealAsync(_systemContext, tenantId, _logger, evictClients: true)
                 .ConfigureAwait(false);
             if (healed == TenantDatabaseUserEnsureResult.Created && claimed.AttemptCount > MaxRetries)
             {
