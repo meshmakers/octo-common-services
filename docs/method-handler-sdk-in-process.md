@@ -5,7 +5,9 @@ background: true
 
 # Method handler: in-process handlers and the invocation pipeline
 
-## 8. In-process handlers (methods the calling service owns)
+Part of the method handler guide; start at [method-handler-sdk.md](method-handler-sdk.md), which lists all parts.
+
+## In-process handlers (methods the calling service owns)
 
 A service that implements a method itself and also calls it (the asset-repo gateway for `Tenant.*`, `Archive.*`) registers the
 **same handler class** in-process: no queue, no announcement, no bus hop, no event hub needed.
@@ -25,7 +27,7 @@ public sealed class Caller(ICkInProcessMethodTransport methods)
 ```
 
 * **Same answer as on the bus.** The transport uses the same invoker core: contract version check, deadline,
-  parameter/result JSON (`CkMethodJson.Options`; the result is the bare `Value`, see section 1), declared errors, `METHOD_HANDLER_FAILED` with a
+  parameter/result JSON (`CkMethodJson.Options`; the result is the bare `Value`, see [What the model generates](method-handler-sdk.md#1-what-the-model-generates)), declared errors, `METHOD_HANDLER_FAILED` with a
   `correlationId`, redaction. `InProcessTransportTests` compares the serialized envelopes of both paths. Only
   `handlerInstanceId` differs (it names the answering host).
 * **Deadline.** `DeadlineUtc` works as on the bus: the handler token fires there, and a handler that ignores it is not waited for;
@@ -51,11 +53,12 @@ public sealed class Caller(ICkInProcessMethodTransport methods)
 * **One place per method.** A method registered in-process and as a remote handler stops the startup. Not announced, so a
   remote dispatcher never routes to it.
 
-### Invocation pipeline: extension points for authorization, audit and idempotency
+## Invocation pipeline: extension points for authorization, audit and idempotency
 
 Every transport call runs through `ICkMethodInvocationPipeline`; lower `Order` is outer. Audit (100) wraps authorization (200), which wraps idempotency (300), which wraps the transport: audit records every call including refusals and replays, and a stored outcome is replayed only for an authorized caller.
-
- add steps with `AddCkMethodInvocationFilter<TFilter>()`.
+Add steps with `AddCkMethodInvocationFilter<TFilter>()`. The filters of this library are described in
+[Authorization](method-handler-sdk-caller.md#authorization-the-declared-authorization-is-enforced-for-every-call-f34) (band 200)
+and [Idempotency filter at band 300](method-handler-sdk-idempotency.md#idempotency-filter-at-band-300); audit is in `method-audit.md`.
 
 ```csharp
 public sealed class MyAuditFilter : ICkMethodInvocationFilter
@@ -96,6 +99,6 @@ fingerprint value, and a filter must not log or audit it either.
 
 A filter refuses with a normal failed `CkMethodResponse` (for example `METHOD_FORBIDDEN`), may continue with a modified request
 (`next(request with { IdempotencyKey = ... })`) and must not log `ParametersJson` or the token. An exception escaping a filter is
-answered `METHOD_HANDLER_FAILED` (`METHOD_OUTCOME_UNKNOWN` when it is an unacknowledged write, see section 3; the audit event
+answered `METHOD_HANDLER_FAILED` (`METHOD_OUTCOME_UNKNOWN` when it is an unacknowledged write, see [Errors](method-handler-sdk.md#3-errors); the audit event
 records the same code). The dispatcher of F3.3 runs its bus send as the terminal delegate of the same pipeline
 (`pipeline.ExecuteAsync(CkMethodTransportNames.Bus, request, send, ct)`), so authorization and audit see local and remote calls alike.

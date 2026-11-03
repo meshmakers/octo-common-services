@@ -5,7 +5,9 @@ background: true
 
 # Method handler: caller identity, authorization and sensitive values
 
-## 4a. Who is the caller? Token validation in a remote handler
+Part of the method handler guide; start at [method-handler-sdk.md](method-handler-sdk.md), which lists all parts.
+
+## Who is the caller? Token validation in a remote handler
 
 The method bus is internal but **not authenticated per message**: anything that can publish to the method queue can write any
 `Caller` into a request. So the host re-validates the access token that the caller forwarded (`CallerAccessToken`) before the handler
@@ -62,14 +64,14 @@ keys cannot be loaded at all (identity service down and nothing cached) the call
 
 **Not covered.** The in-process transport does not validate a token: it runs in the process that already authenticated the caller and
 hands the principal of that process (`CkMethodPrincipalScope`) to the handler as `CallerPrincipal`. A remote service that does not call
-`AddCkMethodCallerTokenValidation` has no validated caller, so the host refuses every call (`METHOD_FORBIDDEN`, see "The host enforces the declared authorization"). A handler that receives the raw token can replay it
+`AddCkMethodCallerTokenValidation` has no validated caller, so the host refuses every call (`METHOD_FORBIDDEN`, see [The host enforces the declared authorization](#the-host-enforces-the-declared-authorization)). A handler that receives the raw token can replay it
 against the APIs until it expires (about an hour by default); an unauthenticated handler announcement on the bus is a separate
 decision. Switching the validation off (`Methods:Token:DisableValidation`) is a test configuration; the service refuses to
 start outside the `Development` environment. Nothing from the token (value, claims, key id) is ever logged or put into an error.
 
 Unit-test a handler by giving the context a principal: `new CkMethodContext<TParameters>(request, parameters) { CallerPrincipal = new CkMethodPrincipal("user-1", ["AccountManagement"], ["octo_api"]) }`.
 
-### Authorization: the declared `authorization` is enforced for every call (F3.4)
+## Authorization: the declared `authorization` is enforced for every call (F3.4)
 
 The model author declares who may call a method (`authorization: roles / allowSelf / scopes`). A service that dispatches or hosts methods
 turns that declaration into a check for every call, bus or in-process, with one line:
@@ -103,11 +105,11 @@ token has no `sub`** (client credentials); for a user token `ClientId` stays `nu
 
 A refusal is a normal failed response, `METHOD_FORBIDDEN` with `methodId` and `reason = not-authorized`. The filter does not load the target and does
 not say which rule failed, so the answer is identical whether the target exists or not. The audit filter (band 100) wraps authorization and records the
-refusal; the idempotency filter (300) and the transport never run for a refused call. Handlers still re-validate the forwarded token themselves
+refusal; the [idempotency filter](method-handler-sdk-idempotency.md#idempotency-filter-at-band-300) (300) and the transport never run for a refused call. Handlers still re-validate the forwarded token themselves
 (methodConsistency.md rule R9 in octo-documentation): this filter is the second line behind the gateway gate and the only line for callers that do not use the gateway. The evaluator
 (`ICkMethodAuthorizationEvaluator`) is a public service, so that the gateway gate uses exactly the same rules without a bus.
 
-#### The host enforces the declared authorization
+## The host enforces the declared authorization
 
 The handler host does not rely on the calling process: **after** the caller token was validated and **before** the parameters are read, the
 host evaluates the `authorization` of the method definition against the caller principal with the same `ICkMethodAuthorizationEvaluator`
@@ -123,7 +125,7 @@ and the handler and the target are not touched. Consequences:
   (`AdministratorRoles`); a service can replace the evaluator before the call.
 * A handler need not (and should not) repeat the declared check; it may still apply finer rules on its own data.
 
-## 5. Logging and sensitive parameters
+## Logging and sensitive parameters
 
 The host logs method id, invocation id, tenant and correlation id, never `ParametersJson` or the token. Values of parameters
 marked `sensitive: true` in the model, and the caller token, are masked (`***`) in an exception message a handler throws

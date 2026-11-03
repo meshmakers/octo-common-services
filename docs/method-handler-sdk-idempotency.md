@@ -5,7 +5,9 @@ background: true
 
 # Method handler: idempotency
 
-### Idempotency store contract
+Part of the method handler guide; start at [method-handler-sdk.md](method-handler-sdk.md), which lists all parts.
+
+## Idempotency store contract
 
 The filter that uses it (band 300) is described after the fingerprint; this library defines the contract, the lifetime options, the fingerprint and an in-memory store
 (`src/Methods/Idempotency/`). The MongoDB store lives in the asset repository (this library has no MongoDB reference, a test pins that).
@@ -32,7 +34,7 @@ The filter that uses it (band 300) is described after the fingerprint; this libr
   `AddCkMethodInMemoryIdempotencyStore()` (in-memory store unless a store is registered; its state is per process, so tests and single-replica hosts only);
   `AddCkMethodIdempotency()` adds the filter (see below).
 
-### Parameters fingerprint and its key
+## Parameters fingerprint and its key
 
 A repeated idempotency key must belong to the same work. The pipeline therefore fingerprints every call that **carries a key** (a call without
 a key computes nothing) from the **raw** request, before the filters get their redacted view: `ckTypeId`, `targetRtId` and the canonical
@@ -64,7 +66,7 @@ without sensitive parameters uses a plain SHA-256 (key id `sha256`). Authorizati
 environment needs the fingerprint secret as a Vault entry and a Helm secret value, shared by all asset-repository replicas, with the
 slot for the previous key. Until then keyed calls to methods with sensitive parameters are refused there.
 
-### Idempotency filter at band 300
+## Idempotency filter at band 300
 
 `AddCkMethodIdempotency()` adds `CkMethodIdempotencyFilter` (band 300, innermost before the transport). The host also registers a store
 (`AddCkMethodInMemoryIdempotencyStore()` for tests and single-replica hosts; without any store the pipeline cannot be built and the host fails instead of
@@ -77,7 +79,7 @@ store: the key is accepted and ignored (no format or length check, no scope, no 
 execute; nothing is stored, nothing is replayed (`Facts.ReplayOf` stays empty). The flag is read from the method definition in the CK cache
 (`ICkMethodSensitivityResolver.IsIdempotent`, same source as authorization); an unknown method, an absent or `false` flag or a failing source count as
 not idempotent, so the store stays in charge. Audit and metrics are unchanged: still exactly one audit event and one `ck.method.calls` increment per call
-(a replay marker never appears, because nothing is replayed). The flag does not change the duplicate-delivery refusal of section 8: that still answers
+(a replay marker never appears, because nothing is replayed). The flag does not change the duplicate-delivery refusal in [Duplicate deliveries and failing sends](method-handler-sdk-delivery.md#duplicate-deliveries-and-failing-sends): that still answers
 `METHOD_OUTCOME_UNKNOWN` for a possible duplicate delivery.
 
 For a call with `IdempotencyKey` to any other method the filter decides in this order (every refusal is a normal failed envelope, the handler does not run, nothing but

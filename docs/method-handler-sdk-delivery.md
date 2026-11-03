@@ -5,12 +5,14 @@ background: true
 
 # Method handler: delivery semantics and the dispatcher
 
-## 8. Duplicate deliveries and failing sends
+Part of the method handler guide; start at [method-handler-sdk.md](method-handler-sdk.md), which lists all parts.
+
+## Duplicate deliveries and failing sends
 
 The bus consumer receives the transport delivery info (`CommandDeliveryInfo`). A **possible duplicate** (the broker redelivers
 because the previous consumer lost its connection before the acknowledgement, or the bus retries) is **not executed**: the
 previous delivery may have run the method. The caller gets `METHOD_OUTCOME_UNKNOWN` (see the wire contract). The host does not
-know which methods are idempotent for this purpose, so every method is treated as non-idempotent (`execution.idempotent` only lets a *keyed call* skip the idempotency store, see the idempotency filter). The invocation id check stays as a second
+know which methods are idempotent for this purpose, so every method is treated as non-idempotent (`execution.idempotent` only lets a *keyed call* skip the idempotency store, see [the idempotency filter](method-handler-sdk-idempotency.md#idempotency-filter-at-band-300)). The invocation id check stays as a second
 line (a repeated id is answered `METHOD_OUTCOME_UNKNOWN` as well, also after a refused redelivery). The log line of a refusal names
 the invocation id, the method, the tenant and the delivery info (redelivered flag, retry attempt, redelivery count, message id)
 and never the parameters or the token.
@@ -52,7 +54,7 @@ without any consumer fails at once with `CommandNotRoutableException` (typically
 not reach the shared endpoint. Handler endpoints suppress faults: an exception escaping the consumer is logged without the
 message, is not retried and leaves no `_error` / `_skipped` copy of the request (it holds passwords and tokens).
 
-## 9. Calling a method: the dispatcher
+## Calling a method: the dispatcher
 
 `ICkMethodDispatcher` is the one entry point for a gateway (GraphQL gateway, pipeline node, REST facade). The caller never
 chooses a transport; the dispatcher does, and the answer is always the same `CkMethodResponse` envelope.
@@ -65,7 +67,7 @@ services.AddDistributionEventHub(c =>
     c.AddCkMethodHandlerRegistryFeed();            // announce / withdraw broadcasts fill the dispatcher's registry
 });
 services.AddCkMethodDispatcher();                   // dispatcher + registry + the shared invocation pipeline
-services.AddCkMethodInvocationFilter<MyAuthorizationFilter>();   // filters: see section 8, run for both transports
+services.AddCkMethodInvocationFilter<MyAuthorizationFilter>();   // filters: see method-handler-sdk-in-process.md, run for both transports
 
 // at the call site
 CkMethodResponse response = await dispatcher.InvokeAsync(request, cancellationToken);

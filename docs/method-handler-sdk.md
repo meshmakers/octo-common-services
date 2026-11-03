@@ -1,5 +1,5 @@
 ---
-description: Developer guide with a working sample for implementing CK method handlers (bus and in-process).
+description: Method handler guide entry, with a working sample: model, typed handler, errors, registration, unit tests; lists all parts.
 background: true
 ---
 
@@ -10,6 +10,19 @@ Package `Meshmakers.Octo.Services.Methods`. Wire format: `method-wire-contract.m
 A CK method is declared in a construction kit model. The service that owns the model implements it with a **typed
 handler**. You write the handler class and one line of registration; queues, JSON, announcements and heartbeats belong to
 the host.
+
+## Parts of this guide
+
+This file covers the model, the handler, errors, registration and unit tests. The other parts:
+
+* [method-handler-sdk-caller.md](method-handler-sdk-caller.md): who the caller is (token validation in a remote handler), the
+  declared authorization at the gateway and at the host, logging and sensitive parameters and results.
+* [method-handler-sdk-in-process.md](method-handler-sdk-in-process.md): in-process handlers of the calling service and the
+  invocation pipeline (filters, facts).
+* [method-handler-sdk-idempotency.md](method-handler-sdk-idempotency.md): idempotency store contract, parameter fingerprint
+  and the idempotency filter.
+* [method-handler-sdk-delivery.md](method-handler-sdk-delivery.md): duplicate deliveries and failing sends, the dispatcher
+  (routing, outcomes, timeouts, registry) and replicas.
 
 ## 1. What the model generates
 
@@ -54,11 +67,11 @@ RabbitMQ.
 * A method without a result implements `ICkMethodHandler<TParameters>` and returns `CkMethodOutcome.Ok()`.
 * The handler is created **per invocation in a new DI scope**: take scoped services (repositories, units of work) in the
   constructor. Register nothing yourself, `Handle<THandler>` does `AddScoped<THandler>()`.
-* `context` carries the validated caller `CallerPrincipal` (section 4a), the informational `Caller`, `TenantId`, `CkTypeId`,
+* `context` carries the validated caller `CallerPrincipal` ([caller identity](method-handler-sdk-caller.md#who-is-the-caller-token-validation-in-a-remote-handler)), the informational `Caller`, `TenantId`, `CkTypeId`,
   `TargetRtId` (null for static methods), `CorrelationId`, `IdempotencyKey`, `DeadlineUtc`/`RemainingTime` and `CallerAccessToken`. It has **no database session and
   no transaction**: a method runs outside the request transaction of the caller, open your own unit of work.
 * **Authorization**: the CK model declares who may call. When a handler decides anything by who the caller is, it uses
-  `context.CallerPrincipal` and nothing else: the host validated the token behind it (section 4a). Never trust `Caller` (it is
+  `context.CallerPrincipal` and nothing else: the host validated the token behind it ([caller identity](method-handler-sdk-caller.md#who-is-the-caller-token-validation-in-a-remote-handler)). Never trust `Caller` (it is
   not authenticated on the bus) and do not parse `CallerAccessToken` yourself.
 * **Cancellation and deadline**: `cancellationToken` is cancelled at `DeadlineUtc`. Pass it to every awaited call. A handler that
   ignores it and finishes late still answers late; the caller has then already received `METHOD_TIMEOUT`.
@@ -118,7 +131,7 @@ interval and TTL, and a dispatcher expires an entry at *receipt time plus the an
   broker's mandatory send, not by the TTL. The TTL only drives diagnostics and the persisted snapshot. 45 s tolerates two lost heartbeats;
   shorter values only add bus traffic.
 
-## 6. Unit-testing a handler
+## 5. Unit-testing a handler
 
 ```csharp
 var request = new CkMethodRequest("tenant") { InvocationId = Guid.NewGuid(), MethodId = id, CkTypeId = typeId,
@@ -129,8 +142,8 @@ var outcome = await new ChangePasswordHandler(store).HandleAsync(context, Cancel
 Assert.Equal("PASSWORD_TOO_SHORT", outcome.Failure!.Code);
 ```
 
-## 7. For transport authors
+## 6. For transport authors
 
 `ICkMethodHandlerInvoker.InvokeAsync(CkMethodRequest)` is the transport-independent core: version check, deadline,
 scope, parameter and result JSON (`CkMethodJson.Options`), error mapping, redaction. The bus consumer is a thin shell around it;
-the in-process transport (section 8) calls the same core. It never throws for a failing request.
+the in-process transport ([in-process handlers](method-handler-sdk-in-process.md)) calls the same core. It never throws for a failing request.
