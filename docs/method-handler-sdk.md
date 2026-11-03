@@ -1,3 +1,8 @@
+---
+description: Developer guide with a working sample for implementing CK method handlers (bus and in-process).
+background: true
+---
+
 # Implementing a method handler (bus transport)
 
 Package `Meshmakers.Octo.Services.Methods`. Owner: AB#6875 (F3.1). Wire format: `method-wire-contract.md`.

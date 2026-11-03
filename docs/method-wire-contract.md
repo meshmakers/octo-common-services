@@ -1,3 +1,8 @@
+---
+description: CK method wire contract: messages, platform error codes, versioning, idempotency store and filter, golden tests.
+applies_to: src/Contracts/DistributionEventHub/Methods/**, tests/Contracts.Tests/Methods/**, src/Methods/Idempotency/**
+---
+
 # CK method wire contract (v1)
 
 Owner: AB#6874 (F3.1). Consumers: the handler SDK (AB#6875), the in-process transport (AB#6876), the pipeline handler
@@ -142,3 +147,44 @@ The plain `GetCommandResponseAsync` overload addresses a different (temporary, e
 The bus is internal and not authenticated per message: `caller` is informational and a forged value must have no effect;
 authorization re-validates `callerAccessToken` (F3.4). Sensitive members are `parametersJson` and `callerAccessToken`, and `resultJson` of a response whose CK result is marked `sensitive`. The
 redacted view of the response exists only inside the calling process (the invocation filters); the envelope on the bus is unchanged.
+
+## CK method wire contract (CK v2 Phase 3, AB#6874)
+
+Namespace `Meshmakers.Octo.Services.Contracts.DistributionEventHub.Methods` (`src/Contracts/DistributionEventHub/Methods/`),
+shared by the dispatcher (asset-repo), the handler SDK (`Meshmakers.Octo.Services.Methods`, AB#6875) and handlers
+(identity, communication controller, ...). Full reference with field tables, platform error codes and the rules of
+evolution: `docs/method-wire-contract.md`.
+
+- `CkMethodRequest` (sealed, redacting `ToString()`; `ParametersJson` and `CallerAccessToken` are **sensitive**),
+  `CkMethodResponse` (response envelope with `Success`, `Error`, `ResultJson`, `Operation`), `CkMethodError` (stable `Code` +
+  string `Parameters`, no message text on the wire), `CkMethodOperationHandle` (async handle, F3.6),
+  `CkMethodHandlerAnnounced` / `Withdrawn` / `DiscoveryRequested`, `CkMethodQueueNames`, `CkMethodErrorCodes`
+  (constants + `Catalog`, single source; `METHOD_` is reserved for the platform), `CkMethodErrorParameters`.
+- **Parameter size limit** (AB#7665, F-2): `METHOD_PARAMETERS_TOO_LARGE` (parameters `methodId`, `maxBytes`, `actualBytes`); limit = UTF-8 byte length of `ParametersJson`, option `Methods:MaxParametersBytes` (`CkMethodLimitsOptions`, default 1 MiB, one name for gateway and host, bound by `AddCkMethodDispatcher`, `AddCkMethodHandlers`, `AddCkInProcessMethodHandlers`). `CkMethodParameterLimit.Exceeds/TooLarge` is the one check: the gateway (asset-repo) calls it before validation, `CkMethodHandlerInvoker` before the token is validated and before deserialization. Tests: `CkMethodHandlerInvokerTests`, adversarial C12.
+- **Idempotency store contract** (AB#7817, F3.5, decided in OD-4 AB#6922; `src/Methods/Idempotency/`, tests `tests/Methods.Tests/Idempotency/IdempotencyStoreTests.cs`): `ICkMethodIdempotencyStore`
+  (`ClaimAsync` atomic, expired record taken over by a conditional replace; `CompleteAsync(Completed|Unknown)`; `ReleaseAsync`; owner-only, only while `InProgress`; fails closed by
+  throwing `CkMethodIdempotencyStoreException`), `CkMethodIdempotencyKey` (tenant + method + caller scope from the principal provider + key; scope = `ScopeOf(principal)`: user `sub`, client-credentials caller `client:<client_id>` (AB#8078), so user and client never share a scope; a `sub` starting with `client:` gets no scope; audit keeps the plain subject; stored `Id` = SHA-256 hex, raw key not at rest, max 128 chars),
+  `CkMethodIdempotencyRecord` (reference equality for the conditional replace; `ToString` prints no fingerprint or response), `CkMethodInMemoryIdempotencyStore` (tests and single-replica hosts; the Mongo store is AB#7824 in
+  asset-repo). Row 4: only not-executed codes `ReleaseAsync`; an unknown outcome and `METHOD_HANDLER_FAILED` burn the key. Option `Methods:Idempotency:Ttl` (`CkMethodIdempotencyOptions`,
+  `CkMethodIdempotencyLifetime`): default 24 h, max 7 d (clamped + one warning), zero/negative fails start. New platform code `METHOD_REQUEST_IN_PROGRESS` (`NotExecuted`, parameter `methodId`; additive, wire contract version unchanged).
+  Registration `AddCkMethodIdempotencyOptions()` / `AddCkMethodInMemoryIdempotencyStore()`. The fingerprint keys are `CkMethodFingerprintOptions` (AB#7819, see the invocation pipeline).
+- **Idempotency filter** (AB#7820, F3.5, OD-4; `src/Methods/Idempotency/CkMethodIdempotencyFilter.cs`, registration `AddCkMethodIdempotency()`, tests `IdempotencyFilterTests`): band 300, unkeyed calls pass through with zero cost.
+  **Declared idempotent (AB#7896):** a keyed call to a method with `execution.idempotent: true` (read through `ICkMethodSensitivityResolver.IsIdempotent`, default member `false`; the
+  resolver reads the same definition source as authorization; unknown method, absent flag or a source fault = `false`, the store stays in charge) skips the store: the key is accepted and ignored
+  (no format or length check, no scope, no subject needed, no fingerprint, no result-sensitivity refusal), the call runs as an unkeyed one every time, `Facts.ReplayOf` stays empty. The pipeline
+  does not compute a fingerprint for it either, so the `fingerprint-key-missing` refusal does not apply. Audit and `ck.method.calls` are untouched (still one event and one count per call); the
+  filter logs one Debug line. It does not change the duplicate-delivery refusal of the bus consumer (OD-3), which still treats every method as non-idempotent. Tests: `IdempotencyFilterTests`
+  (store spy), `CkMethodAuditTests`, `CkMethodMetricsTests`.
+  Keyed call order (a method not declared idempotent): sensitive/unknown result -> `METHOD_VALIDATION_FAILED` `result-sensitive` (G2=A, nothing stored); neither `sub` nor `client_id` on the principal from `ICkMethodPrincipalProvider` -> `caller-unknown`; key > 128 -> `key-too-long`; no fingerprint on the
+  facts -> `fingerprint-unavailable`; store throws -> `METHOD_HANDLER_NOT_AVAILABLE` `idempotency-store-unavailable` (fail closed). Existing record: `MatchesStoredFingerprint` false (also an unconfigured key id or an empty fingerprint) ->
+  `parameters-changed` (before the state); in flight (until deadline + `ResponseGrace`) -> `METHOD_REQUEST_IN_PROGRESS`; `Unknown`/lapsed -> `METHOD_OUTCOME_UNKNOWN`; completed -> stored envelope with this call's `invocationId`,
+  `Facts.ReplayOf` = first invocation id. After the run: success/accepted/declared code/`METHOD_HANDLER_FAILED` -> `Completed` (replayed); not-executed platform code (via `CkMethodErrorCodes.Catalog`) -> `ReleaseAsync`;
+  timeout/outcome unknown/unknown platform code/exception/cancellation -> `Unknown` (burned). A store failure after the run never changes the caller's answer (logged, record burns when its lease lapses).
+- **Deadline clamp** (AB#7665, L-4): the invoker clamps `DeadlineUtc` to now + `Methods:Dispatcher:MaxTimeout` (`CkMethodDeadline.Clamp/MaxOf`, the dispatcher's helper) and logs the clamp once at Information.
+- **Versioning**: `CkMethodContract.CurrentVersion` (int, major) on request, response and announcement; additive changes never
+  bump it, unknown members are ignored, a missing version reads as 1; a newer message is answered with
+  `METHOD_CONTRACT_VERSION_UNSUPPORTED`.
+- **Tests** (`tests/Contracts.Tests/Methods`): golden JSON files (`Golden/*.json`) pin the serialized form under the hub
+  serializer options; unknown members, missing version, redaction, error-code catalog and the contract document are
+  tested. After an additive change refresh the goldens with `OCTO_UPDATE_GOLDEN=1 dotnet test tests/Contracts.Tests` and
+  review the diff. Adding a platform code needs a constant, a `Catalog` entry and a row in `docs/method-wire-contract.md`.

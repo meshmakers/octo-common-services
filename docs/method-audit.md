@@ -1,3 +1,8 @@
+---
+description: CK method audit: one event per invocation, what the record holds and deliberately leaves out.
+applies_to: src/Methods/Audit/**
+---
+
 # CK method audit (AB#6919, F3.5)
 
 An auditor answers "who called which method on which entity with what outcome" from the event repository: **exactly one

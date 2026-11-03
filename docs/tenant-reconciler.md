@@ -1,3 +1,8 @@
+---
+description: Stalled-tenant reconciler: minimum age, logging and completion of Creating tenants.
+applies_to: src/Infrastructure/Services/DefaultConfigurationCreatorServiceStandardized.cs, src/Infrastructure/Services/TenantReconcilerOptions.cs
+---
+
 # Stalled-tenant reconciler (AB#4348, AB#8117)
 
 `DefaultConfigurationCreatorServiceStandardized` runs a durable reconciler (asset-repo wires the lifecycle

@@ -1,3 +1,8 @@
+---
+description: Repeatable attack suite over the CK method path: cases, recorded results, findings and accepted limitations.
+background: true
+---
+
 # CK method adversarial suite (AB#6915, F3.4b)
 
 A repeatable attack suite over the method path: HTTP token layer, gateway, authorization filter, bus, remote handler host,
