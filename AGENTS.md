@@ -13,7 +13,7 @@ for the published package list. Targets .NET 10, DebugL for local development.
 <!-- >>> generated: routing -->
 | When you change | Read first |
 |---|---|
-| `src/ArtifactStorage/**`, `tests/ArtifactStorage.Tests/**` | `docs/artifact-storage.md` |
+| `src/ArtifactStorage/**`, `tests/ArtifactStorage.Tests/**`, `src/Infrastructure/DistributionEventHub/**` | `docs/artifact-storage.md` |
 | `src/Observability/**`, `src/Infrastructure/Routing/**`, `src/Infrastructure/Cors/**`, `src/**/TenantMiddleware.cs`, `src/Infrastructure/Middleware/Cookie*.cs` | `docs/http-pipeline.md` |
 | `src/Methods/Audit/**` | `docs/method-audit.md` |
 | `src/Methods/Dispatching/**` | `docs/method-dispatcher.md` |
@@ -84,12 +84,3 @@ assembly via `<InternalsVisibleTo Include="Infrastructure.Tests" />` so internal
 - **Every CK attribute declares `ownership`** (`OCTO-CK001`, `docs/notification-ck-model.md`).
 - **A merge to `main` does not publish System.Notification.** Publishing is an explicit pipeline run
   (`docs/notification-ck-model.md`).
-
-## Cache streams: missing file is `null`
-
-`OctoRepository` (`src/Infrastructure/DistributionEventHub`, the `IRepository` of `IDistributedCacheService`) returns
-`null` from both `DownloadBinaryAsync` overloads when the cache file does not exist (it used to leak the repository's
-`EntityNotFoundException` for `IDownloadStreamHandler`). `DistributedCacheService.GetCacheStreamByIdAsync` therefore
-returns `null`, and callers such as the `octo-bot-services` import jobs raise a typed error naming tenant and key.
-The transaction is aborted on a miss. Read-your-writes of the underlying GridFS read lives in
-`octo-construction-kit-engine-mongodb` (primary read on a miss).

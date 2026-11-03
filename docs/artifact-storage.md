@@ -1,6 +1,6 @@
 ---
-description: Artifact store: nested keys, copy-staging category and the archive copy staging location for S3 and Azure.
-applies_to: src/ArtifactStorage/**, tests/ArtifactStorage.Tests/**
+description: Artifact store: nested keys, copy-staging category and the archive copy staging location for S3 and Azure; cache streams return null for a missing file.
+applies_to: src/ArtifactStorage/**, tests/ArtifactStorage.Tests/**, src/Infrastructure/DistributionEventHub/**
 ---
 
 # Artifact storage
@@ -32,3 +32,12 @@ concept `octo-construction-kit-engine/docs/concept-tenant-backup-native-archive-
   `ToString()`, property, JSON serialization, `Scrub`bed text, factory log line or exception message. Proven red by mutation: the
   factory logging `RevealUri()`, the secret or the token placed in the URI path, a connection string echoed into the reason.
   Never log or serialize `RevealUri()` / `RevealOptions()` in new code.
+
+## Cache streams: missing file is `null`
+
+`OctoRepository` (`src/Infrastructure/DistributionEventHub`, the `IRepository` of `IDistributedCacheService`) returns
+`null` from both `DownloadBinaryAsync` overloads when the cache file does not exist (it used to leak the repository's
+`EntityNotFoundException` for `IDownloadStreamHandler`). `DistributedCacheService.GetCacheStreamByIdAsync` therefore
+returns `null`, and callers such as the `octo-bot-services` import jobs raise a typed error naming tenant and key.
+The transaction is aborted on a miss. Read-your-writes of the underlying GridFS read lives in
+`octo-construction-kit-engine-mongodb` (primary read on a miss).
