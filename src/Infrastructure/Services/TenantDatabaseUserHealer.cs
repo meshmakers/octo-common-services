@@ -86,6 +86,12 @@ public sealed class TenantDatabaseUserHealer(TimeProvider? timeProvider = null, 
             return null;
         }
 
+        return await EnsureUserAsync(systemContext, tenantId, logger, cause, evictClients).ConfigureAwait(false);
+    }
+
+    private async Task<TenantDatabaseUserEnsureResult?> EnsureUserAsync(ISystemContext systemContext, string tenantId,
+        ILogger logger, Exception? cause, bool evictClients)
+    {
         try
         {
             var result = await systemContext.EnsureTenantDatabaseUserAsync(tenantId).ConfigureAwait(false);
@@ -126,13 +132,42 @@ public sealed class TenantDatabaseUserHealer(TimeProvider? timeProvider = null, 
     public async Task<bool> EvictOnAuthenticationFailureAsync(ISystemContext systemContext, string? tenantId,
         ILogger logger, Exception? cause)
     {
-        if (string.IsNullOrWhiteSpace(tenantId) || !IsAuthenticationFailure(cause) || !TryReserveEviction(tenantId))
+        return !IsAuthenticationFailure(cause)
+            ? false
+            : await EvictAfterAuthenticationFailureAsync(systemContext, tenantId, logger).ConfigureAwait(false);
+    }
+
+    /// <summary>
+    ///     True when an error <b>message</b> is what MongoDB reports for a rejected or missing authentication
+    ///     (error 13: "... requires authentication", "not authorized on ..."; SCRAM: "Authentication failed").
+    ///     Used where only the message survived: many controllers catch the exception themselves and answer a
+    ///     500 with <c>ex.Message</c> in the body, so the exception never reaches a filter (AB#8228 round 3).
+    /// </summary>
+    public static bool IsAuthenticationFailureMessage(string? message) =>
+        !string.IsNullOrEmpty(message) && AuthMessageMarkers.Any(m => message.Contains(m, StringComparison.OrdinalIgnoreCase));
+
+    private static readonly string[] AuthMessageMarkers =
+        ["requires authentication", "not authorized on", "Authentication failed"];
+
+    /// <summary>
+    ///     Like <see cref="EvictOnAuthenticationFailureAsync" /> for a caller that has already classified the failure
+    ///     (by exception or by message). Same per-tenant window, same background re-ensure, never throws.
+    /// </summary>
+    public async Task<bool> EvictAfterAuthenticationFailureAsync(ISystemContext systemContext, string? tenantId,
+        ILogger logger)
+    {
+        if (string.IsNullOrWhiteSpace(tenantId) || !TryReserveEviction(tenantId))
         {
             return false;
         }
 
         var evicted = await EvictPooledClientsAsync(systemContext, tenantId, logger).ConfigureAwait(false);
-        _ = Task.Run(() => TryHealAsync(systemContext, tenantId, logger));
+        // Round 3: the re-ensure is paced by the eviction window (already reserved above), not by the one-minute
+        // heal limit. A heal attempt made earlier for another reason (tenant create, reconciler) used to consume
+        // that limit, so the first auth-failure evictions did not re-create the dropped user (QA saw the user
+        // come back only with the third eviction, ~57 s after the drop). Per-tenant cost stays one usersInfo
+        // per EvictionInterval while the tenant keeps failing.
+        _ = Task.Run(() => EnsureUserAsync(systemContext, tenantId, logger, cause: null, evictClients: false));
         return evicted;
     }
 

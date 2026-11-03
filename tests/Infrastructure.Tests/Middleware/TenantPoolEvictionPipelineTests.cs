@@ -100,6 +100,29 @@ public class TenantPoolEvictionPipelineTests
     }
 
     [Fact]
+    public async Task A_controller_that_answers_its_own_500_with_the_mongo_message_still_evicts_the_tenant()
+    {
+        // Round 3: ModelsController & co. catch the exception and return StatusCode(500, new ...Dto(ex.Message)).
+        using var host = await StartAsync(Environments.Development, app => app.UseDeveloperExceptionPage());
+        var response = await host.GetTestClient().GetAsync("/tmpqa/v1/own500", TestContext.Current.CancellationToken);
+
+        Assert.Equal(HttpStatusCode.InternalServerError, response.StatusCode);
+        Assert.Contains("requires authentication", await response.Content.ReadAsStringAsync(TestContext.Current.CancellationToken));
+        AssertEvicted("tmpqa");
+    }
+
+    [Fact]
+    public async Task A_controller_500_with_another_message_does_not_evict()
+    {
+        using var host = await StartAsync(Environments.Development, app => app.UseDeveloperExceptionPage());
+        var response = await host.GetTestClient().GetAsync("/tmpqa/v1/own500?other=true", TestContext.Current.CancellationToken);
+
+        Assert.Equal(HttpStatusCode.InternalServerError, response.StatusCode);
+        A.CallTo(() => _systemContext.InvalidateTenantRepositoryClientsAsync(A<string>._, A<string?>._, A<CancellationToken>._))
+            .MustNotHaveHappened();
+    }
+
+    [Fact]
     public async Task Without_an_exception_layer_the_tenant_is_evicted()
     {
         using var host = await StartAsync(Environments.Production, _ => { }, useController: false);
@@ -118,4 +141,26 @@ public class ThrowingController(ThrowingController.Thrower thrower) : Microsoft.
 
     [Microsoft.AspNetCore.Mvc.HttpGet]
     public Microsoft.AspNetCore.Mvc.IActionResult Get() => throw thrower();
+}
+
+
+public sealed record OwnErrorBody(string Message);
+
+/// <summary>Mirrors the catch-and-answer pattern of the asset repository controllers (e.g. ModelsController).</summary>
+[Microsoft.AspNetCore.Mvc.ApiController]
+[Microsoft.AspNetCore.Mvc.Route("{tenantId}/v1/own500")]
+public class OwnErrorController(ThrowingController.Thrower thrower) : Microsoft.AspNetCore.Mvc.ControllerBase
+{
+    [Microsoft.AspNetCore.Mvc.HttpGet]
+    public Microsoft.AspNetCore.Mvc.IActionResult Get([Microsoft.AspNetCore.Mvc.FromQuery] bool other = false)
+    {
+        try
+        {
+            throw other ? new InvalidOperationException("Duplicate key") : thrower();
+        }
+        catch (Exception ex)
+        {
+            return StatusCode(500, new OwnErrorBody(ex.Message));
+        }
+    }
 }

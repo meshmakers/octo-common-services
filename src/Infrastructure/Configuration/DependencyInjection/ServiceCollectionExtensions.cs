@@ -34,7 +34,10 @@ public static class ServiceCollectionExtensions
     internal static IServiceCollection AddTenantPoolEviction(this IServiceCollection services)
     {
         services.AddTransient<IStartupFilter, TenantPoolEvictionStartupFilter>();
-        services.Configure<Microsoft.AspNetCore.Mvc.MvcOptions>(o => o.Filters.Add<TenantPoolEvictionExceptionFilter>());
+        services.Configure<Microsoft.AspNetCore.Mvc.MvcOptions>(o => {
+            o.Filters.Add<TenantPoolEvictionExceptionFilter>();
+            o.Filters.Add<TenantPoolEvictionResultFilter>();
+        });
         return services;
     }
 

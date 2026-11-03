@@ -211,4 +211,37 @@ public class TenantDatabaseUserHealerTests
 
         Assert.False(await sut.EvictOnAuthenticationFailureAsync(_systemContext, "x", NullLogger.Instance, CommandFailure(18)));
     }
+
+    [Theory]
+    [InlineData("Command aggregate requires authentication", true)]
+    [InlineData("not authorized on tmpqa to execute command { find: \"x\" }", true)]
+    [InlineData("Authentication failed.", true)]
+    [InlineData("Duplicate key", false)]
+    [InlineData("", false)]
+    [InlineData(null, false)]
+    public void Authentication_failures_are_recognised_by_their_message(string? message, bool expected) =>
+        Assert.Equal(expected, TenantDatabaseUserHealer.IsAuthenticationFailureMessage(message));
+
+    [Fact]
+    public async Task The_first_eviction_re_ensures_the_user_even_when_a_heal_ran_within_the_last_minute()
+    {
+        // Round 3: an earlier heal (tenant create, reconciler) used to consume the one-minute heal limit, so the
+        // re-create came only with the third eviction.
+        A.CallTo(() => _systemContext.EnsureTenantDatabaseUserAsync("x"))
+            .Returns(TenantDatabaseUserEnsureResult.AlreadyPresent);
+        var sut = new TenantDatabaseUserHealer(_time);
+        await sut.TryHealAsync(_systemContext, "x", NullLogger.Instance);
+        _time.Advance(TimeSpan.FromSeconds(20));
+
+        Assert.True(await sut.EvictAfterAuthenticationFailureAsync(_systemContext, "x", NullLogger.Instance));
+
+        var deadline = DateTime.UtcNow.AddSeconds(5);
+        while (DateTime.UtcNow < deadline && Fake.GetCalls(_systemContext)
+                   .Count(c => c.Method.Name == nameof(ISystemContext.EnsureTenantDatabaseUserAsync)) < 2)
+        {
+            await Task.Delay(20, TestContext.Current.CancellationToken);
+        }
+
+        A.CallTo(() => _systemContext.EnsureTenantDatabaseUserAsync("x")).MustHaveHappenedTwiceExactly();
+    }
 }

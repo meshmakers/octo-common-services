@@ -1,5 +1,6 @@
 using Meshmakers.Octo.Runtime.Contracts.MongoDb;
 using Meshmakers.Octo.Services.Infrastructure.Services;
+using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Mvc.Filters;
 using Microsoft.AspNetCore.Hosting;
 
@@ -31,6 +32,12 @@ internal static class TenantPoolEviction
             return;
         }
 
+        await EvictCoreAsync(context, healer).ConfigureAwait(false);
+    }
+
+    /// <summary>Evicts the tenant addressed by the request; the caller has classified the failure already.</summary>
+    public static async Task EvictCoreAsync(HttpContext context, TenantDatabaseUserHealer healer)
+    {
         // Resolved lazily: a service hosting the infrastructure without the runtime engine has nothing to evict.
         var systemContext = context.RequestServices?.GetService<ISystemContext>();
         if (systemContext == null)
@@ -43,8 +50,8 @@ internal static class TenantPoolEviction
                        ?? context.GetTenantId()
                        ?? context.GetTenantIdFromPath()
                        ?? systemContext.TenantId;
-        await healer.EvictOnAuthenticationFailureAsync(systemContext, tenantId,
-            (ILogger?)logger ?? Microsoft.Extensions.Logging.Abstractions.NullLogger.Instance, cause).ConfigureAwait(false);
+        await healer.EvictAfterAuthenticationFailureAsync(systemContext, tenantId,
+            (ILogger?)logger ?? Microsoft.Extensions.Logging.Abstractions.NullLogger.Instance).ConfigureAwait(false);
     }
 }
 
@@ -77,6 +84,38 @@ internal sealed class TenantPoolEvictionExceptionFilter(TenantDatabaseUserHealer
 
     public Task OnExceptionAsync(ExceptionContext context) =>
         TenantPoolEviction.EvictAsync(context.HttpContext, context.Exception, _healer);
+}
+
+/// <summary>
+///     AB#8228 round 3 — central hook for controllers that catch the exception themselves and answer
+///     <c>StatusCode(500, new InternalServerErrorDto(ex.Message))</c> (ModelsController, ...): no exception reaches the
+///     middleware, the exception filter or the exception handler, only the 500 result with the message. This result
+///     filter inspects 5xx <see cref="ObjectResult" />s (message of an API error DTO, <c>ProblemDetails.Detail</c>
+///     or a plain string) and evicts when the message is a MongoDB authentication failure
+///     (<see cref="TenantDatabaseUserHealer.IsAuthenticationFailureMessage" />). The result is not changed.
+/// </summary>
+internal sealed class TenantPoolEvictionResultFilter(TenantDatabaseUserHealer? healer = null) : IAsyncAlwaysRunResultFilter
+{
+    private readonly TenantDatabaseUserHealer _healer = healer ?? TenantDatabaseUserHealer.Default;
+
+    public async Task OnResultExecutionAsync(ResultExecutingContext context, ResultExecutionDelegate next)
+    {
+        if (context.Result is ObjectResult { StatusCode: >= 500 } result &&
+            TenantDatabaseUserHealer.IsAuthenticationFailureMessage(ExtractMessage(result.Value)))
+        {
+            await TenantPoolEviction.EvictCoreAsync(context.HttpContext, _healer).ConfigureAwait(false);
+        }
+
+        await next().ConfigureAwait(false);
+    }
+
+    private static string? ExtractMessage(object? value) => value switch
+    {
+        null => null,
+        string text => text,
+        Microsoft.AspNetCore.Mvc.ProblemDetails problem => problem.Detail ?? problem.Title,
+        _ => value.GetType().GetProperty("Message")?.GetValue(value) as string
+    };
 }
 
 /// <summary>Puts <see cref="TenantPoolEvictionMiddleware" /> at the start of the pipeline of every octo service.</summary>
