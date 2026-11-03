@@ -1,3 +1,5 @@
+using Meshmakers.Octo.Services.Infrastructure.Middleware;
+using Microsoft.AspNetCore.Hosting;
 using Meshmakers.Octo.Common.DistributionEventHub.Configuration;
 using Meshmakers.Octo.Common.DistributionEventHub.Repository;
 using Meshmakers.Octo.Common.DistributionEventHub.Services;
@@ -46,6 +48,8 @@ public static class ServiceCollectionExtensions
         services.AddOptions<OctoCorsOptions>();
         services.AddSingletonMultipleInterfaces<CorsPolicyProvider, ICorsPolicyProvider>();
         services.AddExceptionHandler<OctoExceptionHandler>();
+        // AB#8228: evict a tenant's stale pooled MongoDB clients on an authentication failure (outermost middleware).
+        services.AddTransient<IStartupFilter, TenantPoolEvictionStartupFilter>();
         return new OctoInfrastructureBuilder(services);
     }
 
