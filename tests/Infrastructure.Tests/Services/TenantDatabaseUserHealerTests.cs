@@ -173,4 +173,42 @@ public class TenantDatabaseUserHealerTests
         A.CallTo(() => _systemContext.InvalidateTenantRepositoryClientsAsync(A<string>._, A<string?>._, A<CancellationToken>._))
             .MustNotHaveHappened();
     }
+
+    [Fact]
+    public async Task EvictOnAuthenticationFailure_evicts_once_per_window_and_tenant()
+    {
+        var sut = new TenantDatabaseUserHealer(_time);
+        var cause = CommandFailure(13);
+
+        Assert.True(await sut.EvictOnAuthenticationFailureAsync(_systemContext, "x", NullLogger.Instance, cause));
+        Assert.False(await sut.EvictOnAuthenticationFailureAsync(_systemContext, "x", NullLogger.Instance, cause));
+        Assert.True(await sut.EvictOnAuthenticationFailureAsync(_systemContext, "y", NullLogger.Instance, cause));
+        A.CallTo(() => _systemContext.InvalidateTenantRepositoryClientsAsync("x", null, A<CancellationToken>._))
+            .MustHaveHappenedOnceExactly();
+
+        _time.Advance(sut.EvictionInterval + TimeSpan.FromSeconds(1));
+        Assert.True(await sut.EvictOnAuthenticationFailureAsync(_systemContext, "x", NullLogger.Instance, cause));
+    }
+
+    [Fact]
+    public async Task EvictOnAuthenticationFailure_ignores_other_errors_and_missing_tenant()
+    {
+        var sut = new TenantDatabaseUserHealer(_time);
+
+        Assert.False(await sut.EvictOnAuthenticationFailureAsync(_systemContext, "x", NullLogger.Instance, CommandFailure(11000)));
+        Assert.False(await sut.EvictOnAuthenticationFailureAsync(_systemContext, "x", NullLogger.Instance, new TimeoutException()));
+        Assert.False(await sut.EvictOnAuthenticationFailureAsync(_systemContext, null, NullLogger.Instance, CommandFailure(13)));
+        A.CallTo(() => _systemContext.InvalidateTenantRepositoryClientsAsync(A<string>._, A<string?>._, A<CancellationToken>._))
+            .MustNotHaveHappened();
+    }
+
+    [Fact]
+    public async Task EvictOnAuthenticationFailure_works_without_admin_access_and_never_throws()
+    {
+        A.CallTo(() => _systemContext.InvalidateTenantRepositoryClientsAsync(A<string>._, A<string?>._, A<CancellationToken>._))
+            .Throws<InvalidOperationException>();
+        var sut = new TenantDatabaseUserHealer(_time);
+
+        Assert.False(await sut.EvictOnAuthenticationFailureAsync(_systemContext, "x", NullLogger.Instance, CommandFailure(18)));
+    }
 }
