@@ -19,19 +19,24 @@ namespace Meshmakers.Octo.Services.Infrastructure.Services;
 ///     without admin credentials (error on the admin connection) just logs and goes on as before. The limit is
 ///     process-wide through <see cref="Default" />.
 /// </remarks>
-public sealed class TenantDatabaseUserHealer(TimeProvider? timeProvider = null, TimeSpan? minimumInterval = null)
+public sealed class TenantDatabaseUserHealer(TimeProvider? timeProvider = null, TimeSpan? minimumInterval = null,
+    TimeSpan? evictionInterval = null)
 {
     private const int MongoCodeUnauthorized = 13;
     private const int MongoCodeAuthenticationFailed = 18;
 
     private readonly TimeProvider _time = timeProvider ?? TimeProvider.System;
     private readonly ConcurrentDictionary<string, DateTimeOffset> _lastAttempt = new(StringComparer.OrdinalIgnoreCase);
+    private readonly ConcurrentDictionary<string, DateTimeOffset> _lastEviction = new(StringComparer.OrdinalIgnoreCase);
 
     /// <summary>The process-wide instance (shared rate limit).</summary>
     public static TenantDatabaseUserHealer Default { get; } = new();
 
     /// <summary>Shortest time between two heal attempts of the same tenant.</summary>
     public TimeSpan MinimumInterval { get; } = minimumInterval ?? TimeSpan.FromMinutes(1);
+
+    /// <summary>Shortest time between two evictions of the same tenant's cached clients (AB#8228).</summary>
+    public TimeSpan EvictionInterval { get; } = evictionInterval ?? TimeSpan.FromSeconds(15);
 
     /// <summary>
     ///     True for the failures a missing or rejected tenant database user causes: MongoDB error 18 / 13 (also when
@@ -81,6 +86,12 @@ public sealed class TenantDatabaseUserHealer(TimeProvider? timeProvider = null, 
             return null;
         }
 
+        return await EnsureUserAsync(systemContext, tenantId, logger, cause, evictClients).ConfigureAwait(false);
+    }
+
+    private async Task<TenantDatabaseUserEnsureResult?> EnsureUserAsync(ISystemContext systemContext, string tenantId,
+        ILogger logger, Exception? cause, bool evictClients)
+    {
         try
         {
             var result = await systemContext.EnsureTenantDatabaseUserAsync(tenantId).ConfigureAwait(false);
@@ -107,7 +118,60 @@ public sealed class TenantDatabaseUserHealer(TimeProvider? timeProvider = null, 
         }
     }
 
-    private static async Task EvictPooledClientsAsync(ISystemContext systemContext, string tenantId, ILogger logger)
+    /// <summary>
+    ///     AB#8228 — request-path trigger for every service that holds tenant MongoDB pools (asset repository,
+    ///     communication controller, bot services, ...). When <paramref name="cause" /> is an authentication failure
+    ///     the tenant's cached repository clients are evicted at once, so the next request authenticates anew and
+    ///     works again without a restart once the user exists. Needs no admin access to MongoDB, so it also works
+    ///     in services that cannot create users. At most once per <see cref="EvictionInterval" /> and tenant;
+    ///     any other exception, an empty tenant id or a call inside the window does nothing. Afterwards the
+    ///     user is re-ensured in the background (<see cref="TryHealAsync" />, own one-minute limit, best-effort).
+    ///     Never throws.
+    /// </summary>
+    /// <returns><c>true</c> when the clients were evicted by this call.</returns>
+    public async Task<bool> EvictOnAuthenticationFailureAsync(ISystemContext systemContext, string? tenantId,
+        ILogger logger, Exception? cause)
+    {
+        return !IsAuthenticationFailure(cause)
+            ? false
+            : await EvictAfterAuthenticationFailureAsync(systemContext, tenantId, logger).ConfigureAwait(false);
+    }
+
+    /// <summary>
+    ///     True when an error <b>message</b> is what MongoDB reports for a rejected or missing authentication
+    ///     (error 13: "... requires authentication", "not authorized on ..."; SCRAM: "Authentication failed").
+    ///     Used where only the message survived: many controllers catch the exception themselves and answer a
+    ///     500 with <c>ex.Message</c> in the body, so the exception never reaches a filter (AB#8228 round 3).
+    /// </summary>
+    public static bool IsAuthenticationFailureMessage(string? message) =>
+        !string.IsNullOrEmpty(message) && AuthMessageMarkers.Any(m => message.Contains(m, StringComparison.OrdinalIgnoreCase));
+
+    private static readonly string[] AuthMessageMarkers =
+        ["requires authentication", "not authorized on", "Authentication failed"];
+
+    /// <summary>
+    ///     Like <see cref="EvictOnAuthenticationFailureAsync" /> for a caller that has already classified the failure
+    ///     (by exception or by message). Same per-tenant window, same background re-ensure, never throws.
+    /// </summary>
+    public async Task<bool> EvictAfterAuthenticationFailureAsync(ISystemContext systemContext, string? tenantId,
+        ILogger logger)
+    {
+        if (string.IsNullOrWhiteSpace(tenantId) || !TryReserveEviction(tenantId))
+        {
+            return false;
+        }
+
+        var evicted = await EvictPooledClientsAsync(systemContext, tenantId, logger).ConfigureAwait(false);
+        // Round 3: the re-ensure is paced by the eviction window (already reserved above), not by the one-minute
+        // heal limit. A heal attempt made earlier for another reason (tenant create, reconciler) used to consume
+        // that limit, so the first auth-failure evictions did not re-create the dropped user (QA saw the user
+        // come back only with the third eviction, ~57 s after the drop). Per-tenant cost stays one usersInfo
+        // per EvictionInterval while the tenant keeps failing.
+        _ = Task.Run(() => EnsureUserAsync(systemContext, tenantId, logger, cause: null, evictClients: false));
+        return evicted;
+    }
+
+    private static async Task<bool> EvictPooledClientsAsync(ISystemContext systemContext, string tenantId, ILogger logger)
     {
         try
         {
@@ -115,10 +179,27 @@ public sealed class TenantDatabaseUserHealer(TimeProvider? timeProvider = null, 
             logger.LogInformation(
                 "Evicted the cached MongoDB clients of tenant '{TenantId}' after an authentication failure; " +
                 "connections authenticate anew", tenantId);
+            return true;
         }
         catch (Exception ex)
         {
             logger.LogWarning(ex, "Could not evict the cached MongoDB clients of tenant '{TenantId}'", tenantId);
+            return false;
+        }
+    }
+
+    private bool TryReserveEviction(string tenantId)
+    {
+        var now = _time.GetUtcNow();
+        lock (_lastEviction)
+        {
+            if (_lastEviction.TryGetValue(tenantId, out var last) && now - last < EvictionInterval)
+            {
+                return false;
+            }
+
+            _lastEviction[tenantId] = now;
+            return true;
         }
     }
 

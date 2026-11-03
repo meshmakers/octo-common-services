@@ -2,11 +2,14 @@ using System.Diagnostics;
 
 using Meshmakers.Octo.Runtime.Contracts.MongoDb;
 using Meshmakers.Octo.Services.Infrastructure.Services;
+using Microsoft.Extensions.Logging.Abstractions;
 
 namespace Meshmakers.Octo.Services.Infrastructure.Middleware;
 
-internal class TenantMiddleware(RequestDelegate next)
+internal class TenantMiddleware(RequestDelegate next, TenantDatabaseUserHealer? healer = null)
 {
+    private readonly TenantDatabaseUserHealer _healer = healer ?? TenantDatabaseUserHealer.Default;
+
     /// <summary>
     ///     The one spelling of the tenant dimension (AB#5478 §2.2). The estate had three — this one
     ///     on the workload metrics, a bare <c>tenant</c> on the CrateDB metrics and
@@ -26,7 +29,7 @@ internal class TenantMiddleware(RequestDelegate next)
     ];
 
     public async Task InvokeAsync(HttpContext context, ISystemContext systemContext,
-        IConfigurationService configurationService)
+        IConfigurationService configurationService, ILogger<TenantMiddleware>? logger = null)
     {
         // Check if the request is a system endpoint
         if (context.Request.Path.Value != null && SystemEndpoints.Contains(context.Request.Path.Value))
@@ -80,7 +83,19 @@ internal class TenantMiddleware(RequestDelegate next)
         }
 
         // Call the next delegate/middleware in the pipeline
-        await next(context).ConfigureAwait(false);
+        try
+        {
+            await next(context).ConfigureAwait(false);
+        }
+        catch (Exception ex) when (TenantDatabaseUserHealer.IsAuthenticationFailure(ex))
+        {
+            // AB#8228: the tenant's MongoDB user vanished or was re-created while this process holds pooled
+            // connections that lost their authentication. Evict them so the next request recovers without a restart.
+            await _healer.EvictOnAuthenticationFailureAsync(systemContext,
+                    context.Items[InfrastructureCommon.TenantIdName] as string, (ILogger?)logger ?? NullLogger.Instance, ex)
+                .ConfigureAwait(false);
+            throw;
+        }
     }
 
     /// <summary>

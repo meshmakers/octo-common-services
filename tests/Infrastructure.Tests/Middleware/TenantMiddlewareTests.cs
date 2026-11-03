@@ -6,6 +6,12 @@ using Meshmakers.Octo.Services.Infrastructure.Middleware;
 using Meshmakers.Octo.Services.Infrastructure.Services;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Routing;
+using MongoDB.Bson;
+using MongoDB.Driver;
+using MongoDB.Driver.Core.Clusters;
+using MongoDB.Driver.Core.Connections;
+using MongoDB.Driver.Core.Servers;
+using System.Net;
 using Xunit;
 
 namespace Infrastructure.Tests.Middleware;
@@ -84,5 +90,37 @@ public class TenantMiddlewareTests
         // Assert
         Assert.False(nextCalled);
         Assert.Equal(StatusCodes.Status403Forbidden, context.Response.StatusCode);
+    }
+
+    private static MongoCommandException AuthFailure() =>
+        new(new ConnectionId(new ServerId(new ClusterId(1), new DnsEndPoint("localhost", 27017))), "requires authentication",
+            new BsonDocument(), new BsonDocument { { "code", 13 } });
+
+    [Fact]
+    public async Task AuthenticationFailure_downstream_evicts_the_tenants_clients_and_rethrows()
+    {
+        var healer = new TenantDatabaseUserHealer();
+        var context = CreateContext("/meshtest/v1/something");
+        var middleware = new TenantMiddleware(_ => throw AuthFailure(), healer);
+        A.CallTo(() => _configurationService.CanBeEnabled()).Returns(false);
+
+        await Assert.ThrowsAsync<MongoCommandException>(() => middleware.InvokeAsync(context, _systemContext, _configurationService));
+
+        A.CallTo(() => _systemContext.InvalidateTenantRepositoryClientsAsync(TenantId, null, A<CancellationToken>._))
+            .MustHaveHappenedOnceExactly();
+    }
+
+    [Fact]
+    public async Task Other_downstream_errors_do_not_evict()
+    {
+        var healer = new TenantDatabaseUserHealer();
+        var context = CreateContext("/meshtest/v1/something");
+        var middleware = new TenantMiddleware(_ => throw new InvalidOperationException("boom"), healer);
+        A.CallTo(() => _configurationService.CanBeEnabled()).Returns(false);
+
+        await Assert.ThrowsAsync<InvalidOperationException>(() => middleware.InvokeAsync(context, _systemContext, _configurationService));
+
+        A.CallTo(() => _systemContext.InvalidateTenantRepositoryClientsAsync(A<string>._, A<string?>._, A<CancellationToken>._))
+            .MustNotHaveHappened();
     }
 }
