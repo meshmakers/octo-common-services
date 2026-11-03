@@ -207,7 +207,7 @@ call takes exactly 400 ms), and the stop is triggered by the tenth completion, i
 With steady traffic the expected number is the arrival rate of the stopping replica times the round trip of `basic.cancel`, a few
 thousandths to a few hundredths per stop at the measured rate; it grows with bursts that coincide with the stop.
 
-**Decision (Odin): accept the residual, keep OD-3 option A.** The call that never ran is answered `METHOD_OUTCOME_UNKNOWN`, the
+**Product decision: accept the residual, keep OD-3 option A.** The call that never ran is answered `METHOD_OUTCOME_UNKNOWN`, the
 safe answer (nothing runs twice). No runtime change was made, because every variant that stays inside the handler host is worse or
 unsafe:
 

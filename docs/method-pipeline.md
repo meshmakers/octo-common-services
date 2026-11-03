@@ -38,7 +38,7 @@ tests `tests/Methods.Tests/InProcess/`. Guide: `docs/method-handler-sdk.md` sect
   pipeline (audit, authorization) still run in the caller's context, before the detach.
 - **Pipeline** `ICkMethodInvocationPipeline` / `ICkMethodInvocationFilter` (public, `AddCkMethodInvocationFilter<T>()`): ordered
   steps around any transport (`CkMethodTransportNames.InProcess` / `Bus`); lower `Order` runs first, bands in
-  `CkMethodInvocationFilterOrder` (Audit 100 outermost, Authorization 200, Idempotency 300 innermost; decided by Odin: exactly one audit event per invocation incl. refusals and replays). A filter may refuse (return a failed response), pass a
+  `CkMethodInvocationFilterOrder` (Audit 100 outermost, Authorization 200, Idempotency 300 innermost; decided: exactly one audit event per invocation incl. refusals and replays). A filter may refuse (return a failed response), pass a
   modified request to `next`, or wrap the call. An exception in a filter becomes `METHOD_HANDLER_FAILED`; caller cancellation
   passes through. The F3.3 dispatcher runs its bus send as the terminal delegate of the same pipeline instance.
 - **Method authorization filter** (`src/Methods/Authorization/`, tests `tests/Methods.Tests/Authorization`,
@@ -135,7 +135,7 @@ tests `tests/Methods.Tests/InProcess/`. Guide: `docs/method-handler-sdk.md` sect
   the pipeline inserts a refusal step between authorization (200) and idempotency (300): `METHOD_VALIDATION_FAILED`, field `idempotencyKey`, reason `fingerprint-key-missing`; audit (100) sees it,
   the idempotency filter and the handler do not run. No key and no sensitive parameters: unkeyed SHA-256, key id `sha256`. Configuration `Methods:Idempotency:Fingerprint:Current:{Id,Secret}` and
   `:Previous:{Id,Secret}` (secret = base64 of at least 32 bytes, id `[A-Za-z0-9._-]{1,64}`; malformed or half-set keys fail the start, messages name the setting, never the value; keys are read at start;
-  all replicas share them). The key options and the fingerprint never appear in logs, exceptions, `ToString()` or audit (canary test). Ops prerequisite: a Vault + Helm secret per environment (Heimdall).
+  all replicas share them). The key options and the fingerprint never appear in logs, exceptions, `ToString()` or audit (canary test). Ops prerequisite: a Vault + Helm secret per environment (Platform Ops).
   **Redacted response view (`CkMethodResponseRedaction` in `CkMethodSensitivity.cs`)**: the mirror of the request side. When
   the CK result of the method is `sensitive` (`ICkMethodSensitivityResolver.IsResultSensitive`; fail-closed `true` for an unknown method,
   a missing source or a faulting source), the terminal step keeps the raw response and hands the filters a view whose `ResultJson` is

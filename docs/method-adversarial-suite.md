@@ -64,7 +64,7 @@ nothing dispatched.
 | F-2 | No limit for the size of method parameters in gateway, validator, bus or host; no documented code. **Fixed:** `METHOD_PARAMETERS_TOO_LARGE`, `Methods:MaxParametersBytes` (default 1 MiB); the host refuses before it deserializes (this repository), the gateway before validation (octo-asset-repo-services, same story, consumes this package). Tests: `C12_*`, `CkMethodHandlerInvokerTests` | low to medium (resource use) | fixed |
 | F-3 | The GraphQL error forwards any code a responder writes, including unknown `METHOD_` codes. **Fixed (in octo-asset-repo-services, effective with the next release of both):** the response mapper applies the host's allow-list; any other code becomes `METHOD_HANDLER_FAILED` | low (needs a rogue responder on the queue) | fixed |
 
-## Accepted limitations (need Odin's signature)
+## Accepted limitations (need product owner sign-off)
 
 | Id | Limitation | Source |
 |----|-----------|--------|
