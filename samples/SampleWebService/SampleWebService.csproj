@@ -8,6 +8,7 @@
     <ItemGroup>
         <ProjectReference Include="..\..\src\Infrastructure\Infrastructure.csproj" />
         <ProjectReference Include="..\..\src\Swagger\Swagger.csproj"/>
+        <ProjectReference Include="..\..\src\Observability\Observability.csproj"/>
     </ItemGroup>
 
     <ItemGroup>
