@@ -1001,6 +1001,32 @@ tests `tests/Methods.Tests/InProcess/`. Guide: `docs/method-handler-sdk.md` sect
   `octo-asset-repo-services/tests/**/Adversarial`, see its CLAUDE.md. A new method path (filter, transport, handler host) gets
   its cases added here before it ships.
 
+### REST facades: self-hosted methods run in-process (AB#8411, F5.1)
+
+A service calls a method it hosts itself (REST facade, first consumer: identity, AB#8412-8414) through `ICkMethodDispatcher`;
+the handler runs in this process, nothing is sent to the broker. Code: `src/Methods/InProcess/` (transport), `src/Methods/Configuration/`
+(registration), `src/Methods/Facades/CkMethodFacadeResults.cs`. Guide: `docs/method-handler-sdk.md` section 10.
+
+- **Bus handlers are local for their own host.** `AddCkMethodHandlers` also registers the local transport (`AddCkLocalMethodTransport`,
+  internal, idempotent). `CkInProcessMethodTransport` takes the bus registrations (`CkMethodHandlerRegistrations`) and the announced
+  `CkMethodHandlerInstance` as optional constructor arguments and builds a second `CkMethodHandlerInvoker` over them (same evaluator,
+  in-process entry guard, no token validator). `CanHandle`/`MethodIds` cover both sets; the in-process registrations win. The envelope
+  carries the announced instance id, so it is byte-identical to the bus answer of the same host. Behaviour change for hosts that have
+  both `AddCkMethodHandlers` and `AddCkMethodDispatcher`: their own calls of a hosted method no longer go over the bus (no such host on
+  main at the time; asset-repo hosts in-process handlers only).
+- **Local only.** `ICkMethodHandlerRegistrationBuilder.HandleLocalOnly<T>(id)` (new interface member; nothing outside this repo implements
+  the builder). In `AddCkMethodHandlers` it adds to `CkInProcessMethodRegistrations`: not announced, no queue, another process gets
+  `METHOD_HANDLER_NOT_AVAILABLE`. In `AddCkInProcessMethodHandlers` it equals `Handle`. The one-place rule is the existing check of
+  `CkInProcessMethodValidationService` (it now returns early when there is no in-process registration).
+- **Principal.** The local path reads `ICkMethodPrincipalProvider` (default `CkMethodPrincipalScope`) in the caller's flow; no scope =
+  `null` principal = `METHOD_FORBIDDEN`, never a system identity.
+- **Facade helper.** `CkMethodFacadeResults.ToActionResult(response, CkMethodFacadeOptions?)`: `DefaultStatusCodes` per platform code
+  (403/404/400/413/409/504/503/500, a test checks that every `CkMethodErrorCodes.Catalog` entry has one), unknown `METHOD_*` 500, declared
+  code 400, success 200 JSON / 204; body problem details with `code`, `parameters`, `details`. Overrides `MapError(code, status|factory)`,
+  `MapSuccess(factory)`.
+- Tests: `tests/Methods.Tests/InProcess/SelfHostedMethodCallTests.cs`, `tests/Methods.Tests/Facades/CkMethodFacadeResultsTests.cs`,
+  `tests/Methods.IntegrationTests/CkMethodDispatcherBusTests.SelfHosted.cs`.
+
 ### Method metrics and one trace per call (AB#6920, F3.5)
 
 Meter **`Meshmakers.Octo.Methods`** (`CkMethodTelemetry.MeterName`; one `Meter` instance, `CkMethodTelemetry.Meter`, also used by `ck.method.audit.failures`

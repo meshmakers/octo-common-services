@@ -17,9 +17,11 @@ namespace Meshmakers.Octo.Services.Methods;
 ///             same id. Methods cannot be overridden (CK message 100), so there is exactly one declaring element.
 ///         </item>
 ///         <item>
-///             <b>Transport.</b> A method registered with <c>AddCkInProcessMethodHandlers</c> runs in this process
-///             (transport <c>in-process</c>). Every other method is sent over the event hub to a shared, competing
-///             consumer endpoint (transport <c>bus</c>). Both run through the same
+///             <b>Transport.</b> A method with a handler in this process - registered with
+///             <c>AddCkInProcessMethodHandlers</c>, local only (<c>HandleLocalOnly</c>), or as a bus handler of this
+///             service (<c>AddCkMethodHandlers</c>, AB#8411) - runs in this process (transport <c>in-process</c>), nothing is
+///             sent to the broker. Every other method is sent over the event hub to a shared, competing consumer endpoint
+///             (transport <c>bus</c>). Both run through the same
 ///             <see cref="ICkMethodInvocationPipeline" />; the dispatcher adds no filter of its own.
 ///         </item>
 ///         <item>

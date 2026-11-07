@@ -15,7 +15,9 @@ public static class CkInProcessMethodServiceCollectionExtensions
     ///     Registers handlers for methods that this service owns and calls itself. The handler classes are the same typed
     ///     handlers as for <c>AddCkMethodHandlers</c> (one class works under either transport). In-process handlers are not
     ///     announced, have no bus queue and need no event hub. Inject <see cref="ICkInProcessMethodTransport" /> to call them.
-    ///     A method is registered in exactly one of the two places; startup fails otherwise.
+    ///     A method is registered in exactly one of the two places; startup fails otherwise. A handler that a service hosts
+    ///     on the bus (<c>AddCkMethodHandlers</c>) is called in-process by the same service anyway (AB#8411); register it here
+    ///     only when the service does not host it on the bus at all.
     /// </summary>
     /// <param name="services">The service collection.</param>
     /// <param name="configure">Registers one handler per method: <c>m.Handle&lt;MyHandler&gt;(MethodId)</c>.</param>
@@ -24,6 +26,17 @@ public static class CkInProcessMethodServiceCollectionExtensions
     {
         ArgumentNullException.ThrowIfNull(configure);
 
+        configure(new RegistrationBuilder(services, GetOrAddInProcessRegistrations(services)));
+        services.AddCkLocalMethodTransport();
+        return services;
+    }
+
+    /// <summary>
+    ///     The registrations of the methods that run only in this process: those of <see cref="AddCkInProcessMethodHandlers" />
+    ///     and the local-only ones of <c>AddCkMethodHandlers</c> (<see cref="ICkMethodHandlerRegistrationBuilder.HandleLocalOnly{THandler}" />).
+    /// </summary>
+    internal static CkInProcessMethodRegistrations GetOrAddInProcessRegistrations(IServiceCollection services)
+    {
         var registrations = services.FirstOrDefault(d => d.ServiceType == typeof(CkInProcessMethodRegistrations))
             ?.ImplementationInstance as CkInProcessMethodRegistrations;
         if (registrations == null)
@@ -32,8 +45,18 @@ public static class CkInProcessMethodServiceCollectionExtensions
             services.AddSingleton(registrations);
         }
 
-        configure(new RegistrationBuilder(services, registrations));
+        return registrations;
+    }
 
+    /// <summary>
+    ///     Registers the local transport (<see cref="ICkInProcessMethodTransport" />) with the invocation pipeline, the
+    ///     authorization evaluator and the startup validation of the in-process registrations (AB#8411). The transport serves
+    ///     the in-process registrations and, when the service hosts bus handlers (<c>AddCkMethodHandlers</c>), those too, so a
+    ///     service calls the methods it hosts without a bus hop. Idempotent.
+    /// </summary>
+    internal static IServiceCollection AddCkLocalMethodTransport(this IServiceCollection services)
+    {
+        GetOrAddInProcessRegistrations(services);
         services.AddOptions<CkMethodHandlerOptions>().BindConfiguration(CkMethodHandlerOptions.SectionName);
         services.AddOptions<CkMethodLimitsOptions>().BindConfiguration(CkMethodLimitsOptions.SectionName);
         services.AddOptions<CkMethodDispatcherOptions>().BindConfiguration(CkMethodDispatcherOptions.SectionName);
@@ -105,5 +128,9 @@ public static class CkInProcessMethodServiceCollectionExtensions
             services.TryAddScoped<THandler>();
             return this;
         }
+
+        // every in-process registration is local only
+        public ICkMethodHandlerRegistrationBuilder HandleLocalOnly<THandler>(string qualifiedMethodId)
+            where THandler : class, ICkMethodHandler => Handle<THandler>(qualifiedMethodId);
     }
 }
