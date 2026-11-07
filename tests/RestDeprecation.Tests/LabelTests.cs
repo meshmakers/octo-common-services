@@ -60,9 +60,9 @@ public class LabelTests
     }
 
     [Theory]
-    [InlineData("octo-pipeline-sa-tenant-alpha-7")]
-    [InlineData("OCTO-PIPELINE-SA-Tenant-Beta")]
-    public void ClientId_PipelineServiceAccount_IsReportedWithoutTenant(string clientId)
+    [InlineData("octo-pipeline-sa-65f1c2a9e4b0d3a1c8e7f210")]
+    [InlineData("OCTO-PIPELINE-SA-65F1C2A9E4B0D3A1C8E7F211")]
+    public void ClientId_PipelineServiceAccount_IsReportedWithoutAdapterId(string clientId)
     {
         var principal = new ClaimsPrincipal(new ClaimsIdentity([new Claim("client_id", clientId)], "Bearer"));
 

@@ -9,7 +9,7 @@ namespace Meshmakers.Octo.Services.RestDeprecation;
 
 /// <summary>
 ///     Installs <see cref="RestDeprecationMiddleware" /> at the start of the pipeline and validates every
-///     <see cref="OctoRestDeprecatedAttribute" /> when the pipeline is built, i.e. before the server accepts requests
+///     <see cref="OctoRestDeprecatedAttribute" /> (and the configuration of its wave) when the pipeline is built, i.e. before the server accepts requests
 ///     (AB#8421).
 /// </summary>
 /// <remarks>
@@ -30,19 +30,23 @@ internal sealed class RestDeprecationStartupFilter : IStartupFilter
             var dataSource = app.ApplicationServices.GetService<EndpointDataSource>();
             if (dataSource != null)
             {
-                Validate(dataSource.Endpoints);
+                Validate(dataSource.Endpoints,
+                    app.ApplicationServices.GetService<RestDeprecationResolver>() ?? RestDeprecationResolver.Unconfigured);
             }
         };
     }
 
-    /// <summary>Throws when an endpoint carries an invalid <see cref="OctoRestDeprecatedAttribute" />.</summary>
-    internal static void Validate(IEnumerable<Endpoint> endpoints)
+    /// <summary>
+    ///     Throws when an endpoint carries an invalid <see cref="OctoRestDeprecatedAttribute" /> or refers to a wave with an
+    ///     invalid configuration (AB#8415).
+    /// </summary>
+    internal static void Validate(IEnumerable<Endpoint> endpoints, RestDeprecationResolver resolver)
     {
         StringBuilder? errors = null;
         foreach (var endpoint in endpoints)
         {
             var deprecation = endpoint.Metadata.GetMetadata<OctoRestDeprecatedAttribute>();
-            var error = deprecation?.Validate();
+            var error = deprecation == null ? null : resolver.Validate(deprecation);
             if (error == null)
             {
                 continue;

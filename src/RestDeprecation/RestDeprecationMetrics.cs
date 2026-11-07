@@ -15,8 +15,10 @@ namespace Meshmakers.Octo.Services.RestDeprecation;
 ///     <b>Labels, and what they never contain.</b> <c>endpoint</c> is the HTTP method plus the route <b>template</b>
 ///     (<c>GET {tenantId}/v1/users/{id}</c>), never the concrete path: the path carries tenant ids and user names.
 ///     <c>client_id</c> is the <c>client_id</c> claim of the authenticated caller, <c>anonymous</c> without an
-///     authenticated principal; the pipeline service accounts <c>octo-pipeline-sa-&lt;tenant&gt;</c> carry the tenant in
-///     their id and are all reported as <c>octo-pipeline-sa</c>. <c>status_class</c> is <c>1xx</c> … <c>5xx</c>. No tenant, user name, <c>sub</c>,
+///     authenticated principal; the pipeline service accounts <c>octo-pipeline-sa-{adapterRtId}</c> (adapter-bound) and
+///     <c>octo-pipeline-sa-{configurationRtId}</c> (standalone, <c>PipelineServiceAccountProvisioningService.BuildClientId</c>)
+///     carry an entity id in their client id and are all reported as <c>octo-pipeline-sa</c>; a standalone account with a
+///     custom client id outside the prefix is reported as itself. <c>status_class</c> is <c>1xx</c> … <c>5xx</c>. No tenant, user name, <c>sub</c>,
 ///     parameter or token — the same rule as <c>Meshmakers.Octo.Methods</c>. The values are bounded: the endpoint set is
 ///     fixed in code, and after <see cref="MaxClientIds" /> distinct client ids further ones are counted as
 ///     <c>other</c>.
@@ -39,8 +41,10 @@ public static class RestDeprecationMetrics
     internal const string ClientIdClaim = "client_id";
 
     /// <summary>
-    ///     Prefix of the per-tenant pipeline service accounts (<c>octo-pipeline-sa-&lt;tenant&gt;</c>); their id carries
-    ///     the tenant, so they share the single label value <see cref="PipelineServiceAccountLabel" />.
+    ///     Prefix of the pipeline service accounts (<c>octo-pipeline-sa-{adapterRtId}</c> or, standalone,
+    ///     <c>octo-pipeline-sa-{configurationRtId}</c>); their id carries a runtime id, which is entity data and unbounded,
+    ///     so they share the single label value <see cref="PipelineServiceAccountLabel" />. Custom client ids outside the
+    ///     prefix are not matched.
     /// </summary>
     internal const string PipelineServiceAccountPrefix = "octo-pipeline-sa-";
 
