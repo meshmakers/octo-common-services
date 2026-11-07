@@ -1157,11 +1157,48 @@ concept `octo-construction-kit-engine/docs/concept-tenant-backup-native-archive-
   factory logging `RevealUri()`, the secret or the token placed in the URI path, a connection string echoed into the reason.
   Never log or serialize `RevealUri()` / `RevealOptions()` in new code.
 
+## REST deprecation: one attribute per action (AB#8421, F5.7)
+
+`[OctoRestDeprecated(Since = "yyyy-MM-dd", Sunset = "yyyy-MM-dd", Link = "<absolute doc url>")]` on an action (or
+controller) is all a service adds when a REST operation is replaced by a CK method. Package
+`Meshmakers.Octo.Services.RestDeprecation` (`src/RestDeprecation`, no package dependencies — Swagger and Observability
+both reference it). Full reference: `docs/rest-deprecation.md`.
+
+- **Headers** on every response of a marked endpoint, also 400/401/403/500: `Deprecation: @<unix seconds>` (RFC 9745),
+  `Sunset: <IMF-fixdate>` (RFC 8594), `Link: <url>; rel="deprecation"; type="text/html"`. `RestDeprecationStartupFilter`
+  (registered by `AddObservability()`, or `AddOctoRestDeprecation()`) puts `RestDeprecationMiddleware` first; it only
+  registers `Response.OnStarting` and resolves the endpoint when the response starts (`IExceptionHandlerFeature.Endpoint`
+  after an exception — the handler clears the endpoint). Do not move this into an MVC filter: the authorization
+  middleware answers 401/403 before MVC runs.
+- **OpenAPI**: `RestDeprecationOperationTransformer` (`src/Swagger/Transformers`) sets `deprecated: true` and appends
+  "Sunset <date>, use <link>." to the description.
+- **Startup validation**: the startup filter validates every endpoint's attribute after the app mapped its endpoints and
+  throws one `InvalidOperationException` naming every offending action (sunset not after since, relative link, bad date).
+- **Unmarked endpoints are byte-identical** in headers, OpenAPI and metrics (tests, incl. an OpenAPI snapshot).
+
+### Meters registered by `AddObservability()`
+
+| Meter | Emitted by | Notes |
+|-------|-----------|-------|
+| `Meshmakers.Octo.MongoDb` | engine-mongodb | command durations, slow queries |
+| `Meshmakers.Octo.Communication` | communication-controller | workload lifecycle |
+| `Meshmakers.Octo.AssetRepository` | asset-repo | CK model health |
+| `Meshmakers.Octo.StreamData`, `.StreamData.Crate` | engine, engine-mongodb | archive lifecycle, CrateDB data plane |
+| `SecretDiagnostics.MeterName` | engine | SECRET attribute access |
+| `Meshmakers.Octo.TenantSetup` | Infrastructure | tenant setup retry |
+| `Meshmakers.Octo.Methods` | Methods | CK method calls (see below) |
+| `Meshmakers.Octo.RestDeprecation` | RestDeprecation | `octo.rest.deprecated.calls` — labels `endpoint` (method + route **template**), `client_id` (validated token, `anonymous` otherwise, budget 1000 → `other`), `status_class`; never tenant, user or `sub` |
+
+A meter that is not on this list is silently dropped (AB#5430); `tests/Observability.Tests/MeterRegistrationTests.cs`
+pins every entry.
+
 ## Tests
 
 `tests/Infrastructure.Tests` — xUnit + FakeItEasy. `Infrastructure.csproj` exposes internals to this
 assembly via `<InternalsVisibleTo Include="Infrastructure.Tests" />` so internal middleware such as
 `TenantMiddleware` can be unit-tested directly (see `Middleware/TenantMiddlewareTests.cs`).
+`tests/RestDeprecation.Tests` — TestServer tests of the REST deprecation headers, counter, startup validation and
+OpenAPI transformer (AB#8421).
 
 ## Cache streams: missing file is `null` (AB#7256)
 
