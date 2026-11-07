@@ -72,11 +72,12 @@ Current waves:
 
 ### Startup validation
 
-Without `Wave`, `Since`, `Sunset` and `Link` are required; `Successor` is optional. With `Wave`, `Since` and `Sunset`
-must be empty, the wave name must be letters and digits starting with a letter, and the configured dates of the wave must
-be `yyyy-MM-dd` with `Sunset` after `Since` when both are set (a missing or empty value is fine). `Since` and `Sunset` are `yyyy-MM-dd`, `Sunset` must
-be after `Since`, and `Link` (and `Successor`, when set) must be an absolute `http`/`https` URL of printable ASCII
-characters without `<`, `>` and `"` (percent-encode anything else; Kestrel writes header values as ASCII). An invalid
+Without `Wave`, `Since`, `Sunset` and `Link` are required (`Successor` is optional); `Since` and `Sunset` are
+`yyyy-MM-dd` and `Sunset` must be after `Since`. With `Wave`, `Since` and `Sunset` must be empty in the attribute, the
+wave name must be letters and digits starting with a letter, and the configured dates of the wave follow the same format
+and order when both are set (a missing or empty value is fine). In both cases `Link` (and `Successor`, when set) must be an
+absolute `http`/`https` URL of printable ASCII characters without `<`, `>` and `"` (percent-encode anything else; Kestrel
+writes header values as ASCII). An invalid
 attribute or wave configuration fails the service at startup, before it accepts requests:
 
 ```text
@@ -122,10 +123,12 @@ line). Swagger UI shows the operation struck through. Unmarked operations are no
   Never the concrete path, which carries tenant ids and user names. An endpoint without an HTTP method restriction is
   reported as `ANY <template>`, so a caller cannot invent label values with made-up methods.
 - `client_id`: the `client_id` claim of the authenticated caller (validated token); `anonymous` without an
-  authenticated principal or without the claim. The pipeline service accounts `octo-pipeline-sa-{adapterRtId}` (one per
-  adapter, `PipelineServiceAccountProvisioningService.BuildClientId` in octo-communication-controller-services) carry the
-  runtime id of the adapter in their client id; all of them are reported as the single value `octo-pipeline-sa` (prefix
-  match, case-insensitive, before the cap below). After 1000 distinct client ids per process, and for ids longer than 200 characters, the value
+  authenticated principal or without the claim. Pipeline service accounts get the client id
+  `octo-pipeline-sa-{adapterRtId}` (adapter-bound) or `octo-pipeline-sa-{configurationRtId}` (standalone)
+  (`PipelineServiceAccountProvisioningService.BuildClientId` in octo-communication-controller-services); the runtime id is
+  entity data, so every client id with that prefix is reported as the single value `octo-pipeline-sa` (prefix match,
+  case-insensitive, before the cap below). A standalone account may also carry a custom client id outside the prefix; that
+  one is reported as itself, so a query for `octo-pipeline-sa` does not include it. After 1000 distinct client ids per process, and for ids longer than 200 characters, the value
   is `other`.
 - `status_class`: `1xx` … `5xx`.
 - Never a tenant id, user name, `sub`, parameter or token — the same rule as `Meshmakers.Octo.Methods`. A test

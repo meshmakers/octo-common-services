@@ -1196,7 +1196,7 @@ both reference it). Full reference: `docs/rest-deprecation.md`.
 | `SecretDiagnostics.MeterName` | engine | SECRET attribute access |
 | `Meshmakers.Octo.TenantSetup` | Infrastructure | tenant setup retry |
 | `Meshmakers.Octo.Methods` | Methods | CK method calls (see below) |
-| `Meshmakers.Octo.RestDeprecation` | RestDeprecation | `octo.rest.deprecated.calls` — labels `endpoint` (method + route **template**), `client_id` (validated token, `anonymous` otherwise, `octo-pipeline-sa-{adapterRtId}` → `octo-pipeline-sa`, budget 1000 → `other`), `status_class`; never tenant, user or `sub` |
+| `Meshmakers.Octo.RestDeprecation` | RestDeprecation | `octo.rest.deprecated.calls` — labels `endpoint` (method + route **template**), `client_id` (validated token, `anonymous` otherwise, `octo-pipeline-sa-{adapterRtId|configurationRtId}` → `octo-pipeline-sa` (custom standalone ids outside the prefix: as themselves), budget 1000 → `other`), `status_class`; never tenant, user or `sub` |
 
 A meter that is not on this list is silently dropped (AB#5430); `tests/Observability.Tests/MeterRegistrationTests.cs`
 pins every entry.
