@@ -23,17 +23,26 @@ namespace Meshmakers.Octo.Services.RestDeprecation;
 ///         An unmarked endpoint gets no header and no measurement; the callback returns after one metadata lookup.
 ///     </para>
 /// </remarks>
-internal sealed class RestDeprecationMiddleware(RequestDelegate next)
+internal sealed class RestDeprecationMiddleware
 {
-    private static readonly Func<object, Task> OnStartingCallback = OnStarting;
+    private readonly RequestDelegate _next;
+    private readonly Func<object, Task> _onStartingCallback;
+    private readonly RestDeprecationResolver _resolver;
+
+    public RestDeprecationMiddleware(RequestDelegate next, RestDeprecationResolver resolver)
+    {
+        _next = next;
+        _resolver = resolver;
+        _onStartingCallback = OnStarting;
+    }
 
     public Task InvokeAsync(HttpContext context)
     {
-        context.Response.OnStarting(OnStartingCallback, context);
-        return next(context);
+        context.Response.OnStarting(_onStartingCallback, context);
+        return _next(context);
     }
 
-    private static Task OnStarting(object state)
+    private Task OnStarting(object state)
     {
         var context = (HttpContext)state;
         var endpoint = context.GetEndpoint() ?? context.Features.Get<IExceptionHandlerFeature>()?.Endpoint;
@@ -43,14 +52,24 @@ internal sealed class RestDeprecationMiddleware(RequestDelegate next)
             return Task.CompletedTask;
         }
 
+        var values = _resolver.Resolve(deprecation);
         var headers = context.Response.Headers;
-        headers["Deprecation"] = deprecation.DeprecationHeader;
-        headers["Sunset"] = deprecation.SunsetHeader;
-        // Link may already carry other relations (paging, …); RFC 8288 allows one header with several values.
-        headers.Append("Link", deprecation.LinkHeader);
-        if (deprecation.SuccessorLinkHeader != null)
+        // A wave whose date is not configured yet (AB#8415) leaves the header out; Link and the counter always apply.
+        if (values.DeprecationHeader != null)
         {
-            headers.Append("Link", deprecation.SuccessorLinkHeader);
+            headers["Deprecation"] = values.DeprecationHeader;
+        }
+
+        if (values.SunsetHeader != null)
+        {
+            headers["Sunset"] = values.SunsetHeader;
+        }
+
+        // Link may already carry other relations (paging, …); RFC 8288 allows one header with several values.
+        headers.Append("Link", values.LinkHeader);
+        if (values.SuccessorLinkHeader != null)
+        {
+            headers.Append("Link", values.SuccessorLinkHeader);
         }
 
         RestDeprecationMetrics.RecordCall(context, endpoint);

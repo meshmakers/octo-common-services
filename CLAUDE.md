@@ -1177,6 +1177,13 @@ both reference it). Full reference: `docs/rest-deprecation.md`.
   throws one `InvalidOperationException` naming every offending action (sunset not after since, relative or non-ASCII
   link/successor, bad date).
 - **Unmarked endpoints are byte-identical** in headers, OpenAPI and metrics (tests, incl. an OpenAPI snapshot).
+- **Waves (AB#8415)**: `[OctoRestDeprecated(Wave = "IdentityUsers1", Link = …)]` takes `Since`/`Sunset` from
+  `RestDeprecation:Waves:<wave>` (`RestDeprecationOptions`; env `OCTO_RestDeprecation__Waves__<wave>__Since|Sunset`,
+  Helm `restDeprecation.waves` in octo-helm-core), because the dates are only known at rollout (Gerald 2026-11-07:
+  deprecated from delivery of the release, sunset one week after it runs on prod-1 and prod-2). A date that is not
+  configured leaves its header out; Link, OpenAPI flag and counter always apply. `RestDeprecationResolver` (singleton)
+  turns attribute + options into header values, cached per attribute instance; middleware, startup filter and the
+  OpenAPI transformer (via `InternalsVisibleTo`) all use it. Never put an invented date into code for a wave.
 
 ### Meters registered by `AddObservability()`
 
@@ -1189,7 +1196,7 @@ both reference it). Full reference: `docs/rest-deprecation.md`.
 | `SecretDiagnostics.MeterName` | engine | SECRET attribute access |
 | `Meshmakers.Octo.TenantSetup` | Infrastructure | tenant setup retry |
 | `Meshmakers.Octo.Methods` | Methods | CK method calls (see below) |
-| `Meshmakers.Octo.RestDeprecation` | RestDeprecation | `octo.rest.deprecated.calls` — labels `endpoint` (method + route **template**), `client_id` (validated token, `anonymous` otherwise, `octo-pipeline-sa-*` → `octo-pipeline-sa`, budget 1000 → `other`), `status_class`; never tenant, user or `sub` |
+| `Meshmakers.Octo.RestDeprecation` | RestDeprecation | `octo.rest.deprecated.calls` — labels `endpoint` (method + route **template**), `client_id` (validated token, `anonymous` otherwise, `octo-pipeline-sa-{adapterRtId}` → `octo-pipeline-sa`, budget 1000 → `other`), `status_class`; never tenant, user or `sub` |
 
 A meter that is not on this list is silently dropped (AB#5430); `tests/Observability.Tests/MeterRegistrationTests.cs`
 pins every entry.

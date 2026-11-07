@@ -1,9 +1,13 @@
-# Deprecating a REST operation (AB#8421)
+# Deprecating a REST operation (AB#8421, waves AB#8415)
 
 When an operation moves from REST to a CK method (CK v2 Phase 5, Feature F5.7 AB#5705), its REST endpoint stays for
-the compatibility window — one release train and at least three months after the method is GA (decision 13). During
-that window every caller must see that the endpoint is deprecated and when it goes away, and the platform must know who
-still calls it. One attribute does all of that.
+a compatibility window. During that window every caller must see that the endpoint is deprecated and when it goes away,
+and the platform must know who still calls it. One attribute does all of that.
+
+The window (decided by Gerald 2026-11-07, replaces "one release train and at least three months"): an endpoint is
+**deprecated from the delivery of the release that contains the replacing method**, and its **sunset is one week after
+that release is deployed to both prod-1 and prod-2**. Neither date is known when the code is merged, so migration waves
+take their dates from configuration (`Wave`, below), not from code.
 
 ## Marking an endpoint
 
@@ -23,19 +27,57 @@ public async Task<IActionResult> ResetPassword(string userName) { … }
 - Put it on an action, or on a controller to mark every action of it; an attribute on the action wins over the one on
   the controller.
 - Minimal APIs: `.WithMetadata(new OctoRestDeprecatedAttribute { Since = …, Sunset = …, Link = … })`.
-- The dates are set in code when the wave goes GA. There is no configuration option.
+- The dates in the attribute are fixed in code. For a migration wave whose dates are only known at rollout, use `Wave`
+  instead (next section).
 - Nothing else is needed in the service. `AddObservability()` (package `Meshmakers.Octo.Services.Observability`)
   installs the headers and the counter, and `AddOctoApiVersioningAndDocumentation()` (package
   `Meshmakers.Octo.Services.Swagger`) marks the OpenAPI operation. A host that uses neither can call
   `services.AddOctoRestDeprecation()` itself (package `Meshmakers.Octo.Services.RestDeprecation`).
 - Endpoints without the attribute are unchanged: no header, no measurement, the same OpenAPI operation.
 
+## Dates from configuration: waves (AB#8415)
+
+```csharp
+[HttpPut("{userName}/roles")]
+[OctoRestDeprecated(Wave = "IdentityUsers1", Link = "https://docs.meshmakers.cloud/…")]
+public async Task<IActionResult> UpdateUserRoles(…) { … }
+```
+
+With `Wave`, `Since` and `Sunset` stay empty in the attribute and come from the configuration section
+`RestDeprecation:Waves:<wave>` (`RestDeprecationOptions`, bound by `AddOctoRestDeprecation()`):
+
+| Key | Header | Not set |
+|-----|--------|---------|
+| `RestDeprecation:Waves:<wave>:Since` (`yyyy-MM-dd`) | `Deprecation: @<unix seconds>` | no `Deprecation` header |
+| `RestDeprecation:Waves:<wave>:Sunset` (`yyyy-MM-dd`, after `Since`) | `Sunset: <IMF-fixdate>` | no `Sunset` header |
+
+- `Link` (and `Successor`), OpenAPI `deprecated: true` and the counter apply from the first deployment on, with or
+  without dates. Without a sunset date the OpenAPI notice is `Deprecated, use <Link>.`.
+- In a cluster the keys are environment variables, e.g. `OCTO_RestDeprecation__Waves__IdentityUsers1__Since=2026-12-01`
+  (services read `OCTO_`-prefixed variables; keys are case-insensitive). The octo-mesh Helm chart (octo-helm-core) renders
+  them from `restDeprecation.waves.<wave>.since|sunset` for every service; a service ignores waves none of its endpoints
+  name.
+- The values are read once at startup; a change takes effect with the restart that a Helm value change triggers.
+- Wave names are letters and digits and start with a letter (they are part of an environment variable name).
+- Rollout of a wave (Gerald's rule above): when the release with the wave is delivered, set `since` to the delivery day
+  in the values of every cluster; after the release runs on prod-1 and prod-2, set `sunset` to the later of the two
+  deployment days plus 7 days on every cluster, and enter both dates on the deprecated-endpoints page
+  (octo-documentation, `developerGuide/solutionArchitecture/deprecatedRestEndpoints.md`).
+
+Current waves:
+
+| Wave | Service | Endpoints | Work item |
+|------|---------|-----------|-----------|
+| `IdentityUsers1` | octo-identity-services | `PUT users/{userName}/roles`, `PUT` and `DELETE users/{userName}/roles/{roleName}`, `POST users/{userName}/merge` | AB#8415 |
+
 ### Startup validation
 
-`Since`, `Sunset` and `Link` are required; `Successor` is optional. `Since` and `Sunset` are `yyyy-MM-dd`, `Sunset` must
+Without `Wave`, `Since`, `Sunset` and `Link` are required; `Successor` is optional. With `Wave`, `Since` and `Sunset`
+must be empty, the wave name must be letters and digits starting with a letter, and the configured dates of the wave must
+be `yyyy-MM-dd` with `Sunset` after `Since` when both are set (a missing or empty value is fine). `Since` and `Sunset` are `yyyy-MM-dd`, `Sunset` must
 be after `Since`, and `Link` (and `Successor`, when set) must be an absolute `http`/`https` URL of printable ASCII
-characters without `<`, `>` and `"` (percent-encode anything else; Kestrel writes header values as ASCII). An invalid attribute fails the service at
-startup, before it accepts requests:
+characters without `<`, `>` and `"` (percent-encode anything else; Kestrel writes header values as ASCII). An invalid
+attribute or wave configuration fails the service at startup, before it accepts requests:
 
 ```text
 System.InvalidOperationException: Invalid [OctoRestDeprecated] attribute:
@@ -49,8 +91,8 @@ Every response of a marked endpoint carries the headers, whatever the status cod
 
 | Header | Format | Example |
 |--------|--------|---------|
-| `Deprecation` | RFC 9745 structured date: `@` + Unix seconds of `Since` (UTC midnight) | `Deprecation: @1796083200` |
-| `Sunset` | RFC 8594, IMF-fixdate of `Sunset` | `Sunset: Mon, 01 Mar 2027 00:00:00 GMT` |
+| `Deprecation` | RFC 9745 structured date: `@` + Unix seconds of `Since` (UTC midnight); for a wave only when `Since` is configured | `Deprecation: @1796083200` |
+| `Sunset` | RFC 8594, IMF-fixdate of `Sunset`; for a wave only when `Sunset` is configured | `Sunset: Mon, 01 Mar 2027 00:00:00 GMT` |
 | `Link` | RFC 9745 relation type `deprecation` | `Link: <https://docs.meshmakers.cloud/…>; rel="deprecation"; type="text/html"` |
 | `Link` (only with `Successor`) | RFC 5829 relation type `successor-version`, a further `Link` value | `Link: <https://…>; rel="successor-version"` |
 
@@ -66,7 +108,7 @@ responses MVC never sees.
 ## OpenAPI
 
 `RestDeprecationOperationTransformer` (`src/Swagger/Transformers`) sets `deprecated: true` on the marked operations and
-appends `Sunset <yyyy-MM-dd>, use <Link>.` — followed by ` Successor version: <Successor>.` when `Successor` is set —
+appends `Sunset <yyyy-MM-dd>, use <Link>.` (`Deprecated, use <Link>.` for a wave without a configured sunset) — followed by ` Successor version: <Successor>.` when `Successor` is set —
 to their description (after an existing description, separated by a blank
 line). Swagger UI shows the operation struck through. Unmarked operations are not touched.
 
@@ -80,15 +122,16 @@ line). Swagger UI shows the operation struck through. Unmarked operations are no
   Never the concrete path, which carries tenant ids and user names. An endpoint without an HTTP method restriction is
   reported as `ANY <template>`, so a caller cannot invent label values with made-up methods.
 - `client_id`: the `client_id` claim of the authenticated caller (validated token); `anonymous` without an
-  authenticated principal or without the claim. The pipeline service accounts `octo-pipeline-sa-<tenant>` carry the
-  tenant in their id; all of them are reported as the single value `octo-pipeline-sa` (prefix match, case-insensitive,
-  before the cap below). After 1000 distinct client ids per process, and for ids longer than 200 characters, the value
+  authenticated principal or without the claim. The pipeline service accounts `octo-pipeline-sa-{adapterRtId}` (one per
+  adapter, `PipelineServiceAccountProvisioningService.BuildClientId` in octo-communication-controller-services) carry the
+  runtime id of the adapter in their client id; all of them are reported as the single value `octo-pipeline-sa` (prefix
+  match, case-insensitive, before the cap below). After 1000 distinct client ids per process, and for ids longer than 200 characters, the value
   is `other`.
 - `status_class`: `1xx` … `5xx`.
 - Never a tenant id, user name, `sub`, parameter or token — the same rule as `Meshmakers.Octo.Methods`. A test
   (`RestDeprecationTests.Counter_NeverCarriesTenantUserOrSubject`) checks every label value with a `MeterListener`.
-  Per-tenant client ids are not reported as such: the pipeline service accounts collapse to `octo-pipeline-sa`
-  (`RestDeprecationTests.Counter_PipelineServiceAccount_IsReportedWithoutTenant`).
+  Client ids that carry entity ids are not reported as such: the pipeline service accounts collapse to
+  `octo-pipeline-sa` (`RestDeprecationTests.Counter_PipelineServiceAccount_IsReportedWithoutAdapterId`).
 
 The meter is registered in `ObservabilityBuilder`, so every service that calls `AddObservability()` exports it through
 OTLP to Dash0 (and on the internal Prometheus port, if configured).
@@ -126,6 +169,11 @@ An endpoint can be removed (F6.2) when the query shows no first-party client and
 - `OpenApiDeprecationTests` — marked operations `deprecated: true` with the notice (and the successor), existing
   description kept, snapshot
   of an unmarked operation.
+- `WaveTests` — wave dates from configuration (both, `Since` only, none: Link and counter only), case-insensitive keys,
+  empty value as "not set", OpenAPI notice with and without sunset.
+- `WaveStartupValidationTests` — `Since`/`Sunset` together with `Wave`, an invalid wave name, a missing link, and a
+  malformed or out-of-order configured date fail the start, naming the action and the configuration key; a wave
+  without configuration starts.
 - `LabelTests` — status classes, `ANY` for endpoints without a method restriction, client id rules (incl.
   `octo-pipeline-sa`).
 

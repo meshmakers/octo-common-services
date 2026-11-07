@@ -136,12 +136,12 @@ public sealed class RestDeprecationTests : IAsyncLifetime
     }
 
     [Fact]
-    public async Task Counter_PipelineServiceAccount_IsReportedWithoutTenant()
+    public async Task Counter_PipelineServiceAccount_IsReportedWithoutAdapterId()
     {
         using var request = new HttpRequestMessage(HttpMethod.Get,
             $"/{TestCaller.TenantId}/v1/users/jane/password-state");
         request.Headers.Add(TestCaller.AuthenticateHeader, "1");
-        request.Headers.Add(TestCaller.ClientIdHeader, "octo-pipeline-sa-" + TestCaller.TenantId);
+        request.Headers.Add(TestCaller.ClientIdHeader, "octo-pipeline-sa-" + TestCaller.AdapterRtId);
 
         var response = await _client.SendAsync(request, TestContext.Current.CancellationToken);
 
@@ -149,7 +149,7 @@ public sealed class RestDeprecationTests : IAsyncLifetime
         Assert.Contains(_measurements.Snapshot(), m => m.Endpoint == "GET /{tenantId}/v1/users/{userName}/password-state" &&
                                                        m.ClientId == "octo-pipeline-sa" && m.StatusClass == "2xx");
         Assert.DoesNotContain(_measurements.Snapshot(),
-            m => m.ClientId.Contains(TestCaller.TenantId, StringComparison.OrdinalIgnoreCase));
+            m => m.ClientId.Contains(TestCaller.AdapterRtId, StringComparison.OrdinalIgnoreCase));
     }
 
     [Fact]

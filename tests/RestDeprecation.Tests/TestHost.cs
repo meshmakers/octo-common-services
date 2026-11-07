@@ -23,6 +23,9 @@ internal static class TestCaller
     public const string Subject = "sub-8f2c4e10";
     public const string ClientId = "octo-cli";
 
+    /// <summary>Runtime id of an adapter; its pipeline service account is <c>octo-pipeline-sa-{adapterRtId}</c>.</summary>
+    public const string AdapterRtId = "65f1c2a9e4b0d3a1c8e7f210";
+
     /// <summary>Header that makes <see cref="TestAuthHandler" /> authenticate the request.</summary>
     public const string AuthenticateHeader = "X-Test-Authenticate";
 

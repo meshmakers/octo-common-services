@@ -20,6 +20,8 @@
 
     <ItemGroup>
         <InternalsVisibleTo Include="RestDeprecation.Tests" />
+        <!-- The OpenAPI transformer resolves the wave dates through RestDeprecationResolver (AB#8415). -->
+        <InternalsVisibleTo Include="Meshmakers.Octo.Services.Swagger" />
     </ItemGroup>
 
     <ItemGroup>
