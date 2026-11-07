@@ -72,7 +72,10 @@ public sealed class OctoRestDeprecatedAttribute : Attribute
             return $"Link '{Link}' is not an absolute http(s) URL";
         }
 
-        if (Link.IndexOfAny(['<', '>', '"', '\r', '\n']) >= 0)
+        // Kestrel writes header values as ASCII and throws on anything else when the response starts — that would fail
+        // every call instead of the start. Uri.TryCreate accepts IRIs (non-ASCII), so check the characters explicitly:
+        // printable ASCII only, without the Link header delimiters.
+        if (Link.Any(c => c is <= ' ' or > '~' or '<' or '>' or '"'))
         {
             return $"Link '{Link}' contains a character that is not allowed in a Link header";
         }

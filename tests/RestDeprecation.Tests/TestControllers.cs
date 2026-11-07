@@ -104,3 +104,13 @@ public class BadDateController : ControllerBase
     [OctoRestDeprecated(Since = "01.12.2026", Sunset = TestDeprecation.Sunset, Link = TestDeprecation.Link)]
     public IActionResult BadDate() => Ok();
 }
+
+[ApiController]
+[Route("invalid")]
+public class NonAsciiLinkController : ControllerBase
+{
+    [HttpGet("non-ascii-link")]
+    [OctoRestDeprecated(Since = TestDeprecation.Since, Sunset = TestDeprecation.Sunset,
+        Link = "https://docs.meshmakers.cloud/methods/\u00fcbersicht")]
+    public IActionResult NonAsciiLink() => Ok();
+}

@@ -32,7 +32,8 @@ public async Task<IActionResult> ResetPassword(string userName) { … }
 ### Startup validation
 
 All three values are required. `Since` and `Sunset` are `yyyy-MM-dd`, `Sunset` must be after `Since`, and `Link` must
-be an absolute `http`/`https` URL without `<`, `>`, `"` or line breaks. An invalid attribute fails the service at
+be an absolute `http`/`https` URL of printable ASCII characters without `<`, `>` and `"` (percent-encode anything else;
+Kestrel writes header values as ASCII). An invalid attribute fails the service at
 startup, before it accepts requests:
 
 ```text
