@@ -106,6 +106,17 @@ public class CkMethodFacadeResultsTests
     }
 
     [Fact]
+    public void Accepted_Is202_WithTheOperationHandle()
+    {
+        var handle = new CkMethodOperationHandle { OperationId = "op-1", RetryAfterSeconds = 5 };
+
+        var result = Assert.IsType<ObjectResult>(CkMethodResponse.Accepted(Invocation, "h1", handle).ToActionResult());
+
+        Assert.Equal(202, result.StatusCode);
+        Assert.Same(handle, result.Value);
+    }
+
+    [Fact]
     public void Success_Override()
     {
         var options = new CkMethodFacadeOptions().MapSuccess(r => new OkObjectResult(r.InvocationId));

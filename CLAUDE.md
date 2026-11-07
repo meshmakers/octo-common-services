@@ -1022,7 +1022,7 @@ the handler runs in this process, nothing is sent to the broker. Code: `src/Meth
   `null` principal = `METHOD_FORBIDDEN`, never a system identity.
 - **Facade helper.** `CkMethodFacadeResults.ToActionResult(response, CkMethodFacadeOptions?)`: `DefaultStatusCodes` per platform code
   (403/404/400/413/409/504/503/500, a test checks that every `CkMethodErrorCodes.Catalog` entry has one), unknown `METHOD_*` 500, declared
-  code 400, success 200 JSON / 204; body problem details with `code`, `parameters`, `details`. Overrides `MapError(code, status|factory)`,
+  code 400, success 200 JSON / 204, accepted 202 with the operation handle; body problem details with `code`, `parameters`, `details`. Overrides `MapError(code, status|factory)`,
   `MapSuccess(factory)`.
 - Tests: `tests/Methods.Tests/InProcess/SelfHostedMethodCallTests.cs`, `tests/Methods.Tests/Facades/CkMethodFacadeResultsTests.cs`,
   `tests/Methods.IntegrationTests/CkMethodDispatcherBusTests.SelfHosted.cs`.

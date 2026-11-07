@@ -66,8 +66,9 @@ public static class CkMethodFacadeResults
     }
 
     /// <summary>
-    ///     The result of a call. Success: the override of <see cref="CkMethodFacadeOptions.MapSuccess" />, else <c>200</c>
-    ///     with the result JSON (<c>application/json</c>), or <c>204</c> for a method without a result. Failure: the
+    ///     The result of a call. Success: the override of <see cref="CkMethodFacadeOptions.MapSuccess" />, else <c>202</c>
+    ///     with the operation handle for an accepted (asynchronous) call, <c>200</c> with the result JSON
+    ///     (<c>application/json</c>), or <c>204</c> for a method without a result. Failure: the
     ///     override of <see cref="CkMethodFacadeOptions.MapError(string, Func{CkMethodError, IActionResult})" /> for the
     ///     code, else <see cref="Problem" /> with <see cref="StatusCodeFor" />.
     /// </summary>
@@ -82,6 +83,12 @@ public static class CkMethodFacadeResults
             if (options?.Success is { } success)
             {
                 return success(response);
+            }
+
+            if (response.Operation is { } operation)
+            {
+                // accepted for asynchronous execution (F3.6): the caller polls the operation, there is no result yet
+                return new ObjectResult(operation) { StatusCode = StatusCodes.Status202Accepted };
             }
 
             return string.IsNullOrEmpty(response.ResultJson)

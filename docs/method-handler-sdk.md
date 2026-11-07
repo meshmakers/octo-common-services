@@ -664,6 +664,7 @@ envelope to an MVC `IActionResult`:
 | Code | Default status |
 |---|---|
 | success with result / without result | `200` with the result JSON / `204` |
+| accepted (asynchronous call, `Operation` set) | `202` with the operation handle |
 | `METHOD_VALIDATION_FAILED` | 400 |
 | `METHOD_FORBIDDEN` | 403 |
 | `METHOD_TARGET_NOT_FOUND` | 404 |
