@@ -1165,15 +1165,17 @@ controller) is all a service adds when a REST operation is replaced by a CK meth
 both reference it). Full reference: `docs/rest-deprecation.md`.
 
 - **Headers** on every response of a marked endpoint, also 400/401/403/500: `Deprecation: @<unix seconds>` (RFC 9745),
-  `Sunset: <IMF-fixdate>` (RFC 8594), `Link: <url>; rel="deprecation"; type="text/html"`. `RestDeprecationStartupFilter`
+  `Sunset: <IMF-fixdate>` (RFC 8594), `Link: <url>; rel="deprecation"; type="text/html"`, plus
+  `Link: <url>; rel="successor-version"` (RFC 5829) when the optional `Successor` is set. `RestDeprecationStartupFilter`
   (registered by `AddObservability()`, or `AddOctoRestDeprecation()`) puts `RestDeprecationMiddleware` first; it only
   registers `Response.OnStarting` and resolves the endpoint when the response starts (`IExceptionHandlerFeature.Endpoint`
   after an exception — the handler clears the endpoint). Do not move this into an MVC filter: the authorization
   middleware answers 401/403 before MVC runs.
 - **OpenAPI**: `RestDeprecationOperationTransformer` (`src/Swagger/Transformers`) sets `deprecated: true` and appends
-  "Sunset <date>, use <link>." to the description.
+  "Sunset <date>, use <link>." (and " Successor version: <url>.") to the description.
 - **Startup validation**: the startup filter validates every endpoint's attribute after the app mapped its endpoints and
-  throws one `InvalidOperationException` naming every offending action (sunset not after since, relative link, bad date).
+  throws one `InvalidOperationException` naming every offending action (sunset not after since, relative or non-ASCII
+  link/successor, bad date).
 - **Unmarked endpoints are byte-identical** in headers, OpenAPI and metrics (tests, incl. an OpenAPI snapshot).
 
 ### Meters registered by `AddObservability()`
@@ -1187,7 +1189,7 @@ both reference it). Full reference: `docs/rest-deprecation.md`.
 | `SecretDiagnostics.MeterName` | engine | SECRET attribute access |
 | `Meshmakers.Octo.TenantSetup` | Infrastructure | tenant setup retry |
 | `Meshmakers.Octo.Methods` | Methods | CK method calls (see below) |
-| `Meshmakers.Octo.RestDeprecation` | RestDeprecation | `octo.rest.deprecated.calls` — labels `endpoint` (method + route **template**), `client_id` (validated token, `anonymous` otherwise, budget 1000 → `other`), `status_class`; never tenant, user or `sub` |
+| `Meshmakers.Octo.RestDeprecation` | RestDeprecation | `octo.rest.deprecated.calls` — labels `endpoint` (method + route **template**), `client_id` (validated token, `anonymous` otherwise, `octo-pipeline-sa-*` → `octo-pipeline-sa`, budget 1000 → `other`), `status_class`; never tenant, user or `sub` |
 
 A meter that is not on this list is silently dropped (AB#5430); `tests/Observability.Tests/MeterRegistrationTests.cs`
 pins every entry.

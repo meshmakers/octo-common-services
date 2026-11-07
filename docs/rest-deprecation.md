@@ -15,7 +15,8 @@ using Meshmakers.Octo.Services.RestDeprecation;
 [OctoRestDeprecated(
     Since = "2026-12-01",                     // GA of the replacing method (UTC day)
     Sunset = "2027-03-01",                    // earliest removal (UTC day), after Since
-    Link = "https://docs.meshmakers.cloud/…")] // documentation of the replacing method, absolute http(s)
+    Link = "https://docs.meshmakers.cloud/…", // documentation of the replacing method, absolute http(s)
+    Successor = "https://…")]                 // optional: the successor operation, absolute http(s)
 public async Task<IActionResult> ResetPassword(string userName) { … }
 ```
 
@@ -31,9 +32,9 @@ public async Task<IActionResult> ResetPassword(string userName) { … }
 
 ### Startup validation
 
-All three values are required. `Since` and `Sunset` are `yyyy-MM-dd`, `Sunset` must be after `Since`, and `Link` must
-be an absolute `http`/`https` URL of printable ASCII characters without `<`, `>` and `"` (percent-encode anything else;
-Kestrel writes header values as ASCII). An invalid attribute fails the service at
+`Since`, `Sunset` and `Link` are required; `Successor` is optional. `Since` and `Sunset` are `yyyy-MM-dd`, `Sunset` must
+be after `Since`, and `Link` (and `Successor`, when set) must be an absolute `http`/`https` URL of printable ASCII
+characters without `<`, `>` and `"` (percent-encode anything else; Kestrel writes header values as ASCII). An invalid attribute fails the service at
 startup, before it accepts requests:
 
 ```text
@@ -51,6 +52,7 @@ Every response of a marked endpoint carries the headers, whatever the status cod
 | `Deprecation` | RFC 9745 structured date: `@` + Unix seconds of `Since` (UTC midnight) | `Deprecation: @1796083200` |
 | `Sunset` | RFC 8594, IMF-fixdate of `Sunset` | `Sunset: Mon, 01 Mar 2027 00:00:00 GMT` |
 | `Link` | RFC 9745 relation type `deprecation` | `Link: <https://docs.meshmakers.cloud/…>; rel="deprecation"; type="text/html"` |
+| `Link` (only with `Successor`) | RFC 5829 relation type `successor-version`, a further `Link` value | `Link: <https://…>; rel="successor-version"` |
 
 `Deprecation: true` was the expired draft; RFC 9745 uses the structured date. An existing `Link` header (for example
 paging relations) is kept; the deprecation link is added as a further value.
@@ -64,7 +66,8 @@ responses MVC never sees.
 ## OpenAPI
 
 `RestDeprecationOperationTransformer` (`src/Swagger/Transformers`) sets `deprecated: true` on the marked operations and
-appends `Sunset <yyyy-MM-dd>, use <Link>.` to their description (after an existing description, separated by a blank
+appends `Sunset <yyyy-MM-dd>, use <Link>.` — followed by ` Successor version: <Successor>.` when `Successor` is set —
+to their description (after an existing description, separated by a blank
 line). Swagger UI shows the operation struck through. Unmarked operations are not touched.
 
 ## Metric
@@ -77,13 +80,15 @@ line). Swagger UI shows the operation struck through. Unmarked operations are no
   Never the concrete path, which carries tenant ids and user names. An endpoint without an HTTP method restriction is
   reported as `ANY <template>`, so a caller cannot invent label values with made-up methods.
 - `client_id`: the `client_id` claim of the authenticated caller (validated token); `anonymous` without an
-  authenticated principal or without the claim. After 1000 distinct client ids per process, and for ids longer than 200
-  characters, the value is `other`.
+  authenticated principal or without the claim. The pipeline service accounts `octo-pipeline-sa-<tenant>` carry the
+  tenant in their id; all of them are reported as the single value `octo-pipeline-sa` (prefix match, case-insensitive,
+  before the cap below). After 1000 distinct client ids per process, and for ids longer than 200 characters, the value
+  is `other`.
 - `status_class`: `1xx` … `5xx`.
 - Never a tenant id, user name, `sub`, parameter or token — the same rule as `Meshmakers.Octo.Methods`. A test
   (`RestDeprecationTests.Counter_NeverCarriesTenantUserOrSubject`) checks every label value with a `MeterListener`.
-  Note that a client id names a client, and some client ids are per tenant by design (for example the pipeline service
-  accounts `octo-pipeline-sa-*`); that is the client dimension the removal decision needs.
+  Per-tenant client ids are not reported as such: the pipeline service accounts collapse to `octo-pipeline-sa`
+  (`RestDeprecationTests.Counter_PipelineServiceAccount_IsReportedWithoutTenant`).
 
 The meter is registered in `ObservabilityBuilder`, so every service that calls `AddObservability()` exports it through
 OTLP to Dash0 (and on the internal Prometheus port, if configured).
@@ -114,13 +119,15 @@ An endpoint can be removed (F6.2) when the query shows no first-party client and
 `tests/RestDeprecation.Tests`:
 
 - `RestDeprecationTests` — TestServer with authentication, authorization and an exception handler: headers on 200, 400,
-  401, 403 and 500, controller attribute and action override, unmarked endpoints without header and measurement, label
+  401, 403 and 500, the `successor-version` link, controller attribute and action override, unmarked endpoints without header and measurement, label
   values (route template, client id, `anonymous`, status class) and the no-tenant/user/`sub` check.
-- `StartupValidationTests` — sunset not after since, relative link and a malformed date fail the start, naming the
-  action.
-- `OpenApiDeprecationTests` — marked operations `deprecated: true` with the notice, existing description kept, snapshot
+- `StartupValidationTests` — sunset not after since, relative link or successor, non-ASCII link and a malformed date
+  fail the start, naming the action.
+- `OpenApiDeprecationTests` — marked operations `deprecated: true` with the notice (and the successor), existing
+  description kept, snapshot
   of an unmarked operation.
-- `LabelTests` — status classes, `ANY` for endpoints without a method restriction, client id rules.
+- `LabelTests` — status classes, `ANY` for endpoints without a method restriction, client id rules (incl.
+  `octo-pipeline-sa`).
 
 `tests/Observability.Tests/MeterRegistrationTests.RestDeprecationMeter_IsRegistered_AndStartupFilterInstalled` pins the
 meter registration and the startup filter in `AddObservability()`.

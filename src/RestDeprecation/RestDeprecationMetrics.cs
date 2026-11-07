@@ -15,7 +15,8 @@ namespace Meshmakers.Octo.Services.RestDeprecation;
 ///     <b>Labels, and what they never contain.</b> <c>endpoint</c> is the HTTP method plus the route <b>template</b>
 ///     (<c>GET {tenantId}/v1/users/{id}</c>), never the concrete path: the path carries tenant ids and user names.
 ///     <c>client_id</c> is the <c>client_id</c> claim of the authenticated caller, <c>anonymous</c> without an
-///     authenticated principal. <c>status_class</c> is <c>1xx</c> … <c>5xx</c>. No tenant, user name, <c>sub</c>,
+///     authenticated principal; the pipeline service accounts <c>octo-pipeline-sa-&lt;tenant&gt;</c> carry the tenant in
+///     their id and are all reported as <c>octo-pipeline-sa</c>. <c>status_class</c> is <c>1xx</c> … <c>5xx</c>. No tenant, user name, <c>sub</c>,
 ///     parameter or token — the same rule as <c>Meshmakers.Octo.Methods</c>. The values are bounded: the endpoint set is
 ///     fixed in code, and after <see cref="MaxClientIds" /> distinct client ids further ones are counted as
 ///     <c>other</c>.
@@ -36,6 +37,15 @@ public static class RestDeprecationMetrics
     internal const string Other = "other";
     internal const string AnyMethod = "ANY";
     internal const string ClientIdClaim = "client_id";
+
+    /// <summary>
+    ///     Prefix of the per-tenant pipeline service accounts (<c>octo-pipeline-sa-&lt;tenant&gt;</c>); their id carries
+    ///     the tenant, so they share the single label value <see cref="PipelineServiceAccountLabel" />.
+    /// </summary>
+    internal const string PipelineServiceAccountPrefix = "octo-pipeline-sa-";
+
+    /// <summary>Label value of every pipeline service account.</summary>
+    internal const string PipelineServiceAccountLabel = "octo-pipeline-sa";
 
     /// <summary>Upper bound of distinct <c>client_id</c> label values per process.</summary>
     internal const int MaxClientIds = 1000;
@@ -96,6 +106,12 @@ public static class RestDeprecationMetrics
         if (string.IsNullOrEmpty(clientId))
         {
             return Anonymous;
+        }
+
+        // Before the length check and the cap: the tenant must never reach the label, and the accounts use no cap slot.
+        if (clientId.StartsWith(PipelineServiceAccountPrefix, StringComparison.OrdinalIgnoreCase))
+        {
+            return PipelineServiceAccountLabel;
         }
 
         if (clientId.Length > MaxClientIdLength)

@@ -6,7 +6,8 @@ namespace Meshmakers.Octo.Services.Swagger.Transformers;
 
 /// <summary>
 ///     Marks operations whose action carries <see cref="OctoRestDeprecatedAttribute" /> as <c>deprecated: true</c> and
-///     appends "Sunset &lt;date&gt;, use &lt;link&gt;." to their description (AB#8421). Unmarked operations are not touched.
+///     appends "Sunset &lt;date&gt;, use &lt;link&gt;." (plus " Successor version: &lt;url&gt;." when set) to their
+///     description (AB#8421). Unmarked operations are not touched.
 /// </summary>
 internal class RestDeprecationOperationTransformer : IOpenApiOperationTransformer
 {
@@ -24,6 +25,11 @@ internal class RestDeprecationOperationTransformer : IOpenApiOperationTransforme
 
         operation.Deprecated = true;
         var notice = $"Sunset {deprecation.Sunset}, use {deprecation.Link}.";
+        if (!string.IsNullOrEmpty(deprecation.Successor))
+        {
+            notice += $" Successor version: {deprecation.Successor}.";
+        }
+
         operation.Description = string.IsNullOrWhiteSpace(operation.Description)
             ? notice
             : operation.Description.TrimEnd() + "\n\n" + notice;

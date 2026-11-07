@@ -19,6 +19,11 @@ namespace Meshmakers.Octo.Services.RestDeprecation;
 ///         <see cref="Sunset" /> after <see cref="Since" />, and <see cref="Link" /> an absolute http(s) URL. An invalid
 ///         value fails the service at startup with a message naming the action.
 ///     </para>
+///     <para>
+///         Optional: <see cref="Successor" />, an absolute http(s) URL of the successor operation. When set, the responses
+///         carry the further Link value <c>&lt;Successor&gt;; rel="successor-version"</c> (RFC 5829); it is validated at
+///         startup like <see cref="Link" />.
+///     </para>
 ///     <para>See <c>docs/rest-deprecation.md</c> in octo-common-services.</para>
 /// </remarks>
 [AttributeUsage(AttributeTargets.Class | AttributeTargets.Method, AllowMultiple = false, Inherited = true)]
@@ -37,6 +42,12 @@ public sealed class OctoRestDeprecatedAttribute : Attribute
     /// <summary>Absolute http(s) URL of the documentation of the replacing operation (for example the CK method).</summary>
     public string Link { get; set; } = string.Empty;
 
+    /// <summary>
+    ///     Optional absolute http(s) URL of the successor operation; adds <c>Link: &lt;url&gt;; rel="successor-version"</c>
+    ///     (RFC 5829) to every response.
+    /// </summary>
+    public string? Successor { get; set; }
+
     /// <summary>The <c>Deprecation</c> header value (RFC 9745 structured date, e.g. <c>@1798761600</c>).</summary>
     internal string DeprecationHeader => GetValues().DeprecationHeader;
 
@@ -45,6 +56,9 @@ public sealed class OctoRestDeprecatedAttribute : Attribute
 
     /// <summary>The <c>Link</c> header value (RFC 9745 relation type <c>deprecation</c>).</summary>
     internal string LinkHeader => GetValues().LinkHeader;
+
+    /// <summary>The additional <c>Link</c> value (RFC 5829 relation type <c>successor-version</c>); <c>null</c> without <see cref="Successor" />.</summary>
+    internal string? SuccessorLinkHeader => GetValues().SuccessorLinkHeader;
 
     /// <summary>
     ///     Checks the values; returns <c>null</c> when they are valid, otherwise the reason.
@@ -66,18 +80,24 @@ public sealed class OctoRestDeprecatedAttribute : Attribute
             return $"Sunset {Sunset} must be after Since {Since}";
         }
 
-        if (!Uri.TryCreate(Link, UriKind.Absolute, out var link) ||
-            (link.Scheme != Uri.UriSchemeHttps && link.Scheme != Uri.UriSchemeHttp))
+        return ValidateUrl(nameof(Link), Link) ??
+               (string.IsNullOrEmpty(Successor) ? null : ValidateUrl(nameof(Successor), Successor));
+    }
+
+    private static string? ValidateUrl(string name, string value)
+    {
+        if (!Uri.TryCreate(value, UriKind.Absolute, out var uri) ||
+            (uri.Scheme != Uri.UriSchemeHttps && uri.Scheme != Uri.UriSchemeHttp))
         {
-            return $"Link '{Link}' is not an absolute http(s) URL";
+            return $"{name} '{value}' is not an absolute http(s) URL";
         }
 
         // Kestrel writes header values as ASCII and throws on anything else when the response starts — that would fail
         // every call instead of the start. Uri.TryCreate accepts IRIs (non-ASCII), so check the characters explicitly:
         // printable ASCII only, without the Link header delimiters.
-        if (Link.Any(c => c is <= ' ' or > '~' or '<' or '>' or '"'))
+        if (value.Any(c => c is <= ' ' or > '~' or '<' or '>' or '"'))
         {
-            return $"Link '{Link}' contains a character that is not allowed in a Link header";
+            return $"{name} '{value}' contains a character that is not allowed in a Link header";
         }
 
         return null;
@@ -102,7 +122,8 @@ public sealed class OctoRestDeprecatedAttribute : Attribute
         return new Values(
             "@" + since.ToUnixTimeSeconds().ToString(CultureInfo.InvariantCulture),
             sunset.ToString("r", CultureInfo.InvariantCulture),
-            $"<{Link}>; rel=\"deprecation\"; type=\"text/html\"");
+            $"<{Link}>; rel=\"deprecation\"; type=\"text/html\"",
+            string.IsNullOrEmpty(Successor) ? null : $"<{Successor}>; rel=\"successor-version\"");
     }
 
     private static bool TryParseDate(string? value, out DateTimeOffset date)
@@ -111,5 +132,9 @@ public sealed class OctoRestDeprecatedAttribute : Attribute
             DateTimeStyles.AssumeUniversal | DateTimeStyles.AdjustToUniversal, out date);
     }
 
-    private sealed record Values(string DeprecationHeader, string SunsetHeader, string LinkHeader);
+    private sealed record Values(
+        string DeprecationHeader,
+        string SunsetHeader,
+        string LinkHeader,
+        string? SuccessorLinkHeader);
 }

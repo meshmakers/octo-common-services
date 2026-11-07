@@ -10,6 +10,8 @@ public class StartupValidationTests
         "Sunset 2027-01-01 must be after Since 2027-01-01")]
     [InlineData(typeof(RelativeLinkController), "RelativeLinkController.RelativeLink",
         "Link '/docs/methods' is not an absolute http(s) URL")]
+    [InlineData(typeof(RelativeSuccessorController), "RelativeSuccessorController.RelativeSuccessor",
+        "Successor '/v2/methods' is not an absolute http(s) URL")]
     [InlineData(typeof(NonAsciiLinkController), "NonAsciiLinkController.NonAsciiLink",
         "contains a character that is not allowed in a Link header")]
     [InlineData(typeof(BadDateController), "BadDateController.BadDate",

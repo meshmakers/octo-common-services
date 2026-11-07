@@ -28,6 +28,9 @@ internal static class TestCaller
 
     /// <summary>Header carrying the role of the authenticated test caller.</summary>
     public const string RoleHeader = "X-Test-Role";
+
+    /// <summary>Header overriding the <c>client_id</c> claim of the authenticated test caller.</summary>
+    public const string ClientIdHeader = "X-Test-ClientId";
 }
 
 /// <summary>Authenticates a request that carries <see cref="TestCaller.AuthenticateHeader" />.</summary>
@@ -50,7 +53,9 @@ internal sealed class TestAuthHandler(
             new("sub", TestCaller.Subject),
             new("name", TestCaller.UserName),
             new("tenant_id", TestCaller.TenantId),
-            new("client_id", TestCaller.ClientId)
+            new("client_id", Request.Headers.TryGetValue(TestCaller.ClientIdHeader, out var clientId)
+                ? clientId.ToString()
+                : TestCaller.ClientId)
         };
         if (Request.Headers.TryGetValue(TestCaller.RoleHeader, out var role))
         {
