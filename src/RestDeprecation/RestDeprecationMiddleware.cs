@@ -48,6 +48,10 @@ internal sealed class RestDeprecationMiddleware(RequestDelegate next)
         headers["Sunset"] = deprecation.SunsetHeader;
         // Link may already carry other relations (paging, …); RFC 8288 allows one header with several values.
         headers.Append("Link", deprecation.LinkHeader);
+        if (deprecation.SuccessorLinkHeader != null)
+        {
+            headers.Append("Link", deprecation.SuccessorLinkHeader);
+        }
 
         RestDeprecationMetrics.RecordCall(context, endpoint);
         return Task.CompletedTask;

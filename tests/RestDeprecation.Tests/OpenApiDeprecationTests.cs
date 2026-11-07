@@ -58,6 +58,16 @@ public sealed class OpenApiDeprecationTests : IAsyncLifetime
     }
 
     [Fact]
+    public void MarkedOperationWithSuccessor_NamesTheSuccessor()
+    {
+        var operation = Operation("/{tenantId}/v1/users/{userName}/with-successor", "get");
+
+        Assert.True(operation["deprecated"]!.GetValue<bool>());
+        Assert.Equal($"Sunset {TestDeprecation.Sunset}, use {TestDeprecation.Link}. Successor version: {TestDeprecation.Successor}.",
+            operation["description"]!.GetValue<string>());
+    }
+
+    [Fact]
     public void ControllerAttribute_MarksInheritingOperation()
     {
         var operation = Operation("/{tenantId}/v1/legacy/inherited", "get");

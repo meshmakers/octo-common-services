@@ -11,11 +11,13 @@ internal static class TestDeprecation
     public const string Since = "2026-12-01";
     public const string Sunset = "2027-03-01";
     public const string Link = "https://docs.meshmakers.cloud/methods/user-set-password";
+    public const string Successor = "https://docs.meshmakers.cloud/methods/user-set-password/v2";
 
     // Pinned literals, not computed: the test is about the wire format.
     public const string DeprecationHeader = "@1796083200";
     public const string SunsetHeader = "Mon, 01 Mar 2027 00:00:00 GMT";
     public const string LinkHeader = "<https://docs.meshmakers.cloud/methods/user-set-password>; rel=\"deprecation\"; type=\"text/html\"";
+    public const string SuccessorLinkHeader = "<https://docs.meshmakers.cloud/methods/user-set-password/v2>; rel=\"successor-version\"";
 }
 
 /// <summary>Actions of a service that migrates one operation (marked) and keeps another (unmarked).</summary>
@@ -47,6 +49,15 @@ public class UsersTestController : ControllerBase
     public IActionResult Explode(string tenantId, string userName)
     {
         throw new InvalidOperationException("boom");
+    }
+
+    /// <summary>Deprecated operation with a successor link (RFC 5829).</summary>
+    [HttpGet("{userName}/with-successor")]
+    [OctoRestDeprecated(Since = TestDeprecation.Since, Sunset = TestDeprecation.Sunset, Link = TestDeprecation.Link,
+        Successor = TestDeprecation.Successor)]
+    public IActionResult WithSuccessor(string tenantId, string userName)
+    {
+        return Ok(new { tenantId, userName });
     }
 
     /// <summary>The operation that stays.</summary>
@@ -113,4 +124,14 @@ public class NonAsciiLinkController : ControllerBase
     [OctoRestDeprecated(Since = TestDeprecation.Since, Sunset = TestDeprecation.Sunset,
         Link = "https://docs.meshmakers.cloud/methods/\u00fcbersicht")]
     public IActionResult NonAsciiLink() => Ok();
+}
+
+[ApiController]
+[Route("invalid")]
+public class RelativeSuccessorController : ControllerBase
+{
+    [HttpGet("relative-successor")]
+    [OctoRestDeprecated(Since = TestDeprecation.Since, Sunset = TestDeprecation.Sunset, Link = TestDeprecation.Link,
+        Successor = "/v2/methods")]
+    public IActionResult RelativeSuccessor() => Ok();
 }

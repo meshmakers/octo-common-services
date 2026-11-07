@@ -95,6 +95,17 @@ public sealed class RestDeprecationTests : IAsyncLifetime
         AssertDeprecationHeaders(overridden);
     }
 
+    [Fact]
+    public async Task MarkedActionWithSuccessor_CarriesDeprecationAndSuccessorVersionLinks()
+    {
+        var response = await GetAsync($"/{TestCaller.TenantId}/v1/users/jane/with-successor", authenticated: true);
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        Assert.Equal(TestDeprecation.DeprecationHeader, Assert.Single(response.Headers.GetValues("Deprecation")));
+        Assert.Equal([TestDeprecation.LinkHeader, TestDeprecation.SuccessorLinkHeader],
+            response.Headers.GetValues("Link").ToArray());
+    }
+
     [Theory]
     [InlineData("/v1/users/jane", "GET /{tenantId}/v1/users/{userName}", HttpStatusCode.OK)]
     [InlineData("/v1/users/jane/unmarked-explode", "GET /{tenantId}/v1/users/{userName}/unmarked-explode",
@@ -122,6 +133,23 @@ public sealed class RestDeprecationTests : IAsyncLifetime
         Assert.Equal(1, measurement.Value);
         Assert.Equal("2xx", measurement.StatusClass);
         Assert.Equal(["client_id", "endpoint", "status_class"], measurement.Tags.Keys.Order());
+    }
+
+    [Fact]
+    public async Task Counter_PipelineServiceAccount_IsReportedWithoutTenant()
+    {
+        using var request = new HttpRequestMessage(HttpMethod.Get,
+            $"/{TestCaller.TenantId}/v1/users/jane/password-state");
+        request.Headers.Add(TestCaller.AuthenticateHeader, "1");
+        request.Headers.Add(TestCaller.ClientIdHeader, "octo-pipeline-sa-" + TestCaller.TenantId);
+
+        var response = await _client.SendAsync(request, TestContext.Current.CancellationToken);
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        Assert.Contains(_measurements.Snapshot(), m => m.Endpoint == "GET /{tenantId}/v1/users/{userName}/password-state" &&
+                                                       m.ClientId == "octo-pipeline-sa" && m.StatusClass == "2xx");
+        Assert.DoesNotContain(_measurements.Snapshot(),
+            m => m.ClientId.Contains(TestCaller.TenantId, StringComparison.OrdinalIgnoreCase));
     }
 
     [Fact]

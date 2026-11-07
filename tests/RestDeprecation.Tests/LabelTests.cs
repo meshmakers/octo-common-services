@@ -59,6 +59,26 @@ public class LabelTests
         Assert.Equal("anonymous", RestDeprecationMetrics.ClientIdLabel(principal));
     }
 
+    [Theory]
+    [InlineData("octo-pipeline-sa-tenant-alpha-7")]
+    [InlineData("OCTO-PIPELINE-SA-Tenant-Beta")]
+    public void ClientId_PipelineServiceAccount_IsReportedWithoutTenant(string clientId)
+    {
+        var principal = new ClaimsPrincipal(new ClaimsIdentity([new Claim("client_id", clientId)], "Bearer"));
+
+        Assert.Equal("octo-pipeline-sa", RestDeprecationMetrics.ClientIdLabel(principal));
+    }
+
+    [Fact]
+    public void ClientId_PipelineServiceAccount_TooLong_IsStillTheSharedLabel()
+    {
+        var principal = new ClaimsPrincipal(new ClaimsIdentity(
+            [new Claim("client_id", "octo-pipeline-sa-" + new string('t', RestDeprecationMetrics.MaxClientIdLength))],
+            "Bearer"));
+
+        Assert.Equal("octo-pipeline-sa", RestDeprecationMetrics.ClientIdLabel(principal));
+    }
+
     [Fact]
     public void ClientId_TooLong_IsOther()
     {
