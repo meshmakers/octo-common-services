@@ -51,8 +51,9 @@ internal sealed class CkMethodDispatcher(
             // deadline (DateTime.MaxValue) and the in-process and the bus path see the same request.
             request = NormalizeTimeout(request);
 
-            // A method registered in-process is found before any registry lookup; the in-process transport runs the
-            // same pipeline itself (transport name "in-process").
+            // A method with a handler in this process (in-process, local only, or a bus handler this service hosts,
+            // AB#8411) is found before any registry lookup; the local transport runs the same pipeline itself (transport
+            // name "in-process") and nothing goes to the broker.
             var inProcess = serviceProvider.GetService(typeof(ICkInProcessMethodTransport)) as ICkInProcessMethodTransport;
             if (inProcess != null && inProcess.CanHandle(request.MethodId))
             {

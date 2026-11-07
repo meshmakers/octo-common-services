@@ -538,8 +538,9 @@ CkMethodResponse response = await dispatcher.InvokeAsync(request, cancellationTo
    `request.MethodId` to the qualified id of the declaring element, for example `Fleet/Car.Start-1` becomes
    `Fleet/Vehicle.Start-1`. This happens before the pipeline, so filters, the queue name and the handler registration all see the
    same id. A type or method the cache does not know (or a service without CK cache) is routed as given.
-2. **Prefer in-process.** A method registered with `AddCkInProcessMethodHandlers` in the same service runs through
-   `ICkInProcessMethodTransport` (pipeline transport name `in-process`); the bus and the registry are not touched.
+2. **Prefer in-process.** A method with a handler in the same service - registered with `AddCkInProcessMethodHandlers`, local
+   only (`HandleLocalOnly`), or as a bus handler of the service (`AddCkMethodHandlers`, AB#8411) - runs through
+   `ICkInProcessMethodTransport` (pipeline transport name `in-process`); the bus and the registry are not touched. See section 10.
 3. **Otherwise the bus.** `ICkMethodInvocationPipeline.ExecuteAsync("bus", request, send, ct)` where `send` is the dispatcher's
    only own code: one mandatory, non-persistent `GetCommandResponseAsync` to the shared queue `CkMethodQueueNames.For(methodId)`.
    Handlers consume that queue as competing consumers, so replicas of one service share the traffic.
@@ -630,6 +631,99 @@ The `timeoutSeconds` of that `METHOD_TIMEOUT` is the timeout of the request (AB#
 **Tests.** `tests/Methods.Tests/Dispatching` (dispatcher with a faked hub, registry races, declaring-element resolution, registration)
 and `tests/Methods.IntegrationTests/CkMethodDispatcherBusTests.cs` (private RabbitMQ: the same cases over the bus and in-process,
 no consumer, consumer gone, mid-flight stop, timeout, derived type, replicas).
+
+## 10. REST facades: a service calls a method it hosts itself (AB#8411)
+
+A service that hosts a method handler can serve the same operation through its own REST endpoint (a *facade*), for example the
+identity service's user endpoints over the `User.*` methods. The facade calls the method through `ICkMethodDispatcher` like any other
+caller, and the handler runs **in this process** through the same invocation core as a call from another service: declared
+authorization (`ICkMethodAuthorizationEvaluator`), parameter validation, redaction of `sensitive` parameters, audit and `ck.method.*`
+metrics (transport `in-process`). No bus hop, so no parameter (a password) reaches the broker.
+
+**Two registrations, one rule.**
+
+| Registration | Announced, bus queue | Another process calls it | This process calls it |
+|---|---|---|---|
+| `m.Handle<THandler>(methodId)` in `AddCkMethodHandlers` | yes | over the bus | in-process (no send) |
+| `m.HandleLocalOnly<THandler>(methodId)` in `AddCkMethodHandlers` | **no** | `METHOD_HANDLER_NOT_AVAILABLE` (no queue) | in-process |
+| `m.Handle<THandler>(methodId)` in `AddCkInProcessMethodHandlers` | no | `METHOD_HANDLER_NOT_AVAILABLE` | in-process |
+
+`HandleLocalOnly` is for a method whose bus exposure is switched off but whose facade must keep working, e.g. the identity password
+methods before the broker is protected (B0): `EnablePasswordMethods ? m.Handle<H>(id) : m.HandleLocalOnly<H>(id)`. A method is
+registered either for the bus or local only: both for the same id stop the start (`CkInProcessMethodValidationService`, order 15).
+A bus-registered method called by its own host answers with the **announced** handler instance id, so the envelope is byte-identical to
+the one a remote caller gets from that host (tests compare success, declared error, `METHOD_FORBIDDEN` and `METHOD_HANDLER_FAILED`).
+
+**The caller.** The local path validates no token: the principal is the one the facade establishes with `CkMethodPrincipalScope`
+(from the authenticated HTTP user). Without a scope there is no principal and the declared authorization refuses the call
+(`METHOD_FORBIDDEN`); nothing falls back to a system identity. The principal needs the scope `octo_api` like every method caller.
+
+**The result.** `CkMethodFacadeResults.ToActionResult(response, options)` (`Meshmakers.Octo.Services.Methods.Facades`) maps the
+envelope to an MVC `IActionResult`:
+
+| Code | Default status |
+|---|---|
+| success with result / without result | `200` with the result JSON / `204` |
+| accepted (asynchronous call, `Operation` set) | `202` with the operation handle |
+| `METHOD_VALIDATION_FAILED` | 400 |
+| `METHOD_FORBIDDEN` | 403 |
+| `METHOD_TARGET_NOT_FOUND` | 404 |
+| `METHOD_REQUEST_IN_PROGRESS` | 409 |
+| `METHOD_PARAMETERS_TOO_LARGE` | 413 |
+| `METHOD_HANDLER_FAILED`, `METHOD_OUTCOME_UNKNOWN`, an unknown `METHOD_*` code | 500 |
+| `METHOD_HANDLER_NOT_AVAILABLE`, `METHOD_CONTRACT_VERSION_UNSUPPORTED`, `METHOD_NOT_SUPPORTED_BY_HANDLER_VERSION` | 503 |
+| `METHOD_TIMEOUT` | 504 |
+| a code the method declares | 400 |
+
+The default error body is problem details (`application/problem+json`) with the code as `title` and the extensions `code`,
+`parameters` and `details`. Error parameters never carry parameter values (wire contract), so the body is safe. An endpoint keeps
+its existing status codes and bodies with `CkMethodFacadeOptions`: `MapError(code, status)`, `MapError(code, error => result)` (also
+for platform codes) and `MapSuccess(response => result)`. Build the options once per endpoint.
+
+```csharp
+// Program.cs of the identity service
+services.AddCkMethodHandlers("IdentityService", m =>
+{
+    m.Handle<UserSetRolesHandler>(SystemIdentityCkIds.UserSetRolesMethodId);
+    if (options.EnablePasswordMethods) m.Handle<UserResetPasswordHandler>(SystemIdentityCkIds.UserResetPasswordMethodId);
+    else m.HandleLocalOnly<UserResetPasswordHandler>(SystemIdentityCkIds.UserResetPasswordMethodId);
+});
+services.AddCkMethodDispatcher();   // the facade's entry point; local methods never touch the bus
+
+// UsersController
+private static readonly CkMethodFacadeOptions ResetPasswordFacade = new CkMethodFacadeOptions()
+    .MapError("PASSWORD_POLICY_VIOLATED", error => new BadRequestObjectResult(error.Details))
+    .MapSuccess(_ => new NoContentResult());
+
+[HttpPost("{id}/reset-password")]
+public async Task<IActionResult> ResetPassword(string tenantId, string id, ResetPasswordDto dto)
+{
+    var request = new CkMethodRequest(tenantId)
+    {
+        InvocationId = Guid.NewGuid(),
+        MethodId = SystemIdentityCkIds.UserResetPasswordMethodId,
+        CkTypeId = "System.Identity/User",
+        TargetRtId = id,
+        ParametersJson = JsonSerializer.Serialize(new UserResetPasswordParameters { NewPassword = dto.Password }, CkMethodJson.Options),
+        DeadlineUtc = timeouts.GetDeadlineUtc(tenantId, "System.Identity/User", SystemIdentityCkIds.UserResetPasswordMethodId)
+    };
+    using (CkMethodPrincipalScope.Begin(CkMethodPrincipal.FromClaimsPrincipal(User)))
+    {
+        var response = await dispatcher.InvokeAsync(request, HttpContext.RequestAborted);
+        return response.ToActionResult(ResetPasswordFacade);
+    }
+}
+```
+
+`AddCkMethodHandlers` registers the local transport by itself; `AddCkMethodDispatcher` (with `AddCkMethodHandlerRegistryFeed`) gives
+the facade its `ICkMethodDispatcher`. A method the service does not host still goes over the bus; check
+`ICkInProcessMethodTransport.CanHandle(methodId)` at start if a facade must never leave the process.
+
+**Tests.** `tests/Methods.Tests/InProcess/SelfHostedMethodCallTests.cs` (no send to the broker, transport in metric and audit,
+byte-identical envelopes, local only not announced, one-place rule, missing principal refused, redaction canary over logs, spans,
+filters and audit), `tests/Methods.Tests/Facades/CkMethodFacadeResultsTests.cs` (every code, overrides) and
+`tests/Methods.IntegrationTests/CkMethodDispatcherBusTests.SelfHosted.cs` (real broker: byte-identical to a remote call of the same
+host; local only = no queue).
 
 ## Replicas and sharing
 
