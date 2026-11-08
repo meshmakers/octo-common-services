@@ -25,6 +25,20 @@ public static class TenantRoleAuthorizationExtensions
     }
 
     /// <summary>
+    ///     Adds a policy like <see cref="AddTenantRolePolicy(AuthorizationOptions, string, string)" /> whose <c>403</c> body also
+    ///     carries the stable error code <paramref name="errorCode" /> (AB#8529):
+    ///     <c>{"message": "...", "code": "DataModelManagementRequired"}</c> for that code.
+    /// </summary>
+    public static AuthorizationOptions AddTenantRolePolicy(this AuthorizationOptions options, string policyName,
+        string roleName, string errorCode)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(errorCode);
+        options.AddPolicy(policyName,
+            policy => policy.AddRequirements(new TenantRoleRequirement(roleName) { ErrorCode = errorCode }));
+        return options;
+    }
+
+    /// <summary>
     ///     Registers the handler of <see cref="TenantRoleRequirement" /> and the result handler that puts the reason into the
     ///     <c>403</c> body (AB#5227 format).
     /// </summary>

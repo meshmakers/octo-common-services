@@ -7,6 +7,13 @@ entries are grouped by work item until a release assigns the version.
 
 ### Added
 
+- **AB#8529** — tenant role policies can carry a stable error code:
+  `options.AddTenantRolePolicy(policyName, roleName, errorCode)` (new overload; the two-argument form is unchanged). A refusal of
+  such a policy is a `403` with `{"message": "...", "code": "<errorCode>"}` instead of `{"message": "..."}`, for the missing scope
+  and the missing role alike, so clients (SDK `ServiceProblem`, MCP tool results, Studio) can react to the code. New
+  `TenantRoleRequirement.ErrorCode` and `TenantRoleAuthorizationFailureReason` (carries the code). First user: the asset
+  repository's `DataModelManagementPolicy` (code `DataModelManagementRequired`). Additive and binary compatible.
+
 - **AB#8415** — `[OctoRestDeprecated(Wave = "<name>", Link = …)]`: the dates of a deprecation wave come from the
   configuration section `RestDeprecation:Waves:<name>` (`Since`, `Sunset`, both optional; in the cluster
   `OCTO_RestDeprecation__Waves__<name>__Since|Sunset` from Helm values) instead of the code, because they are only known
