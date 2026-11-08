@@ -7,7 +7,8 @@ namespace Meshmakers.Octo.Services.Infrastructure.Authorization;
 /// <summary>
 ///     Writes the reason of a refused <see cref="TenantRoleRequirement" /> into the <c>403</c> response (AB#7319), in the
 ///     shape of the tenant gate's denials (AB#5227): a JSON body <c>{"message": "..."}</c>, which the frontends' HTTP error
-///     interceptor renders. Every other outcome is left to the framework's default handler.
+///     interceptor renders. A requirement with an error code (AB#8529, e.g. <c>DataModelManagementRequired</c>) adds it as
+///     <c>{"message": "...", "code": "..."}</c>. Every other outcome is left to the framework's default handler.
 /// </summary>
 public sealed class ForbiddenReasonAuthorizationResultHandler : IAuthorizationMiddlewareResultHandler
 {
@@ -24,7 +25,15 @@ public sealed class ForbiddenReasonAuthorizationResultHandler : IAuthorizationMi
             if (reason != null)
             {
                 context.Response.StatusCode = StatusCodes.Status403Forbidden;
-                await context.Response.WriteAsJsonAsync(new { message = reason.Message });
+                if (reason is TenantRoleAuthorizationFailureReason { Code: { } code })
+                {
+                    await context.Response.WriteAsJsonAsync(new { message = reason.Message, code });
+                }
+                else
+                {
+                    await context.Response.WriteAsJsonAsync(new { message = reason.Message });
+                }
+
                 return;
             }
         }
