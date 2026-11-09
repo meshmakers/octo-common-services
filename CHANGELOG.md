@@ -48,6 +48,13 @@ entries are grouped by work item until a release assigns the version.
 
 ### Fixed
 
+- **AB#8677** — a service no longer stops on start because another service upgrades a CK model in place at the same moment. The
+  system tenant setup (`DefaultConfigurationInitializationService`) retries a failure the CK engine marked as "a CK model is being
+  imported right now" (`Exception.Data` key `Meshmakers.Octo.CkModelImportInProgress`, set by `octo-construction-kit-engine-mongodb`),
+  every 5 s for up to 30 attempts; every other failure still fails the host start at once. Seen 2026-11-09 on the local stack:
+  System.Bot 3.5.0 → 3.6.0 by BotServices while CommunicationController (embedded import of System.Communication) and PlatformServices
+  (CK cache load) started; both hosts stopped. Child tenants were already non-fatal (AB#4690).
+
 - **AB#8634** — security: a CK method call without a live handler is refused **before anything is sent to the broker**. The
   dispatcher (`AddCkMethodDispatcher`) now treats the handler registry as the gate of the bus send: no live entry for the method =
   `METHOD_HANDLER_NOT_AVAILABLE` / `no-live-handler` (same envelope, WARN line and `ck.method.calls` / `ck.method.no_handler`

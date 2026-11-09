@@ -30,6 +30,16 @@ public class DefaultConfigurationInitializationService : IAsyncInitializationSer
 
     public int Order => 10;
 
+    /// <summary>
+    ///     AB#8677: attempts of the system tenant setup while it fails only because another service is importing or
+    ///     upgrading a CK model right now. With <see cref="SystemTenantRetryDelay" /> this bounds the wait to a few
+    ///     minutes; a failure that persists after that is no longer a short upgrade window and fails the host start.
+    /// </summary>
+    internal int MaxSystemTenantAttempts { get; set; } = 30;
+
+    /// <summary>AB#8677: pause between two attempts of the system tenant setup (see <see cref="MaxSystemTenantAttempts" />).</summary>
+    internal TimeSpan SystemTenantRetryDelay { get; set; } = TimeSpan.FromSeconds(5);
+
     public async Task InitializeAsync()
     {
         // Defer tenant start until the distribution event hub is available.
@@ -46,7 +56,7 @@ public class DefaultConfigurationInitializationService : IAsyncInitializationSer
         // Call for system tenant. Deliberately NOT guarded like the child-tenant loop below: without the
         // system tenant nothing works at all, so its failure must keep failing the host start.
         _logger.LogInformation("Initialize default configuration for system tenant '{TenantId}'", _systemContext.TenantId);
-        await _defaultConfigurationCreatorService.SetupAsync(_systemContext.TenantId).ConfigureAwait(false);
+        await SetupSystemTenantAsync().ConfigureAwait(false);
         _logger.LogInformation("Initialize default configuration for system tenant '{TenantId}' done", _systemContext.TenantId);
 
         // Call for all child tenants
@@ -112,6 +122,35 @@ public class DefaultConfigurationInitializationService : IAsyncInitializationSer
                 _logger.LogWarning(
                     "Default configuration failed for {Count} of {Total} tenant(s): {Tenants}",
                     failedTenants.Count, tenantList.Count, string.Join(", ", failedTenants));
+            }
+        }
+    }
+
+    /// <summary>
+    ///     Sets up the system tenant. AB#8677: when another service imports or upgrades a CK model in place at the same
+    ///     moment (a rolling update, or the whole stack starting at once), a dependency on that model has no Available
+    ///     version for a short time and the embedded CK import or the CK cache load of this setup fails. The engine
+    ///     marks such a failure; it is retried here instead of stopping the host. Every other failure still fails the
+    ///     host start at once.
+    /// </summary>
+    private async Task SetupSystemTenantAsync()
+    {
+        for (var attempt = 1; ; attempt++)
+        {
+            try
+            {
+                await _defaultConfigurationCreatorService.SetupAsync(_systemContext.TenantId).ConfigureAwait(false);
+                return;
+            }
+            catch (Exception ex) when (attempt < MaxSystemTenantAttempts &&
+                                       CkModelImportInProgressClassifier.IsCkModelImportInProgress(ex))
+            {
+                _logger.LogWarning(
+                    "Setup of system tenant '{TenantId}' failed because CK model(s) '{CkModels}' are being imported " +
+                    "by another service; retrying in {Delay} (attempt {Attempt} of {MaxAttempts}): {Error}",
+                    _systemContext.TenantId, CkModelImportInProgressClassifier.DescribeModels(ex),
+                    SystemTenantRetryDelay, attempt, MaxSystemTenantAttempts, ex.Message);
+                await Task.Delay(SystemTenantRetryDelay).ConfigureAwait(false);
             }
         }
     }
