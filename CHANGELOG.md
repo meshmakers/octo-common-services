@@ -7,6 +7,18 @@ entries are grouped by work item until a release assigns the version.
 
 ### Added
 
+- **AB#8443** — asynchronous CK methods keep a durable operation record (F3.6, OD-5). A handler returns
+  `CkMethodOutcome.Accepted(work)` / `CkMethodOutcome<TResult>.Accepted(work)` with an `ICkMethodOperationProgress` reporter;
+  the host writes the record before the accepted envelope (`operationId`, `acceptedAtUtc`, `retryAfterSeconds`), runs the work
+  once, stores progress, heartbeats and the final state, and a sweep ends operations of a lost handler as `METHOD_OUTCOME_UNKNOWN`
+  (`reason` `handler-lost`). Store contract `ICkMethodOperationStore` (read by tenant and operation id, paged list by tenant with
+  owner, method, state and since filters), `CkMethodInMemoryOperationStore`, and the new package
+  `Meshmakers.Octo.Services.Methods.MongoDb` with `CkMethodMongoOperationStore` (collection `MethodOperations` in the system
+  database, unique `tenantId + operationId`, TTL on `expiresAt`). Registration `AddCkMethodOperations()`,
+  `AddCkMethodOperationSweep()`, `AddCkMethodMongoOperationStore()`, `AddCkMethodInMemoryOperationStore()`; settings
+  `Methods:Operations` (`Retention` 7 d, 1 h to 30 d, validated at start). Counter `ck.method.operations` (`method_id`, `state`).
+  Additive: no member was added to an interface another repository implements; synchronous handlers are unchanged.
+
 - **AB#8529** — tenant role policies can carry a stable error code:
   `options.AddTenantRolePolicy(policyName, roleName, errorCode)` (new overload; the two-argument form is unchanged). A refusal of
   such a policy is a `403` with `{"message": "...", "code": "<errorCode>"}` instead of `{"message": "..."}`, for the missing scope

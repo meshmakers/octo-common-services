@@ -1,10 +1,15 @@
 using Meshmakers.Octo.Services.Contracts.DistributionEventHub.Methods;
 using Meshmakers.Octo.Services.Methods.Authorization;
+using Meshmakers.Octo.Services.Methods.Operations;
 
 namespace Meshmakers.Octo.Services.Methods.Handlers;
 
-/// <summary>Result of one typed handler call, already serialized for the wire.</summary>
-internal readonly record struct CkMethodAdapterOutcome(CkMethodFailure? Failure, string? ResultJson);
+/// <summary>
+///     Result of one typed handler call, already serialized for the wire. <see cref="AcceptedWork" /> is set when the
+///     handler accepted the call as a long-running operation (AB#8443); the work maps its own outcome the same way.
+/// </summary>
+internal readonly record struct CkMethodAdapterOutcome(CkMethodFailure? Failure, string? ResultJson,
+    Func<ICkMethodOperationProgress, CancellationToken, Task<CkMethodAdapterOutcome>>? AcceptedWork = null);
 
 /// <summary>Bridges the untyped host to a typed handler without reflection per call.</summary>
 internal abstract class CkMethodHandlerAdapter
@@ -29,6 +34,23 @@ internal sealed class CkMethodHandlerAdapter<THandler, TParameters, TResult> : C
         };
         var outcome = await ((THandler)handler).HandleAsync(context, cancellationToken).ConfigureAwait(false)
                       ?? throw new InvalidOperationException("The handler returned a null outcome.");
+        if (outcome.AcceptedWork is { } work)
+        {
+            return new CkMethodAdapterOutcome(null, null, async (progress, ct) =>
+                Map(await work(progress, ct).ConfigureAwait(false) ??
+                    throw new InvalidOperationException("The operation work returned a null outcome.")));
+        }
+
+        return Map(outcome);
+    }
+
+    private static CkMethodAdapterOutcome Map(CkMethodOutcome<TResult> outcome)
+    {
+        if (outcome.IsAccepted)
+        {
+            throw new InvalidOperationException("The work of an accepted operation cannot accept again.");
+        }
+
         if (!outcome.IsSuccess)
         {
             return new CkMethodAdapterOutcome(outcome.Failure, null);
@@ -62,6 +84,18 @@ internal sealed class CkMethodHandlerAdapter<THandler, TParameters> : CkMethodHa
         };
         var outcome = await ((THandler)handler).HandleAsync(context, cancellationToken).ConfigureAwait(false)
                       ?? throw new InvalidOperationException("The handler returned a null outcome.");
+        if (outcome.AcceptedWork is { } work)
+        {
+            return new CkMethodAdapterOutcome(null, null, async (progress, ct) =>
+            {
+                var done = await work(progress, ct).ConfigureAwait(false) ??
+                           throw new InvalidOperationException("The operation work returned a null outcome.");
+                return done.IsAccepted
+                    ? throw new InvalidOperationException("The work of an accepted operation cannot accept again.")
+                    : new CkMethodAdapterOutcome(done.Failure, null);
+            });
+        }
+
         return new CkMethodAdapterOutcome(outcome.Failure, null);
     }
 }

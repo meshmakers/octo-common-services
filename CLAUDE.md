@@ -1031,6 +1031,47 @@ the handler runs in this process, nothing is sent to the broker. Code: `src/Meth
 - Tests: `tests/Methods.Tests/InProcess/SelfHostedMethodCallTests.cs`, `tests/Methods.Tests/Facades/CkMethodFacadeResultsTests.cs`,
   `tests/Methods.IntegrationTests/CkMethodDispatcherBusTests.SelfHosted.cs`.
 
+### Asynchronous methods: durable operation record (AB#8443, F3.6, OD-5)
+
+Code: `src/Methods/Operations/` (contract, in-memory store, runner, options, registration) and the new package
+`Meshmakers.Octo.Services.Methods.MongoDb` (`src/Methods.MongoDb/`, MongoDB store). Guide: `docs/method-handler-sdk.md` section 11.
+Decision OD-5 (AB#6927): at most once after accept, record before the accepted envelope, lost handler = `METHOD_OUTCOME_UNKNOWN`,
+7 d retention after completion (1 h to 30 d), owner + tenant admin read, no cancel, repeated idempotency key = same operation id.
+
+- **Handler SDK**: `CkMethodOutcome.Accepted(work)` / `CkMethodOutcome<TResult>.Accepted(work)` (static factories on the sealed outcome
+  classes; no member was added to `ICkMethodHandler<,>`, so the change is additive for other repositories, §4a). The adapter wraps the work
+  (`CkMethodAdapterOutcome.AcceptedWork`). `CkMethodHandlerInvoker` refuses `Accepted` with `METHOD_HANDLER_FAILED` when the definition is not
+  `execution.mode: async` (`CkMethodModes.Async`) or the host lacks `AddCkMethodOperations()` (marker `CkMethodOperationHost`, resolved from the
+  handler scope, so the in-process and the bus invoker need no constructor change); otherwise it hands the **DI scope** to
+  `CkMethodOperationRunner.AcceptAsync` (the invoker no longer disposes it on that path).
+- **Runner** (`CkMethodOperationRunner`, internal singleton): writes the record (`CreateAsync`) before it returns the accepted envelope
+  (`operationId` = `Guid` "N", `acceptedAtUtc`, `retryAfterSeconds`; `expiresAtUtc` stays empty until completion); store failure =
+  `METHOD_HANDLER_NOT_AVAILABLE` / `operation-store-unavailable`, work not started. The work runs once under `ExecutionContext.SuppressFlow()`
+  (OD-8), `MarkRunningAsync` first (false = the sweep was faster, the work is not run), outcome mapping as the invoker (declared failure
+  through `DeclaredFailure`, exceptions through the redactor, `CkMethodWriteOutcome`), host stop = cancelled = `handler-lost`. A sensitive
+  result is never stored. `CkMethodOperationHeartbeatService` (heartbeat of own operations, `StopAsync` stops the work) and
+  `CkMethodOperationSweepService` (`FailLostAsync(now - StaleAfter)`); `AddCkMethodOperations()` = runner + heartbeat + sweep,
+  `AddCkMethodOperationSweep()` = sweep only (readers such as the gateway, AB#8444).
+- **Store contract** `ICkMethodOperationStore`: `CreateAsync`, `GetAsync(tenant, id)` (null for unknown/expired/foreign), `ListAsync(CkMethodOperationQuery)`
+  (tenant required; `Owner` = subject, or client id of a record without subject; `MethodId`, `State`, `SinceUtc`; `Skip`/`Take` 1-200; newest
+  first; `TotalCount`), `MarkRunningAsync`, `ReportProgressAsync`, `HeartbeatAsync`, `CompleteAsync` (open records only, first final state wins),
+  `FailLostAsync`. Tenants are stored lower-case (`CkMethodOperationTenant.Normalize`). Expired records are invisible before the TTL monitor
+  removes them. Fails closed with `CkMethodOperationStoreException`. Implementations: `CkMethodInMemoryOperationStore` (tests),
+  `CkMethodMongoOperationStore` (collection `MethodOperations` in `OctoSystemConfiguration.SystemDatabaseName`, own admin client with majority
+  read/write concern, indexes `tenantId_operationId_unique`, `expiresAt_ttl` (0 s), `tenantId_acceptedAt`, `state_heartbeatAt`; progress and
+  error stored as JSON strings, so parameter names never become field names). `Methods.csproj` still references no `MongoDB.*`
+  (`CkMethodContextSessionFreeTests`); the driver lives only in `Methods.MongoDb`.
+- **Options** `CkMethodOperationOptions` (`Methods:Operations`): `Retention` (7 d, 1 h-30 d), `HeartbeatInterval` (15 s), `StaleAfter`
+  (2 min, >= 3 x heartbeat), `SweepInterval` (1 min), `RetryAfterSeconds` (5, 1-3600); `CkMethodOperationOptionsValidator` + `ValidateOnStart`,
+  messages name the setting only.
+- **Metric** `ck.method.operations` (labels `method_id`, `state`); sweep-ended operations count as `failed` with `method_id` `other`.
+- **Tests**: `tests/Methods.Tests/Operations/` (`OperationStoreContract` is linked into `Methods.IntegrationTests`, which runs it against a
+  MongoDB replica set via Testcontainers; skipped without Docker or with `OCTO_SKIP_CONTAINER_TESTS=true`), `AsyncHandlerTests`,
+  `AsyncIdempotencyTests`, `OperationOptionsTests`; `tests/Methods.IntegrationTests/Operations/MongoOperationStoreTests.cs`.
+- **Open for the next stories**: AB#8444 (asset-repo) reads through `GetAsync` / `ListAsync`, decides owner-or-administrator access and maps a
+  `null` to `OPERATION_NOT_FOUND`; it should register `AddCkMethodMongoOperationStore()` + `AddCkMethodOperationSweep()`. AB#8445
+  (bot-services) registers the store + `AddCkMethodOperations()` and returns `Accepted` from the dump/import handlers.
+
 ### Method metrics and one trace per call (AB#6920, F3.5)
 
 Meter **`Meshmakers.Octo.Methods`** (`CkMethodTelemetry.MeterName`; one `Meter` instance, `CkMethodTelemetry.Meter`, also used by `ck.method.audit.failures`
@@ -1045,6 +1086,7 @@ tests `tests/Methods.Tests/Metrics/CkMethodMetricsTests.cs`, `tests/Methods.Inte
 | `ck.method.no_handler` | counter | `method_id`, `transport` | outcome `METHOD_HANDLER_NOT_AVAILABLE` of an unroutable call (not the idempotency store being down) |
 | `ck.method.duplicate_refused` | counter | `reason` (`broker_flag`, `seen_id`), `method_id` | a delivery a handler host refused as a possible duplicate |
 | `ck.method.audit.failures` | counter | `transport` | audit events that could not be written (AB#6919) |
+| `ck.method.operations` | counter | `method_id`, `state` | state changes of async method operations (AB#8443) |
 
 - **Where it is counted (exactly once per call).** `CkMethodInvocationPipeline.ExecuteAsync` wraps *everything* (filters and transport; also the
   no-filter early return) in one call span, one stopwatch and one `finally`: both transports (`bus`, `in-process`) and every outcome (success, declared

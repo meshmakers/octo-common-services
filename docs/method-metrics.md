@@ -14,6 +14,7 @@ the event hub into the handler in a single trace. Everything is on the meter and
 | `ck.method.no_handler` | counter | `method_id`, `transport` | calls nobody could take: outcome `METHOD_HANDLER_NOT_AVAILABLE` (no live handler, tenant not served, method not registered). A refusal because the idempotency store was down carries the same code but is not counted here. |
 | `ck.method.duplicate_refused` | counter | `reason`, `method_id` | deliveries a handler host refused as a possible duplicate and did **not** execute |
 | `ck.method.audit.failures` | counter | `transport` | audit events that could not be written (AB#6919) |
+| `ck.method.operations` | counter | `method_id`, `state` | state changes of operations of asynchronous methods (AB#8443): `accepted`, `running`, `succeeded`, `failed`; operations the sweep ends as lost (`METHOD_OUTCOME_UNKNOWN`, `handler-lost`) count as `failed` with `method_id` `other` |
 
 In Prometheus/Dash0 the names appear with underscores (`ck_method_calls_total`, `ck_method_duration_seconds_bucket`,
 `ck_method_no_handler_total`, `ck_method_duplicate_refused_total`).
@@ -25,6 +26,7 @@ Label values:
 | `method_id` | qualified method id without model version, e.g. `System.Identity/User.ChangePassword-1`; at most 1000 distinct values per process, further ones are `other` |
 | `transport` | `bus` (remote handler over the event hub), `in-process` (handler in the calling service, also a bus handler or a local-only handler called by its own host, e.g. a REST facade, AB#8411), `gateway` (refused by the gateway before the pipeline; only calls and duration), `other` |
 | `outcome` | `SUCCESS`, `ACCEPTED` (long-running operation), `CALLER_CANCELLED`, a platform error code (`METHOD_FORBIDDEN`, `METHOD_TIMEOUT`, `METHOD_HANDLER_FAILED`, `METHOD_HANDLER_NOT_AVAILABLE`, `METHOD_OUTCOME_UNKNOWN`, ...) or an error code the method declares; `invalid_code` for anything else. Same vocabulary as the audit event. A handler or filter whose write the database did not acknowledge in time (write-concern error, unknown commit result) counts as `METHOD_OUTCOME_UNKNOWN`, not `METHOD_HANDLER_FAILED` (AB#8020). |
+| `state` | `accepted`, `running`, `succeeded`, `failed` (`ck.method.operations` only) |
 | `reason` | `broker_flag` (the broker flagged the delivery as a possible duplicate), `seen_id` (no broker flag, but this instance has seen the invocation id) |
 
 **Never in a label:** parameter values, results, tokens, idempotency keys, entity ids (`targetRtId`), user names or subjects,

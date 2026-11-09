@@ -17,6 +17,8 @@
         <PackageReference Include="FakeItEasy" Version="9.0.1" />
         <PackageReference Include="Microsoft.NET.Test.Sdk" Version="18.9.0" />
         <PackageReference Include="OpenTelemetry.Exporter.InMemory" Version="1.18.0" />
+        <PackageReference Include="Microsoft.Extensions.TimeProvider.Testing" Version="10.9.0" />
+        <PackageReference Include="Testcontainers.MongoDb" Version="4.14.0" />
         <PackageReference Include="Testcontainers.RabbitMq" Version="4.14.0" />
         <PackageReference Include="xunit.v3.mtp-off" Version="4.0.0" />
         <PackageReference Include="xunit.runner.visualstudio" Version="4.0.0">
@@ -27,7 +29,13 @@
 
     <ItemGroup>
         <ProjectReference Include="..\..\src\Methods\Methods.csproj" />
+        <ProjectReference Include="..\..\src\Methods.MongoDb\Methods.MongoDb.csproj" />
         <ProjectReference Include="..\..\src\Observability\Observability.csproj" />
+    </ItemGroup>
+
+    <ItemGroup>
+        <!-- AB#8443: the operation store contract runs against the in-memory store (Methods.Tests) and MongoDB (here) -->
+        <Compile Include="..\Methods.Tests\Operations\OperationStoreContract.cs" Link="Operations\OperationStoreContract.cs" />
     </ItemGroup>
 
 </Project>
