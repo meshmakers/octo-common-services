@@ -12,7 +12,10 @@ public sealed class CkMethodInMemoryOperationStore(TimeProvider timeProvider) : 
     private readonly Lock _gate = new();
     private readonly Dictionary<(string TenantId, string OperationId), CkMethodOperationRecord> _records = new();
 
-    /// <summary>Number of records held, expired ones included (tests).</summary>
+    /// <summary>
+    ///     Number of records held, expired ones included until the next <see cref="FailLostAsync" /> (the sweep) removes
+    ///     them (tests).
+    /// </summary>
     public int Count
     {
         get
@@ -124,6 +127,13 @@ public sealed class CkMethodInMemoryOperationStore(TimeProvider timeProvider) : 
         {
             foreach (var (key, record) in _records.ToList())
             {
+                // housekeeping (the TTL index of the MongoDB store): expired records are gone, not only hidden
+                if (record.IsExpired(nowUtc))
+                {
+                    _records.Remove(key);
+                    continue;
+                }
+
                 if (record.IsFinal || record.HeartbeatAtUtc >= staleBeforeUtc)
                 {
                     continue;

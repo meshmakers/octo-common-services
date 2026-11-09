@@ -791,7 +791,8 @@ operations (the gateway, AB#8444) registers the store and `AddCkMethodOperationS
 
 1. The handler returns `Accepted(work)`.
 2. The host writes the record (`Accepted`, owner, method, invocation id, handler instance) **before** it answers. If the write fails,
-   the caller gets `METHOD_HANDLER_NOT_AVAILABLE` (`reason` `operation-store-unavailable`) and the work never starts.
+   the caller gets `METHOD_HANDLER_NOT_AVAILABLE` (`reason` `operation-store-unavailable`) and the work never starts. A host that
+   is shutting down records nothing and answers `METHOD_HANDLER_NOT_AVAILABLE` (`reason` `host-stopping`), so the caller can retry.
 3. The caller gets `success: true` with `operation { operationId, acceptedAtUtc, retryAfterSeconds }`; `expiresAtUtc` is not known
    yet (it is set on completion) and stays empty.
 4. The work starts: `Running`, progress, heartbeats every `HeartbeatInterval`.
@@ -816,7 +817,7 @@ contains the parameters, the caller token (OD-10: the principal stays in the pro
 | `ListAsync(query)` | paged list of one tenant, newest first; filters `Owner` (subject, or client id without subject), `MethodId`, `State`, `SinceUtc`; `Skip`, `Take` (1-200, default 50); returns `TotalCount` |
 | `MarkRunningAsync` / `ReportProgressAsync` / `HeartbeatAsync` | open records only |
 | `CompleteAsync` | first final state wins |
-| `FailLostAsync(staleBefore, now, retention)` | the sweep, across tenants |
+| `FailLostAsync(staleBefore, now, retention)` | the sweep, across tenants (the in-memory store also drops expired records here; MongoDB uses the TTL index) |
 
 Every read names the tenant (an empty tenant is an `ArgumentException`); a read for tenant B never returns a record of tenant A.
 The MongoDB store (`CkMethodMongoOperationStore`) keeps one document per operation in the collection `MethodOperations` of the system

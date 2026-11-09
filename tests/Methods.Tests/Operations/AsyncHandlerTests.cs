@@ -229,6 +229,26 @@ public class AsyncHandlerTests
     }
 
     [Fact]
+    public async Task AfterHostStop_NewCallsAreNotAccepted_NothingIsRecorded_AndTheWorkNeverStarts()
+    {
+        var started = 0;
+        var fixture = AsyncOperationFixture.With(new ExportHandler((_, _) =>
+        {
+            Interlocked.Increment(ref started);
+            return Done();
+        }));
+        await fixture.Runner.StopAsync(TestContext.Current.CancellationToken);
+
+        var response = await fixture.InvokeAsync();
+
+        Assert.False(response.Success);
+        Assert.Equal(CkMethodErrorCodes.MethodHandlerNotAvailable, response.Error!.Code);
+        Assert.Equal(CkMethodOperationReasons.HostStopping, response.Error.Parameters[CkMethodErrorParameters.Reason]);
+        Assert.Equal(0, ((CkMethodInMemoryOperationStore)fixture.Store).Count);
+        Assert.Equal(0, started);
+    }
+
+    [Fact]
     public async Task LostHandler_SweepEndsIt_TheWorkIsNeverStartedAgain_AndItsLateOutcomeIsDropped()
     {
         var release = new TaskCompletionSource();

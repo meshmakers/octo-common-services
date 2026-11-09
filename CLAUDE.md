@@ -1046,7 +1046,8 @@ Decision OD-5 (AB#6927): at most once after accept, record before the accepted e
   `CkMethodOperationRunner.AcceptAsync` (the invoker no longer disposes it on that path).
 - **Runner** (`CkMethodOperationRunner`, internal singleton): writes the record (`CreateAsync`) before it returns the accepted envelope
   (`operationId` = `Guid` "N", `acceptedAtUtc`, `retryAfterSeconds`; `expiresAtUtc` stays empty until completion); store failure =
-  `METHOD_HANDLER_NOT_AVAILABLE` / `operation-store-unavailable`, work not started. The work runs once under `ExecutionContext.SuppressFlow()`
+  `METHOD_HANDLER_NOT_AVAILABLE` / `operation-store-unavailable`, work not started; after `StopAsync` began nothing is recorded,
+  answer `METHOD_HANDLER_NOT_AVAILABLE` / `host-stopping`. The work runs once under `ExecutionContext.SuppressFlow()`
   (OD-8), `MarkRunningAsync` first (false = the sweep was faster, the work is not run), outcome mapping as the invoker (declared failure
   through `DeclaredFailure`, exceptions through the redactor, `CkMethodWriteOutcome`), host stop = cancelled = `handler-lost`. A sensitive
   result is never stored. `CkMethodOperationHeartbeatService` (heartbeat of own operations, `StopAsync` stops the work) and

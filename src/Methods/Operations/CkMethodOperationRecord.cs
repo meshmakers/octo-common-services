@@ -40,6 +40,12 @@ public static class CkMethodOperationReasons
     ///     (<c>METHOD_HANDLER_NOT_AVAILABLE</c>).
     /// </summary>
     public const string StoreUnavailable = "operation-store-unavailable";
+
+    /// <summary>
+    ///     The handler host is shutting down and accepts no new operation; nothing was recorded or started, the caller may
+    ///     retry (<c>METHOD_HANDLER_NOT_AVAILABLE</c>).
+    /// </summary>
+    public const string HostStopping = "host-stopping";
 }
 
 /// <summary>

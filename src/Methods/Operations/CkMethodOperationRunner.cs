@@ -63,11 +63,23 @@ internal sealed class CkMethodOperationRunner(
     /// <summary>
     ///     Records the operation and starts the work. Returns the accepted envelope only after the record is stored; when
     ///     the store fails, the call is answered <c>METHOD_HANDLER_NOT_AVAILABLE</c> (reason
-    ///     <see cref="CkMethodOperationReasons.StoreUnavailable" />) and the work never starts.
+    ///     <see cref="CkMethodOperationReasons.StoreUnavailable" />) and the work never starts. After <see cref="StopAsync" />
+    ///     began, nothing is recorded and the answer is <c>METHOD_HANDLER_NOT_AVAILABLE</c> (reason
+    ///     <see cref="CkMethodOperationReasons.HostStopping" />), so the caller can retry on another replica.
     /// </summary>
     public async Task<CkMethodResponse> AcceptAsync(CkMethodOperationStart start, CancellationToken cancellationToken)
     {
         var request = start.Request;
+        if (_stopping.IsCancellationRequested)
+        {
+            // a stopping host must not hand out a handle whose work would end as lost right away
+            await start.Scope.DisposeAsync().ConfigureAwait(false);
+            logger.LogWarning(
+                "CK method {MethodId} invocation {InvocationId} tenant {TenantId} NOT accepted: the host is stopping",
+                request.MethodId, request.InvocationId, request.TenantId);
+            return NotAvailable(start, CkMethodOperationReasons.HostStopping);
+        }
+
         var now = timeProvider.GetUtcNow().UtcDateTime;
         var record = new CkMethodOperationRecord
         {
@@ -99,10 +111,7 @@ internal sealed class CkMethodOperationRunner(
             logger.LogWarning(
                 "CK method {MethodId} invocation {InvocationId} tenant {TenantId} NOT accepted: the operation record could not be written ({ExceptionType}); the work was not started",
                 request.MethodId, request.InvocationId, request.TenantId, e.GetType().Name);
-            return CkMethodResponse.Failed(request.InvocationId, start.HandlerInstanceId,
-                CkMethodError.Create(CkMethodErrorCodes.MethodHandlerNotAvailable,
-                    (CkMethodErrorParameters.MethodId, request.MethodId),
-                    (CkMethodErrorParameters.Reason, CkMethodOperationReasons.StoreUnavailable)));
+            return NotAvailable(start, CkMethodOperationReasons.StoreUnavailable);
         }
 
         CkMethodMetrics.RecordOperation(request.MethodId, CkMethodOperationState.Accepted);
@@ -134,6 +143,12 @@ internal sealed class CkMethodOperationRunner(
             RetryAfterSeconds = Options.RetryAfterSeconds
         });
     }
+
+    private static CkMethodResponse NotAvailable(CkMethodOperationStart start, string reason) =>
+        CkMethodResponse.Failed(start.Request.InvocationId, start.HandlerInstanceId,
+            CkMethodError.Create(CkMethodErrorCodes.MethodHandlerNotAvailable,
+                (CkMethodErrorParameters.MethodId, start.Request.MethodId),
+                (CkMethodErrorParameters.Reason, reason)));
 
     private async Task RunAsync(CkMethodOperationStart start, CkMethodOperationRecord record)
     {
