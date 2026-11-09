@@ -250,7 +250,7 @@ public sealed partial class CkMethodDispatcherBusTests(RabbitMqFixture rabbitMq)
     /// <summary>A gateway: dispatcher + registry feed. With <paramref name="inProcess" /> it also hosts the handler.</summary>
     private async Task<(Host Host, ICkMethodDispatcher Dispatcher, RecordingFilter Filter)> StartGatewayAsync(
         bool inProcess = false, ICkCacheService? ckCache = null, string name = "Gateway",
-        ICkInProcessAmbientStateProbe? probe = null)
+        ICkInProcessAmbientStateProbe? probe = null, TimeSpan? warmUp = null, bool refuseWithoutLiveHandler = true)
     {
         var filter = new RecordingFilter();
         var services = BaseServices();
@@ -269,6 +269,12 @@ public sealed partial class CkMethodDispatcherBusTests(RabbitMqFixture rabbitMq)
             c.AddCkMethodHandlerRegistryFeed();
         });
         services.AddCkMethodDispatcher();
+        // AB#8634: a short registry warm-up keeps the "no handler" cases fast; the discovery fills the registry in ms
+        services.Configure<CkMethodDispatcherOptions>(o =>
+        {
+            o.RegistryWarmUp = warmUp ?? TimeSpan.FromSeconds(2);
+            o.RefuseWithoutLiveHandler = refuseWithoutLiveHandler;
+        });
         if (inProcess)
         {
             services.AddSingleton<Meshmakers.Octo.Services.Methods.Authorization.ICkMethodAuthorizationEvaluator, AllowAnyCallerEvaluator>();
@@ -459,6 +465,56 @@ public sealed partial class CkMethodDispatcherBusTests(RabbitMqFixture rabbitMq)
         Assert.Equal(UnregisteredMethodId, response.Error.Parameters[CkMethodErrorParameters.MethodId]);
         Assert.Equal(string.Empty, response.HandlerInstanceId);
         Assert.DoesNotContain("   at ", JsonSerializer.Serialize(response, Wire)); // no stack trace
+    }
+
+    [Fact]
+    public async Task NoLiveHandler_IsRefused_AndNothingReachesTheBroker()
+    {
+        // AB#8634: a method nobody announced (e.g. an identity password method that is local only) is refused by the
+        // registry, before the send; the broker never sees the request, so it never sees the password either
+        var (_, dispatcher, _) = await StartGatewayAsync(warmUp: TimeSpan.Zero);
+
+        var response = await dispatcher.InvokeAsync(NewRequest(methodId: UnregisteredMethodId, password: "never-on-the-broker"),
+            TestContext.Current.CancellationToken);
+
+        Assert.Equal(CkMethodErrorCodes.MethodHandlerNotAvailable, response.Error!.Code);
+        Assert.Equal("no-live-handler", response.Error.Parameters[CkMethodErrorParameters.Reason]);
+        // MassTransit declares the send exchange of a method with the first send to it: it does not exist
+        Assert.False(await SendExchangeExistsAsync(UnregisteredMethodId));
+    }
+
+    [Fact]
+    public async Task EmergencySwitchOff_TheBrokerDecides_AndTheRequestReachedTheBroker()
+    {
+        // the control of the test above: with the registry gate off the request is sent and returned by the broker
+        var (_, dispatcher, _) = await StartGatewayAsync(warmUp: TimeSpan.Zero, refuseWithoutLiveHandler: false);
+
+        var response = await dispatcher.InvokeAsync(NewRequest(methodId: UnregisteredMethodId),
+            TestContext.Current.CancellationToken);
+
+        Assert.Equal(CkMethodErrorCodes.MethodHandlerNotAvailable, response.Error!.Code);
+        Assert.Equal("no-live-handler", response.Error.Parameters[CkMethodErrorParameters.Reason]);
+        Assert.True(await SendExchangeExistsAsync(UnregisteredMethodId));
+    }
+
+    /// <summary>True when the send exchange of the method exists in this test's instance prefix.</summary>
+    private async Task<bool> SendExchangeExistsAsync(string methodId)
+    {
+        var name = $"{_instancePrefix}-{CkMethodQueueNames.For(methodId)}::send";
+        var exchanges = await rabbitMq.RabbitMqCtlAsync("list_exchanges", "name");
+        return exchanges.Any(e => string.Equals(e.Trim(), name, StringComparison.OrdinalIgnoreCase));
+    }
+
+    [Fact]
+    public async Task GatewayStartedBeforeTheHandler_WaitsForItsAnnouncementDuringTheWarmUp_AndTheCallSucceeds()
+    {
+        var (_, dispatcher, _) = await StartGatewayAsync(warmUp: TimeSpan.FromSeconds(20));
+
+        var call = dispatcher.InvokeAsync(NewRequest(), TestContext.Current.CancellationToken);
+        await StartHandlerHostAsync(); // announces itself on start
+        var response = await call.WaitAsync(TimeSpan.FromSeconds(15), TestContext.Current.CancellationToken);
+
+        Assert.True(response.Success, JsonSerializer.Serialize(response, Wire));
     }
 
     [Fact]

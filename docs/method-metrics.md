@@ -11,7 +11,7 @@ the event hub into the handler in a single trace. Everything is on the meter and
 |------------|------|--------|----------------|
 | `ck.method.calls` | counter | `method_id`, `transport`, `outcome` | every finished call, once |
 | `ck.method.duration` | histogram, seconds (buckets 5 ms to 300 s) | `method_id`, `transport`, `outcome` | duration of the same call as the caller sees it |
-| `ck.method.no_handler` | counter | `method_id`, `transport` | calls nobody could take: outcome `METHOD_HANDLER_NOT_AVAILABLE` (no live handler, tenant not served, method not registered). A refusal because the idempotency store was down carries the same code but is not counted here. |
+| `ck.method.no_handler` | counter | `method_id`, `transport` | calls nobody could take: outcome `METHOD_HANDLER_NOT_AVAILABLE` (no live handler, tenant not served, method not registered). A refusal because the idempotency store was down carries the same code but is not counted here. Since AB#8634 a call without a live handler is refused by the dispatcher **before** the send (nothing reaches the broker); it is counted exactly as the broker's return was before (`transport` `bus`, `reason` `no-live-handler`). |
 | `ck.method.duplicate_refused` | counter | `reason`, `method_id` | deliveries a handler host refused as a possible duplicate and did **not** execute |
 | `ck.method.audit.failures` | counter | `transport` | audit events that could not be written (AB#6919) |
 | `ck.method.operations` | counter | `method_id`, `state` | state changes of operations of asynchronous methods (AB#8443): `accepted`, `running`, `succeeded`, `failed`; operations the sweep ends as lost (`METHOD_OUTCOME_UNKNOWN`, `handler-lost`) count as `failed` with `method_id` `other` |

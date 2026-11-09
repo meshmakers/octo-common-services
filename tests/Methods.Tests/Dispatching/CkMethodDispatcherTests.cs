@@ -20,6 +20,8 @@ namespace Meshmakers.Octo.Services.Methods.Tests.Dispatching;
 public class CkMethodDispatcherTests
 {
     private const string RemoteMethod = "System.Identity/User.ChangePassword-1";
+    private const string UnannouncedMethod = "System.Identity/User.CreateUser-1";
+    private const string DefaultInstance = "default-live";
     private static readonly JsonSerializerOptions Wire = new(JsonSerializerDefaults.Web);
 
     private readonly FakeTimeProvider _time = new(new DateTimeOffset(2026, 10, 17, 12, 0, 0, TimeSpan.Zero)); // same start as InProcessFixture
@@ -34,9 +36,29 @@ public class CkMethodDispatcherTests
 
     public CkMethodDispatcherTests()
     {
-        _registry = new CkMethodHandlerRegistry(_time);
+        _registry = new CkMethodHandlerRegistry(_time, Options.Create(_options));
         A.CallTo(() => _resolver.Resolve(A<CkMethodRequest>._)).ReturnsLazily((CkMethodRequest r) => r.MethodId);
+        // AB#8634: the bus send needs a live handler in the registry; the default one lives for the whole test
+        AnnounceDefaultHandler();
     }
+
+    private void AnnounceDefaultHandler() =>
+        _registry.OnAnnounced(new CkMethodHandlerAnnounced(Guid.NewGuid(), Now)
+        {
+            ServiceName = "identity", InstanceId = DefaultInstance, TtlSeconds = 24 * 3600,
+            MethodIds = [RemoteMethod, "System.Identity/Principal.ChangePassword-1", "System.Identity/User.Other-1"]
+        });
+
+    /// <summary>Withdraws the default handler, so only what the test announces is live.</summary>
+    private void WithoutDefaultHandler() =>
+        _registry.OnWithdrawn(new CkMethodHandlerWithdrawn(Guid.NewGuid(), Now)
+        {
+            ServiceName = "identity", InstanceId = DefaultInstance,
+            MethodIds = [RemoteMethod, "System.Identity/Principal.ChangePassword-1", "System.Identity/User.Other-1"]
+        });
+
+    /// <summary>Lets the registry warm-up run out.</summary>
+    private void AfterWarmUp() => _time.Advance(_options.RegistryWarmUp);
 
     private DateTime Now => _time.GetUtcNow().UtcDateTime;
 
@@ -155,18 +177,179 @@ public class CkMethodDispatcherTests
     }
 
     [Fact]
-    public async Task EmptyRegistry_DoesNotRefuse_TheBrokerDecides()
+    public async Task NoLiveHandler_AfterTheWarmUp_IsRefused_WithoutAnythingSentToTheBroker()
     {
-        BusReturns(CkMethodResponse.Succeeded(Guid.Empty, "h"));
+        AfterWarmUp();
+
+        var response = await Dispatcher().InvokeAsync(Request(methodId: UnannouncedMethod),
+            TestContext.Current.CancellationToken);
+
+        // same envelope as the broker's return before AB#8634
+        Assert.False(response.Success);
+        Assert.Equal(CkMethodErrorCodes.MethodHandlerNotAvailable, response.Error!.Code);
+        Assert.Equal(UnannouncedMethod, response.Error.Parameters[CkMethodErrorParameters.MethodId]);
+        Assert.Equal("no-live-handler", response.Error.Parameters[CkMethodErrorParameters.Reason]);
+        Assert.Equal(string.Empty, response.HandlerInstanceId);
+        Assert.Empty(Fake.GetCalls(_eventHub)); // nothing at all went to the event hub
+        Assert.Contains(_logs.GetSnapshot(), r => r.Level == LogLevel.Warning && r.Message.Contains("no-live-handler"));
+    }
+
+    [Fact]
+    public async Task WithdrawnHandler_IsRefused_WithoutSending()
+    {
+        AfterWarmUp();
+        WithoutDefaultHandler();
 
         var response = await Dispatcher().InvokeAsync(Request(), TestContext.Current.CancellationToken);
 
+        Assert.Equal("no-live-handler", response.Error!.Parameters[CkMethodErrorParameters.Reason]);
+        Assert.Equal(0, Sends());
+    }
+
+    [Fact]
+    public async Task DuringTheWarmUp_AWithdrawalTheRegistryReceived_IsRefusedAtOnce_WithoutSending()
+    {
+        WithoutDefaultHandler(); // a withdrawal is an answer: nothing to wait for
+
+        var call = Dispatcher().InvokeAsync(Request(), TestContext.Current.CancellationToken);
+
+        Assert.True(call.IsCompleted);
+        Assert.Equal("no-live-handler", (await call).Error!.Parameters[CkMethodErrorParameters.Reason]);
+        Assert.Equal(0, Sends());
+    }
+
+    [Fact]
+    public async Task ExpiredHandler_IsRefused_WithoutSending()
+    {
+        _registry.OnAnnounced(new CkMethodHandlerAnnounced(Guid.NewGuid(), Now)
+            { ServiceName = "device", InstanceId = "d", MethodIds = [UnannouncedMethod], TtlSeconds = 45 });
+        _time.Advance(TimeSpan.FromSeconds(46)); // also past the warm-up
+
+        var response = await Dispatcher().InvokeAsync(Request(methodId: UnannouncedMethod),
+            TestContext.Current.CancellationToken);
+
+        Assert.Equal(CkMethodErrorCodes.MethodHandlerNotAvailable, response.Error!.Code);
+        Assert.Equal(0, Sends());
+    }
+
+    [Fact]
+    public async Task AfterTheBrokerReturnedASend_TheNextCallIsRefused_WithoutSending()
+    {
+        AfterWarmUp();
+        BusThrows(new CommandNotRoutableException()); // the live entry was stale (handler crashed inside its TTL)
+
+        var first = await Dispatcher().InvokeAsync(Request(), TestContext.Current.CancellationToken);
+        var second = await Dispatcher().InvokeAsync(Request(), TestContext.Current.CancellationToken);
+
+        Assert.Equal("no-live-handler", first.Error!.Parameters[CkMethodErrorParameters.Reason]);
+        Assert.Equal("no-live-handler", second.Error!.Parameters[CkMethodErrorParameters.Reason]);
+        Assert.Equal(1, Sends());
+    }
+
+    [Fact]
+    public async Task DuringTheWarmUp_ACallWaitsForTheAnnouncement_AndIsSent()
+    {
+        BusReturns(CkMethodResponse.Succeeded(Guid.Empty, "h"));
+
+        var call = Dispatcher().InvokeAsync(Request(methodId: UnannouncedMethod), TestContext.Current.CancellationToken);
+        Assert.False(call.IsCompleted);
+        Assert.Equal(0, Sends());
+
+        _time.Advance(TimeSpan.FromSeconds(1));
+        _registry.OnAnnounced(new CkMethodHandlerAnnounced(Guid.NewGuid(), Now)
+            { ServiceName = "identity", InstanceId = "late", MethodIds = [UnannouncedMethod] });
+        var response = await call.WaitAsync(TimeSpan.FromSeconds(10), TestContext.Current.CancellationToken);
+
         Assert.True(response.Success);
+        Assert.Equal(1, Sends());
+        // the wait used up one second of the 15 s deadline
+        Assert.Equal(TimeSpan.FromSeconds(14) + _options.ResponseGrace, SentOptions().Timeout);
+    }
+
+    [Fact]
+    public async Task DuringTheWarmUp_WithoutAnnouncement_TheCallIsRefusedWhenTheWarmUpEnds_WithoutSending()
+    {
+        var call = Dispatcher().InvokeAsync(Request(deadlineSeconds: 60, methodId: UnannouncedMethod),
+            TestContext.Current.CancellationToken);
+        _time.Advance(_options.RegistryWarmUp - TimeSpan.FromSeconds(1));
+        Assert.False(call.IsCompleted);
+
+        _time.Advance(TimeSpan.FromSeconds(1));
+        var response = await call.WaitAsync(TimeSpan.FromSeconds(10), TestContext.Current.CancellationToken);
+
+        Assert.Equal("no-live-handler", response.Error!.Parameters[CkMethodErrorParameters.Reason]);
+        Assert.Equal(0, Sends());
+    }
+
+    [Fact]
+    public async Task DuringTheWarmUp_AnAnnouncementOfAnotherMethod_DoesNotEndTheWait()
+    {
+        var call = Dispatcher().InvokeAsync(Request(deadlineSeconds: 60, methodId: UnannouncedMethod),
+            TestContext.Current.CancellationToken);
+
+        _registry.OnAnnounced(new CkMethodHandlerAnnounced(Guid.NewGuid(), Now)
+            { ServiceName = "other", InstanceId = "o", MethodIds = ["Other/Thing.Do-1"] });
+        await Task.Yield();
+        Assert.False(call.IsCompleted);
+
+        AfterWarmUp();
+        var response = await call.WaitAsync(TimeSpan.FromSeconds(10), TestContext.Current.CancellationToken);
+        Assert.Equal(CkMethodErrorCodes.MethodHandlerNotAvailable, response.Error!.Code);
+        Assert.Equal(0, Sends());
+    }
+
+    [Fact]
+    public async Task DuringTheWarmUp_TheWaitEndsAtTheRequestDeadline()
+    {
+        var call = Dispatcher().InvokeAsync(Request(deadlineSeconds: 3, methodId: UnannouncedMethod),
+            TestContext.Current.CancellationToken);
+
+        _time.Advance(TimeSpan.FromSeconds(3));
+        var response = await call.WaitAsync(TimeSpan.FromSeconds(10), TestContext.Current.CancellationToken);
+
+        Assert.Equal(CkMethodErrorCodes.MethodHandlerNotAvailable, response.Error!.Code);
+        Assert.Equal(0, Sends());
+    }
+
+    [Fact]
+    public async Task DuringTheWarmUp_CancellationOfTheCaller_Surfaces()
+    {
+        using var cts = new CancellationTokenSource();
+        var call = Dispatcher().InvokeAsync(Request(methodId: UnannouncedMethod), cts.Token);
+
+        await cts.CancelAsync();
+
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => call.WaitAsync(TimeSpan.FromSeconds(10),
+            TestContext.Current.CancellationToken));
+        Assert.Equal(0, Sends());
+    }
+
+    [Fact]
+    public void WarmUpZero_EndsTheWarmUpAtOnce()
+    {
+        _options.RegistryWarmUp = TimeSpan.Zero;
+        var registry = new CkMethodHandlerRegistry(_time, Options.Create(_options));
+
+        Assert.Equal(Now, registry.WarmUpEndsUtc);
+    }
+
+    [Fact]
+    public async Task EmergencySwitchOff_EmptyRegistry_DoesNotRefuse_TheBrokerDecides()
+    {
+        _options.RefuseWithoutLiveHandler = false;
+        BusReturns(CkMethodResponse.Succeeded(Guid.Empty, "h"));
+
+        var response = await Dispatcher().InvokeAsync(Request(methodId: UnannouncedMethod),
+            TestContext.Current.CancellationToken);
+
+        Assert.True(response.Success);
+        Assert.Equal(1, Sends());
     }
 
     [Fact]
     public async Task HandlersOnlyForOtherTenants_AreNotAvailable_WithoutSending()
     {
+        WithoutDefaultHandler();
         _registry.OnAnnounced(new CkMethodHandlerAnnounced(Guid.NewGuid(), Now)
             { ServiceName = "identity", InstanceId = "a", MethodIds = [RemoteMethod], Tenants = ["other"] });
 
@@ -323,6 +506,8 @@ public class CkMethodDispatcherTests
         foreach (var fault in faults)
         {
             Fake.ClearRecordedCalls(_eventHub);
+            _time.Advance(TimeSpan.FromMilliseconds(1));
+            AnnounceDefaultHandler(); // a returned send expired it
             BusThrows(fault);
 
             var response = await Dispatcher().InvokeAsync(Request(), TestContext.Current.CancellationToken);

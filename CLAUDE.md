@@ -1134,10 +1134,14 @@ tests `tests/Methods.Tests/Metrics/CkMethodMetricsTests.cs`, `tests/Methods.Inte
   `METHOD_HANDLER_NOT_AVAILABLE` or `METHOD_HANDLER_FAILED`. Duplicates: see the bus transport above. Not detected (no "at most once"):
   new invocation id, other instance without broker flag, restarted instance, single instance that loses its connection. A shared
   duplicate store / idempotency store is open decision OD-3/OD-4 (`methodConsistency.md`) and is **not** built; do not add one here.
-- **Registry** (`ICkMethodHandlerRegistry`, in-memory, advisory): fed by announce/withdraw, expiry = receipt time + TTL (dispatcher
-  clock), withdrawal beats older announcements, `MarkNoQueueBound` spares instances announced during the send. Used for the tenant check
-  (`tenant-not-served`) and the contract version check (never send a newer version than announced); it never vetoes a send, the broker's
-  mandatory flag decides. `CkMethodDispatcherStartupService` (order 30) publishes a discovery request at start. Diagnostics: see below.
+- **Registry** (`ICkMethodHandlerRegistry`, in-memory, **gate of the bus send** since AB#8634): fed by announce/withdraw, expiry = receipt
+  time + TTL (dispatcher clock), withdrawal beats older announcements, `MarkNoQueueBound` spares instances announced during the send. No
+  live entry = `METHOD_HANDLER_NOT_AVAILABLE` / `no-live-handler` **without a send** (the request carries passwords and the caller token);
+  inside `Methods:Dispatcher:RegistryWarmUp` (20 s, restarted by the discovery request) a call for a method the registry has not heard of
+  (or knows only from the snapshot) waits for an announcement first; a withdrawal/expiry it received refuses at once. The send stays
+  mandatory (crash inside the TTL = one returned send, then expired). Emergency switch `Methods:Dispatcher:RefuseWithoutLiveHandler=false`
+  restores the old advisory behaviour. Also used for the tenant check (`tenant-not-served`) and the contract version check.
+  `CkMethodDispatcherStartupService` (order 30) publishes a discovery request at start. Diagnostics: see below.
 - **Registry snapshot** (AB#5671): with an `ICkMethodHandlerSnapshotStore` in the host (port and Mongo store live in
   `octo-construction-kit-engine-mongodb`, plain collection `ck_method_handler_snapshot` in the system DB, TTL index) the registry queues
   every change (`CkMethodHandlerRegistry.TakeChanges`) and `CkMethodHandlerSnapshotFlushService` writes it every

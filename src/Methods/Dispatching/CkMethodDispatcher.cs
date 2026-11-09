@@ -15,6 +15,8 @@ namespace Meshmakers.Octo.Services.Methods.Dispatching;
 ///     <see cref="ICkMethodDispatcher" />: resolves the declaring element, prefers the in-process transport when the
 ///     method is hosted in this process and otherwise supplies the bus <c>send</c> as the terminal delegate of
 ///     <see cref="ICkMethodInvocationPipeline" />. Filters (audit, authorization, idempotency) are the pipeline's job.
+///     The bus send happens only when the handler registry knows a live handler for the method (AB#8634); otherwise the
+///     call is refused as <c>METHOD_HANDLER_NOT_AVAILABLE</c> / <c>no-live-handler</c> without touching the broker.
 /// </summary>
 internal sealed class CkMethodDispatcher(
     ICkMethodDeclaringElementResolver resolver,
@@ -194,6 +196,25 @@ internal sealed class CkMethodDispatcher(
         }
 
         var live = registry.GetLiveHandlers(request.MethodId);
+        if (live.Count == 0 && opt.RefuseWithoutLiveHandler)
+        {
+            // AB#8634: the request carries the parameters (passwords) and the caller's token. Without a live handler it is
+            // refused here, before anything reaches the broker; a mandatory send that the broker returns has already
+            // carried it there. Right after a start the registry may still fill, so wait for the warm-up first.
+            live = await WaitForLiveHandlerAsync(request, cancellationToken).ConfigureAwait(false);
+            if (live.Count == 0)
+            {
+                return NotAvailable(request, ReasonNoLiveHandler);
+            }
+
+            // the wait used up part of the deadline
+            remaining = request.DeadlineUtc - timeProvider.GetUtcNow().UtcDateTime;
+            if (remaining <= TimeSpan.Zero)
+            {
+                return Timeout(request);
+            }
+        }
+
         if (live.Count > 0)
         {
             var serving = live.Where(e => CkMethodHandlerRegistry.Serves(e, request.TenantId)).ToList();
@@ -213,9 +234,13 @@ internal sealed class CkMethodDispatcher(
             }
         }
 
-        // The registry is advisory: an empty registry (dispatcher just started, heartbeat lost) must not refuse a call
-        // that the broker can still deliver. The mandatory flag is the truth.
+        // The send stays mandatory: a live entry can be stale (handler crashed inside its TTL); the broker then returns the
+        // request, the entry is expired and the next call is refused before the send. With RefuseWithoutLiveHandler=false
+        // (emergency switch) an empty registry does not refuse and the broker decides, as before AB#8634.
         var wait = remaining + grace;
+        // after a warm-up wait this is later than sendStartedUtc: an instance announced during the wait and returned by
+        // the broker must be expired too
+        var sentAtUtc = timeProvider.GetUtcNow().UtcDateTime;
         try
         {
             return await eventHub.GetCommandResponseAsync<CkMethodRequest, CkMethodResponse>(
@@ -232,7 +257,7 @@ internal sealed class CkMethodDispatcher(
         }
         catch (CommandNotRoutableException)
         {
-            registry.MarkNoQueueBound(request.MethodId, sendStartedUtc);
+            registry.MarkNoQueueBound(request.MethodId, sentAtUtc);
             return NotAvailable(request, ReasonNoLiveHandler);
         }
         catch (DistributionTimeoutException)
@@ -254,6 +279,47 @@ internal sealed class CkMethodDispatcher(
                 "CK method {MethodId} invocation {InvocationId} tenant {TenantId}: bus transport failed (correlation {CorrelationId})",
                 request.MethodId, request.InvocationId, request.TenantId, correlationId);
             return HandlerFailed(request, correlationId);
+        }
+    }
+
+    /// <summary>
+    ///     Waits for a live handler of the method while the registry warm-up runs (at most until it ends or the request
+    ///     deadline passes), but only while the registry has not heard of the method yet or knows it only from the restored
+    ///     snapshot. Returns the live handlers, or an empty list when none announced itself in time.
+    /// </summary>
+    private async Task<IReadOnlyList<CkMethodHandlerEntry>> WaitForLiveHandlerAsync(CkMethodRequest request,
+        CancellationToken cancellationToken)
+    {
+        while (true)
+        {
+            // take the signal before the check, so an announcement between the check and the wait is not missed
+            var announced = registry.WaitForAnnouncementAsync();
+            var live = registry.GetLiveHandlers(request.MethodId);
+            if (live.Count > 0)
+            {
+                return live;
+            }
+
+            // A withdrawal or an expiry this registry received itself is an answer: refuse at once. Only a method the
+            // registry has not heard of yet, or knows only from the restored snapshot, may still be announced.
+            var lastSeen = registry.GetLastSeen(request.MethodId);
+            if (lastSeen != null && lastSeen.Source != CkMethodHandlerEntrySource.Snapshot)
+            {
+                return [];
+            }
+
+            var now = timeProvider.GetUtcNow().UtcDateTime;
+            var until = registry.WarmUpEndsUtc < request.DeadlineUtc ? registry.WarmUpEndsUtc : request.DeadlineUtc;
+            if (until <= now)
+            {
+                return [];
+            }
+
+            using var delayCancellation = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+            var delay = Task.Delay(until - now, timeProvider, delayCancellation.Token);
+            await Task.WhenAny(announced, delay).ConfigureAwait(false);
+            await delayCancellation.CancelAsync().ConfigureAwait(false);
+            cancellationToken.ThrowIfCancellationRequested();
         }
     }
 

@@ -355,7 +355,7 @@ public sealed class CkMethodReplicaSharingBusTests(RabbitMqFixture rabbitMq, ITe
     {
         var executions = new ConcurrentDictionary<Guid, int>();
         var handlers = await StartReplicasAsync(2, TimeSpan.Zero, executions);
-        var (_, dispatcher) = await StartGatewayAsync();
+        var (gateway, dispatcher) = await StartGatewayAsync();
 
         foreach (var h in handlers)
         {
@@ -367,6 +367,15 @@ public sealed class CkMethodReplicaSharingBusTests(RabbitMqFixture rabbitMq, ITe
         Assert.Equal(CkMethodErrorCodes.MethodHandlerNotAvailable, refused.Error!.Code);
 
         var again = await StartReplicasAsync(1, TimeSpan.Zero, executions);
+        // AB#8634: the gateway sends only to a handler it has heard of; the new replica's announcement arrives within
+        // milliseconds of its start (a call in between is refused, the safe direction)
+        var registry = gateway.Provider.GetRequiredService<ICkMethodHandlerRegistry>();
+        var deadline = DateTime.UtcNow.AddSeconds(5);
+        while (registry.GetLiveHandlers(MethodId).Count == 0 && DateTime.UtcNow < deadline)
+        {
+            await Task.Delay(20, TestContext.Current.CancellationToken);
+        }
+
         Assert.True((await dispatcher.InvokeAsync(NewRequest(), TestContext.Current.CancellationToken)).Success);
         Assert.Equal(1, again[0].Probe.Calls);
     }

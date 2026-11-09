@@ -302,21 +302,24 @@ public class SelfHostedMethodCallTests
     [Fact]
     public async Task LocalOnly_CalledFromAnotherProcess_IsHandlerNotAvailable()
     {
-        // another process: a dispatcher without the handler; the broker returns the unroutable message (no queue)
+        // another process: a dispatcher without the handler. A local-only handler never announces itself, so the
+        // dispatcher refuses before the send (AB#8634): the parameters (passwords) never reach the broker
         var eventHub = A.Fake<IDistributionEventHubService>();
         A.CallTo(() => eventHub.GetCommandResponseAsync<CkMethodRequest, CkMethodResponse>(A<string>._,
                 A<CkMethodRequest>._, A<CommandSendOptions>._, A<CancellationToken>._))
             .Throws(new CommandNotRoutableException("no queue bound"));
         var resolver = A.Fake<ICkMethodDeclaringElementResolver>();
         A.CallTo(() => resolver.Resolve(A<CkMethodRequest>._)).ReturnsLazily((CkMethodRequest r) => r.MethodId);
+        var warmedUp = new CkMethodDispatcherOptions { RegistryWarmUp = TimeSpan.Zero };
         var dispatcher = new CkMethodDispatcher(resolver,
             new CkMethodInvocationPipeline([], new CkMethodSensitivityResolver(null),
                 NullLogger<CkMethodInvocationPipeline>.Instance),
-            new CkMethodHandlerRegistry(TimeProvider.System), eventHub, new ServiceCollection().BuildServiceProvider(),
-            new CkMethodSensitivityResolver(null), Options.Create(new CkMethodDispatcherOptions()), TimeProvider.System,
-            NullLogger<CkMethodDispatcher>.Instance);
+            new CkMethodHandlerRegistry(TimeProvider.System, Options.Create(warmedUp)), eventHub,
+            new ServiceCollection().BuildServiceProvider(), new CkMethodSensitivityResolver(null), Options.Create(warmedUp),
+            TimeProvider.System, NullLogger<CkMethodDispatcher>.Instance);
 
         var response = await CallAsAsync(dispatcher, Request(LocalOnlyMethodId), HostFixture.Administrator);
+        Assert.Empty(Fake.GetCalls(eventHub));
 
         Assert.Equal(CkMethodErrorCodes.MethodHandlerNotAvailable, response.Error!.Code);
         Assert.Equal(LocalOnlyMethodId, response.Error.Parameters[CkMethodErrorParameters.MethodId]);
