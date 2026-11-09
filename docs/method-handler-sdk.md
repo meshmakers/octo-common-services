@@ -626,7 +626,8 @@ dispatcher host therefore knows its handlers, the served tenants and the contrac
 
 * **A row is "last seen", not "live".** A restored row is live only inside its TTL window (`ExpiresUtc`, receipt time + announced TTL),
   exactly like a received announcement. Rows of a stopped handler, an expired TTL or a withdrawal are history: `GetLiveHandlers` does not
-  return them, the send is decided by the broker and ends as `METHOD_HANDLER_NOT_AVAILABLE`. A withdrawal is stored as a tombstone with the
+  return them. Inside the registry warm-up a call waits for a fresh announcement of the restarted handler; after it the call is refused as
+  `METHOD_HANDLER_NOT_AVAILABLE` without a send (AB#8634). A withdrawal is stored as a tombstone with the
   handler's own withdrawal timestamp, so an older announcement that arrives after a restart cannot resurrect the instance.
 * **Never more than an announcement could say.** On restore `LastSeenUtc` is capped to now and `ExpiresUtc` to `LastSeenUtc` + 24 h; rows
   last seen more than 24 h ago are skipped. A heartbeat or discovery answer that arrived since is newer and wins over the snapshot row.

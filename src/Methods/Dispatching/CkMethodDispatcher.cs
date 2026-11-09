@@ -293,7 +293,7 @@ internal sealed class CkMethodDispatcher(
         while (true)
         {
             // take the signal before the check, so an announcement between the check and the wait is not missed
-            var announced = registry.WaitForAnnouncementAsync();
+            var changed = registry.WaitForChangeAsync();
             var live = registry.GetLiveHandlers(request.MethodId);
             if (live.Count > 0)
             {
@@ -317,7 +317,7 @@ internal sealed class CkMethodDispatcher(
 
             using var delayCancellation = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
             var delay = Task.Delay(until - now, timeProvider, delayCancellation.Token);
-            await Task.WhenAny(announced, delay).ConfigureAwait(false);
+            await Task.WhenAny(changed, delay).ConfigureAwait(false);
             await delayCancellation.CancelAsync().ConfigureAwait(false);
             cancellationToken.ThrowIfCancellationRequested();
         }

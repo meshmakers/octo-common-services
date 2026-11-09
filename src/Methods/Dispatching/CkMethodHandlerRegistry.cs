@@ -14,8 +14,8 @@ namespace Meshmakers.Octo.Services.Methods.Dispatching;
 ///     and a restarted host restores the rows with <see cref="Restore" />; a restored row is a "last seen" record and
 ///     counts as live only inside its heartbeat TTL window, exactly like a received announcement.
 ///     The registry is the gate of the bus send (AB#8634): it knows when its warm-up ends (<see cref="WarmUpEndsUtc" />)
-///     and signals every announcement (<see cref="WaitForAnnouncementAsync" />), so the dispatcher can wait for a handler
-///     that announces itself right after a restart instead of refusing it.
+///     and signals every announcement and withdrawal (<see cref="WaitForChangeAsync" />), so the dispatcher can wait for
+///     a handler that announces itself right after a restart instead of refusing it.
 /// </summary>
 internal sealed class CkMethodHandlerRegistry : ICkMethodHandlerRegistry
 {
@@ -31,7 +31,7 @@ internal sealed class CkMethodHandlerRegistry : ICkMethodHandlerRegistry
     private bool _trackChanges;
     private DateTime _lastPruneUtc;
     private DateTime _warmUpEndsUtc;
-    private TaskCompletionSource _announced = NewSignal();
+    private TaskCompletionSource _changed = NewSignal();
 
     public CkMethodHandlerRegistry(TimeProvider timeProvider, IOptions<CkMethodDispatcherOptions>? options = null)
     {
@@ -73,14 +73,14 @@ internal sealed class CkMethodHandlerRegistry : ICkMethodHandlerRegistry
     }
 
     /// <summary>
-    ///     Completes with the next announcement received after the call (also one that changes nothing). Take the task
-    ///     before checking <see cref="GetLiveHandlers" /> again, so an announcement in between is not missed.
+    ///     Completes with the next announcement or withdrawal received after the call (also one that changes nothing).
+    ///     Take the task before checking <see cref="GetLiveHandlers" /> again, so a message in between is not missed.
     /// </summary>
-    internal Task WaitForAnnouncementAsync()
+    internal Task WaitForChangeAsync()
     {
         lock (_lock)
         {
-            return _announced.Task;
+            return _changed.Task;
         }
     }
 
@@ -110,8 +110,8 @@ internal sealed class CkMethodHandlerRegistry : ICkMethodHandlerRegistry
             }
 
             Prune(now);
-            signal = _announced;
-            _announced = NewSignal();
+            signal = _changed;
+            _changed = NewSignal();
         }
 
         signal.TrySetResult();
@@ -120,6 +120,7 @@ internal sealed class CkMethodHandlerRegistry : ICkMethodHandlerRegistry
     internal void OnWithdrawn(CkMethodHandlerWithdrawn message)
     {
         var now = Now;
+        TaskCompletionSource signal;
         lock (_lock)
         {
             foreach (var methodId in message.MethodIds)
@@ -139,7 +140,13 @@ internal sealed class CkMethodHandlerRegistry : ICkMethodHandlerRegistry
                 instances[message.InstanceId] = new State(entry, withdrawnAt);
                 MarkDirty(Normalize(methodId), message.InstanceId);
             }
+
+            signal = _changed;
+            _changed = NewSignal();
         }
+
+        // a waiting call re-checks and is refused at once (a withdrawal is an answer)
+        signal.TrySetResult();
     }
 
     /// <summary>

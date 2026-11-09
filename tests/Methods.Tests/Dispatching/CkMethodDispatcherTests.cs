@@ -299,6 +299,22 @@ public class CkMethodDispatcherTests
     }
 
     [Fact]
+    public async Task DuringTheWarmUp_AWithdrawalArrivingWhileTheCallWaits_RefusesItAtOnce()
+    {
+        var call = Dispatcher().InvokeAsync(Request(deadlineSeconds: 60, methodId: UnannouncedMethod),
+            TestContext.Current.CancellationToken);
+        Assert.False(call.IsCompleted);
+
+        // no time passes: the withdrawal itself wakes the waiting call
+        _registry.OnWithdrawn(new CkMethodHandlerWithdrawn(Guid.NewGuid(), Now)
+            { ServiceName = "identity", InstanceId = "gone", MethodIds = [UnannouncedMethod] });
+        var response = await call.WaitAsync(TimeSpan.FromSeconds(10), TestContext.Current.CancellationToken);
+
+        Assert.Equal("no-live-handler", response.Error!.Parameters[CkMethodErrorParameters.Reason]);
+        Assert.Equal(0, Sends());
+    }
+
+    [Fact]
     public async Task DuringTheWarmUp_TheWaitEndsAtTheRequestDeadline()
     {
         var call = Dispatcher().InvokeAsync(Request(deadlineSeconds: 3, methodId: UnannouncedMethod),

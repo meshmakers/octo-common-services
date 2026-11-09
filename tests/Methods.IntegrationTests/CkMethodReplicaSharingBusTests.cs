@@ -376,6 +376,7 @@ public sealed class CkMethodReplicaSharingBusTests(RabbitMqFixture rabbitMq, ITe
             await Task.Delay(20, TestContext.Current.CancellationToken);
         }
 
+        Assert.NotEmpty(registry.GetLiveHandlers(MethodId));
         Assert.True((await dispatcher.InvokeAsync(NewRequest(), TestContext.Current.CancellationToken)).Success);
         Assert.Equal(1, again[0].Probe.Calls);
     }
