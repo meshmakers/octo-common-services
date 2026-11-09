@@ -124,13 +124,33 @@ public class CkMethodHandlerSnapshotTests
         Assert.Empty(restarted.GetLiveHandlers(Method));
         Assert.Equal("a", restarted.GetLastSeen(Method)!.InstanceId);
 
-        A.CallTo(() => _eventHub.GetCommandResponseAsync<CkMethodRequest, CkMethodResponse>(A<string>._,
-                A<CkMethodRequest>._, A<CommandSendOptions>._, A<CancellationToken>._))
-            .Throws(new CommandNotRoutableException());
+        // AB#8634: after the warm-up of the restarted registry a last-seen row is no reason to send
+        _time.Advance(new CkMethodDispatcherOptions().RegistryWarmUp);
         var response = await Dispatcher(restarted).InvokeAsync(Request(), TestContext.Current.CancellationToken);
 
         Assert.Equal(CkMethodErrorCodes.MethodHandlerNotAvailable, response.Error!.Code);
         Assert.Equal("no-live-handler", response.Error.Parameters[CkMethodErrorParameters.Reason]);
+        Assert.Equal(0, Sends());
+    }
+
+    [Fact]
+    public async Task StoppedHandler_KnownOnlyFromTheSnapshot_TheCallWaitsForTheWarmUp_AndARestartedHandlerTakesIt()
+    {
+        // AB#8634: a restored row is not an answer of this registry; inside the warm-up the call waits for a fresh
+        // announcement (the handler restarted too) instead of being refused
+        var (restarted, _) = await RestartAfter(r => r.OnAnnounced(Announce(ttl: 45)),
+            downtime: TimeSpan.FromSeconds(120));
+        A.CallTo(() => _eventHub.GetCommandResponseAsync<CkMethodRequest, CkMethodResponse>(A<string>._,
+                A<CkMethodRequest>._, A<CommandSendOptions>._, A<CancellationToken>._))
+            .Returns(CkMethodResponse.Succeeded(Guid.Empty, "b"));
+
+        var call = Dispatcher(restarted).InvokeAsync(Request(), TestContext.Current.CancellationToken);
+        Assert.False(call.IsCompleted);
+        restarted.OnAnnounced(Announce(instance: "b"));
+        var response = await call.WaitAsync(TimeSpan.FromSeconds(10), TestContext.Current.CancellationToken);
+
+        Assert.True(response.Success);
+        Assert.Equal(1, Sends());
     }
 
     [Fact]

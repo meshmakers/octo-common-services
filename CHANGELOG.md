@@ -48,6 +48,16 @@ entries are grouped by work item until a release assigns the version.
 
 ### Fixed
 
+- **AB#8634** — security: a CK method call without a live handler is refused **before anything is sent to the broker**. The
+  dispatcher (`AddCkMethodDispatcher`) now treats the handler registry as the gate of the bus send: no live entry for the method =
+  `METHOD_HANDLER_NOT_AVAILABLE` / `no-live-handler` (same envelope, WARN line and `ck.method.calls` / `ck.method.no_handler`
+  counting as before) and no call on the event hub. Before, one mandatory, non-persistent send carried the request, with its
+  parameters (identity passwords) and the caller's token, to RabbitMQ, which returned it unroutable, and MassTransit logged
+  `ERROR S-FAULT ... CkMethodRequest`. Generic for every method. New options `Methods:Dispatcher:RegistryWarmUp` (default 20 s: a
+  freshly started dispatcher waits for announcements of methods it has not heard of yet) and
+  `Methods:Dispatcher:RefuseWithoutLiveHandler` (default `true`; `false` = old advisory behaviour, emergency switch only). The send
+  stays mandatory for a handler that crashed inside its TTL. No interface or contract change.
+
 - **AB#8415** — `docs/rest-deprecation.md`, the XML docs and the tests describe the pipeline service account client
   ids correctly: `octo-pipeline-sa-{adapterRtId}` for an adapter's account, `octo-pipeline-sa-{configurationRtId}` for a
   standalone account (or a custom client id outside the prefix, reported as itself), not `octo-pipeline-sa-<tenant>`.

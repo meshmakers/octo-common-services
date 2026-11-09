@@ -25,8 +25,12 @@ namespace Meshmakers.Octo.Services.Methods;
 ///             <see cref="ICkMethodInvocationPipeline" />; the dispatcher adds no filter of its own.
 ///         </item>
 ///         <item>
-///             <b>No handler.</b> The bus send is <i>mandatory</i>: when nobody consumes the queue the call fails within
-///             milliseconds as <c>METHOD_HANDLER_NOT_AVAILABLE</c> (method id and a reason token, no stack trace).
+///             <b>No handler.</b> When the handler registry knows no live handler for the method, the call fails as
+///             <c>METHOD_HANDLER_NOT_AVAILABLE</c> (method id and the reason <c>no-live-handler</c>, no stack trace)
+///             <b>without anything being sent to the broker</b> (AB#8634); right after the dispatcher started it first waits
+///             for the registry warm-up (<see cref="CkMethodDispatcherOptions.RegistryWarmUp" />). The bus send itself
+///             stays <i>mandatory</i>: when the registry still lists a handler that is gone (crash inside its TTL) the
+///             broker returns the request and the call fails the same way within milliseconds.
 ///         </item>
 ///         <item>
 ///             <b>No retry.</b> The dispatcher sends a request once. A transport fault ends as <c>METHOD_TIMEOUT</c> or
@@ -69,6 +73,25 @@ public sealed class CkMethodDispatcherOptions
     ///     before it answers <c>METHOD_TIMEOUT</c> itself. Documented tolerance of the timeout. Default 2 s.
     /// </summary>
     public TimeSpan ResponseGrace { get; set; } = TimeSpan.FromSeconds(2);
+
+    /// <summary>
+    ///     Refuse a bus call with <c>METHOD_HANDLER_NOT_AVAILABLE</c> (reason <c>no-live-handler</c>) <b>without sending
+    ///     anything to the broker</b> when the handler registry knows no live handler for the method (AB#8634). The request
+    ///     carries the parameters (passwords of the identity methods) and the caller's access token; a mandatory send that
+    ///     the broker returns has still carried them to the broker. Default <c>true</c>. <c>false</c> restores the advisory
+    ///     registry of before (the broker decides with the mandatory flag) and is meant only as an emergency switch when
+    ///     the registry feed is broken; it lets the parameters of unroutable calls reach the broker again.
+    /// </summary>
+    public bool RefuseWithoutLiveHandler { get; set; } = true;
+
+    /// <summary>
+    ///     Warm-up of the handler registry after the dispatcher started (and again after it asked for discovery): until it
+    ///     ends, a call whose method has no live handler yet waits for an announcement (at most until the warm-up ends or
+    ///     the request deadline) instead of being refused, so a freshly started gateway does not refuse calls a handler
+    ///     will announce within one heartbeat round. Must be longer than the heartbeat interval of the handler hosts
+    ///     (<c>Methods:HeartbeatInterval</c>, 15 s by default); zero or negative turns the wait off. Default 20 s.
+    /// </summary>
+    public TimeSpan RegistryWarmUp { get; set; } = TimeSpan.FromSeconds(20);
 
     /// <summary>
     ///     Keep the handler registry as a snapshot in the system database (AB#5671) so a restarted host answers without

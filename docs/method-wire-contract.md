@@ -135,6 +135,9 @@ Handlers consume the method queue as a shared (competing-consumer) endpoint. A r
 `GetCommandResponseAsync(CkMethodQueueNames.For(id), request, new CommandSendOptions { Mandatory = true, Timeout, TimeToLive }, ct)`.
 `Mandatory` turns "no consumer" into a `CommandNotRoutableException` within milliseconds (`METHOD_HANDLER_NOT_AVAILABLE` in
 the dispatcher), and a handler is announced only after its endpoint accepts messages, so an announced handler is routable.
+Since AB#8634 the dispatcher sends only when its handler registry knows a live handler for the method; otherwise it answers
+`METHOD_HANDLER_NOT_AVAILABLE` / `no-live-handler` without sending, so the request (parameters, caller token) never reaches the broker
+for a method nobody serves. The mandatory flag remains the safety net for a handler that crashed inside its TTL.
 The plain `GetCommandResponseAsync` overload addresses a different (temporary, exclusive) exchange and does not reach a handler.
 
 ## Security notes
