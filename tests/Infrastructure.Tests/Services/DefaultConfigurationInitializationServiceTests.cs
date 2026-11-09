@@ -1,8 +1,10 @@
+using System.Diagnostics;
 using FakeItEasy;
 using Meshmakers.Octo.Runtime.Contracts.MongoDb;
 using Meshmakers.Octo.Runtime.Contracts.MongoDb.Repositories;
 using Meshmakers.Octo.Runtime.Contracts.Repositories.Query;
 using Meshmakers.Octo.Services.Infrastructure.Services;
+using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging.Abstractions;
 using Xunit;
 
@@ -78,20 +80,89 @@ public class DefaultConfigurationInitializationServiceTests
         A.CallTo(() => _creator.SetupAsync("tenant-a")).MustHaveHappenedOnceExactly();
     }
 
-    /// <summary>AB#8677: the retry is bounded; an import that never ends still fails the host start.</summary>
+    /// <summary>
+    ///     AB#8677: the retry is bounded by a total deadline, not by an attempt count; an import that never ends still
+    ///     fails the host start, with the original error.
+    /// </summary>
     [Fact]
-    public async Task SystemTenantFailing_BecauseACkModelIsBeingImported_FailsTheHostStartAfterTheLastAttempt()
+    public async Task SystemTenantFailing_BecauseACkModelIsBeingImported_FailsTheHostStartWhenTheDeadlineExpires()
+    {
+        StubChildTenants();
+        var original = ImportInProgress();
+        A.CallTo(() => _creator.SetupAsync("octosystem")).ThrowsAsync(original);
+
+        var sut = NewSut();
+        sut.SystemTenantRetryDeadline = TimeSpan.FromMilliseconds(300);
+        sut.SystemTenantRetryDelay = TimeSpan.FromMilliseconds(20);
+
+        var started = Stopwatch.StartNew();
+        var failure = await Assert.ThrowsAsync<InvalidOperationException>(() => sut.InitializeAsync());
+        started.Stop();
+
+        Assert.Same(original, failure);
+        Assert.True(started.Elapsed >= TimeSpan.FromMilliseconds(300), $"gave up after {started.Elapsed}");
+        Assert.True(started.Elapsed < TimeSpan.FromSeconds(10), $"took {started.Elapsed}");
+        A.CallTo(() => _creator.SetupAsync("octosystem")).MustHaveHappened(2, Times.OrMore);
+    }
+
+    /// <summary>AB#8677: the deadline is time, so a slow attempt (the engine itself waits up to two minutes) counts.</summary>
+    [Fact]
+    public async Task SystemTenantFailing_AfterASlowAttemptThatUsedUpTheDeadline_IsNotRetried()
+    {
+        StubChildTenants();
+        A.CallTo(() => _creator.SetupAsync("octosystem")).ReturnsLazily(async () =>
+        {
+            await Task.Delay(TimeSpan.FromMilliseconds(200));
+            throw ImportInProgress();
+        });
+
+        var sut = NewSut();
+        sut.SystemTenantRetryDeadline = TimeSpan.FromMilliseconds(100);
+
+        await Assert.ThrowsAsync<InvalidOperationException>(() => sut.InitializeAsync());
+
+        A.CallTo(() => _creator.SetupAsync("octosystem")).MustHaveHappenedOnceExactly();
+    }
+
+    /// <summary>AB#8677: a host that stops while the system tenant setup waits for the next attempt ends the wait at once.</summary>
+    [Fact]
+    public async Task SystemTenantRetry_EndsTheWait_WhenTheHostStops()
     {
         StubChildTenants();
         A.CallTo(() => _creator.SetupAsync("octosystem")).ThrowsAsync(ImportInProgress());
+        using var stopping = new CancellationTokenSource();
+        var lifetime = A.Fake<IHostApplicationLifetime>();
+        A.CallTo(() => lifetime.ApplicationStopping).Returns(stopping.Token);
+
+        var sut = new DefaultConfigurationInitializationService(
+            NullLogger<DefaultConfigurationInitializationService>.Instance, _systemContext, _creator, lifetime)
+        {
+            SystemTenantRetryDelay = TimeSpan.FromMinutes(10)
+        };
+
+        var started = Stopwatch.StartNew();
+        var run = sut.InitializeAsync();
+        await stopping.CancelAsync();
+
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => run);
+        Assert.True(started.Elapsed < TimeSpan.FromSeconds(30), $"took {started.Elapsed}");
+        A.CallTo(() => _creator.SetupAsync("octosystem")).MustHaveHappenedOnceExactly();
+    }
+
+    /// <summary>AB#8677: the engine's mark inside an AggregateException (e.g. from a parallel CK import) is retried too.</summary>
+    [Fact]
+    public async Task SystemTenantFailing_WithTheMarkInsideAnAggregateException_IsRetried()
+    {
+        StubChildTenants();
+        A.CallTo(() => _creator.SetupAsync("octosystem"))
+            .ThrowsAsync(new AggregateException(new InvalidOperationException("other"), ImportInProgress())).Once()
+            .Then.Returns(Task.CompletedTask);
 
         var sut = NewSut();
-        sut.MaxSystemTenantAttempts = 3;
 
-        var failure = await Assert.ThrowsAsync<InvalidOperationException>(() => sut.InitializeAsync());
+        await sut.InitializeAsync();
 
-        Assert.True(CkModelImportInProgressClassifier.IsCkModelImportInProgress(failure));
-        A.CallTo(() => _creator.SetupAsync("octosystem")).MustHaveHappened(3, Times.Exactly);
+        A.CallTo(() => _creator.SetupAsync("octosystem")).MustHaveHappened(2, Times.Exactly);
     }
 
     /// <summary>AB#8677: a real error of the system tenant setup is not retried; it fails the host start at once.</summary>
@@ -119,8 +190,17 @@ public class DefaultConfigurationInitializationServiceTests
             new InvalidOperationException("setup failed", marked)));
         Assert.True(CkModelImportInProgressClassifier.IsCkModelImportInProgress(
             new AggregateException(new InvalidOperationException("other"), marked)));
+        Assert.True(CkModelImportInProgressClassifier.IsCkModelImportInProgress(
+            new InvalidOperationException("setup failed", new AggregateException(marked))));
         Assert.Equal("System.Bot", CkModelImportInProgressClassifier.DescribeModels(
             new InvalidOperationException("setup failed", marked)));
+        Assert.Equal("System.Bot", CkModelImportInProgressClassifier.DescribeModels(
+            new AggregateException(new InvalidOperationException("other"), marked)));
+        Assert.Equal("System.Bot", CkModelImportInProgressClassifier.DescribeModels(
+            new InvalidOperationException("setup failed", new AggregateException(marked))));
+        Assert.Null(CkModelImportInProgressClassifier.DescribeModels(
+            new AggregateException(new InvalidOperationException("other"))));
+        Assert.Equal("Meshmakers.Octo.CkModelImportInProgress", CkModelImportInProgressClassifier.ExceptionDataKey);
 
         Assert.False(CkModelImportInProgressClassifier.IsCkModelImportInProgress(null));
         Assert.False(CkModelImportInProgressClassifier.IsCkModelImportInProgress(

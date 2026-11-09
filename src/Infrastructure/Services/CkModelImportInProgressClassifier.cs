@@ -9,7 +9,12 @@ namespace Meshmakers.Octo.Services.Infrastructure.Services;
 /// </summary>
 internal static class CkModelImportInProgressClassifier
 {
-    /// <summary>Must match <c>CkModelImportInProgress.ExceptionDataKey</c> of the engine (MongoDB).</summary>
+    /// <summary>
+    ///     Must match the engine constant
+    ///     <c>Meshmakers.Octo.Runtime.Engine.MongoDb.Repositories.MongoDb.CkModelImportInProgress.ExceptionDataKey</c>
+    ///     (octo-construction-kit-engine-mongodb). Kept as a string literal on purpose: this package must not depend
+    ///     on the engine package.
+    /// </summary>
     internal const string ExceptionDataKey = "Meshmakers.Octo.CkModelImportInProgress";
 
     /// <summary>Whether the exception, or an exception it wraps, carries the engine's mark.</summary>
@@ -32,7 +37,7 @@ internal static class CkModelImportInProgressClassifier
         return false;
     }
 
-    /// <summary>The model names the engine named in the mark, for the log.</summary>
+    /// <summary>The model names the engine named in the mark, for the log (also inside an <see cref="AggregateException" />).</summary>
     internal static string? DescribeModels(Exception? exception)
     {
         for (var current = exception; current != null; current = current.InnerException)
@@ -40,6 +45,18 @@ internal static class CkModelImportInProgressClassifier
             if (current.Data.Contains(ExceptionDataKey))
             {
                 return current.Data[ExceptionDataKey]?.ToString();
+            }
+
+            if (current is AggregateException aggregate)
+            {
+                foreach (var inner in aggregate.InnerExceptions)
+                {
+                    var models = DescribeModels(inner);
+                    if (models != null)
+                    {
+                        return models;
+                    }
+                }
             }
         }
 
