@@ -1058,7 +1058,7 @@ Decision OD-5 (AB#6927): at most once after accept, record before the accepted e
   first; `TotalCount`), `MarkRunningAsync`, `ReportProgressAsync`, `HeartbeatAsync`, `CompleteAsync` (open records only, first final state wins),
   `FailLostAsync`. Tenants are stored lower-case (`CkMethodOperationTenant.Normalize`). Expired records are invisible before the TTL monitor
   removes them. Fails closed with `CkMethodOperationStoreException`. Implementations: `CkMethodInMemoryOperationStore` (tests),
-  `CkMethodMongoOperationStore` (collection `MethodOperations` in `OctoSystemConfiguration.SystemDatabaseName`, own admin client with majority
+  `CkMethodMongoOperationStore` (collection `MethodOperations` in `OctoSystemConfiguration.SystemDatabaseName` **lower-case**, as the engine's `SystemContext` names it - AB#8444: MongoDB refuses a name that differs from the existing database only in case, so the configured `OctoSystem` failed every call with "db already exists with different case"; `SystemDatabaseName(...)`, test `MongoOperationStoreSystemDatabaseTests`; own admin client with majority
   read/write concern, indexes `tenantId_operationId_unique`, `expiresAt_ttl` (0 s), `tenantId_acceptedAt`, `state_heartbeatAt`; progress and
   error stored as JSON strings, so parameter names never become field names). `Methods.csproj` still references no `MongoDB.*`
   (`CkMethodContextSessionFreeTests`); the driver lives only in `Methods.MongoDb`.
