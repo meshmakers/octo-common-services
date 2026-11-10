@@ -52,7 +52,10 @@ entries are grouped by work item until a release assigns the version.
   system tenant setup (`DefaultConfigurationInitializationService`) retries a failure the CK engine marked as "a CK model is being
   imported right now" (`Exception.Data` key `Meshmakers.Octo.CkModelImportInProgress`, set by `octo-construction-kit-engine-mongodb`),
   every 5 s within a total deadline of 5 minutes (one attempt can itself wait up to about 2 minutes in the engine, so the bound is
-  time, not an attempt count), also when the mark sits inside an `AggregateException`; after the deadline the original error fails
+  time, not an attempt count), also when the mark sits inside an `AggregateException`. A timeout while waiting for the engine's CK
+  model import lock (another service imports the model longer than the engine waits, about 90 s) is retried the same way; it is
+  recognised exactly — a `TimeoutException` from `Meshmakers.Octo.Runtime.Engine.MongoDb` for a lock `ck_model_import_<model>` — and
+  every other `TimeoutException` still fails the host start. After the deadline the original error fails
   the host start, and a stopping host ends the wait at once. Every other failure still fails the host start at once. Seen 2026-11-09 on the local stack:
   System.Bot 3.5.0 → 3.6.0 by BotServices while CommunicationController (embedded import of System.Communication) and PlatformServices
   (CK cache load) started; both hosts stopped. Child tenants were already non-fatal (AB#4690).

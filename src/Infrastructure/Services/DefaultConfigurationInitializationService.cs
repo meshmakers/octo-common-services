@@ -141,7 +141,9 @@ public class DefaultConfigurationInitializationService : IAsyncInitializationSer
     ///     Sets up the system tenant. AB#8677: when another service imports or upgrades a CK model in place at the same
     ///     moment (a rolling update, or the whole stack starting at once), a dependency on that model has no Available
     ///     version for a short time and the embedded CK import or the CK cache load of this setup fails. The engine
-    ///     marks such a failure; it is retried here instead of stopping the host. Every other failure still fails the
+    ///     marks such a failure; it is retried here instead of stopping the host. The same holds for a timeout while
+    ///     waiting for the engine's CK model import lock that the other service holds (see
+    ///     <see cref="CkModelImportInProgressClassifier" />). Every other failure still fails the
     ///     host start at once.
     /// </summary>
     private async Task SetupSystemTenantAsync()

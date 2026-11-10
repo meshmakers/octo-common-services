@@ -207,6 +207,104 @@ public class DefaultConfigurationInitializationServiceTests
             new InvalidOperationException("Dependencies 'System.Bot-[3.4,4.0)' cannot be resolved (installed: 3.6.0 Importing)")));
     }
 
+    /// <summary>
+    ///     AB#8677: another service holds the CK model import lock longer than the engine waits for it (e.g. a long
+    ///     System.Communication import). The engine throws a plain <see cref="TimeoutException" /> without the mark; the
+    ///     setup is retried within the same deadline and the host comes up.
+    /// </summary>
+    [Fact]
+    public async Task SystemTenantFailing_BecauseTheCkModelImportLockTimedOut_IsRetried_AndTheHostStarts()
+    {
+        StubChildTenants("tenant-a");
+        A.CallTo(() => _creator.SetupAsync("octosystem"))
+            .ThrowsAsync(ImportLockTimeout()).Once()
+            .Then.Returns(Task.CompletedTask);
+
+        var sut = NewSut();
+
+        await sut.InitializeAsync();
+
+        A.CallTo(() => _creator.SetupAsync("octosystem")).MustHaveHappened(2, Times.Exactly);
+        A.CallTo(() => _creator.SetupAsync("tenant-a")).MustHaveHappenedOnceExactly();
+    }
+
+    /// <summary>AB#8677: any other <see cref="TimeoutException" /> is a real error and still fails the host start at once.</summary>
+    [Fact]
+    public async Task SystemTenantFailing_WithAnUnrelatedTimeout_IsNotRetried()
+    {
+        StubChildTenants();
+        var unrelated = new TimeoutException("A timeout occurred after 30000ms selecting a server.");
+        A.CallTo(() => _creator.SetupAsync("octosystem")).ThrowsAsync(unrelated);
+
+        var sut = NewSut();
+
+        var failure = await Assert.ThrowsAsync<TimeoutException>(() => sut.InitializeAsync());
+
+        Assert.Same(unrelated, failure);
+        A.CallTo(() => _creator.SetupAsync("octosystem")).MustHaveHappenedOnceExactly();
+    }
+
+    [Fact]
+    public void Classifier_FindsTheImportLockTimeout_OnlyByTypeSourceAndLockId()
+    {
+        Assert.True(CkModelImportInProgressClassifier.IsCkModelImportInProgress(ImportLockTimeout()));
+        Assert.True(CkModelImportInProgressClassifier.IsCkModelImportInProgress(
+            new InvalidOperationException("import failed", ImportLockTimeout())));
+        Assert.True(CkModelImportInProgressClassifier.IsCkModelImportInProgress(
+            new AggregateException(new InvalidOperationException("other"), ImportLockTimeout())));
+        Assert.Equal("System.Communication", CkModelImportInProgressClassifier.DescribeModels(
+            new InvalidOperationException("import failed", ImportLockTimeout())));
+
+        // Same message, but not thrown by the engine.
+        Assert.False(CkModelImportInProgressClassifier.IsCkModelImportInProgress(
+            new TimeoutException(ImportLockTimeout().Message)));
+        // Engine timeout of another lock (index update), not the import lock.
+        Assert.False(CkModelImportInProgressClassifier.IsCkModelImportInProgress(
+            new TimeoutException("Could not acquire distributed lock 'index_update_lock' after 90 seconds.")
+                { Source = CkModelImportInProgressClassifier.EngineAssemblyName }));
+        // Import-lock message, but not a TimeoutException.
+        Assert.False(CkModelImportInProgressClassifier.IsCkModelImportInProgress(
+            new InvalidOperationException(ImportLockTimeout().Message)
+                { Source = CkModelImportInProgressClassifier.EngineAssemblyName }));
+    }
+
+    /// <summary>
+    ///     The match relies on <see cref="Exception.Source" /> naming the assembly of the throwing method also after the
+    ///     exception crossed awaits and a <c>throw;</c> rethrow, as the engine's lock wait does.
+    /// </summary>
+    [Fact]
+    public async Task ExceptionSource_NamesTheThrowingAssembly_AfterAwaitAndRethrow()
+    {
+        var failure = await Assert.ThrowsAsync<TimeoutException>(ThrowAfterAwaitAndRethrowAsync);
+
+        Assert.Equal(typeof(DefaultConfigurationInitializationServiceTests).Assembly.GetName().Name, failure.Source);
+    }
+
+    private static async Task ThrowAfterAwaitAndRethrowAsync()
+    {
+        try
+        {
+            await Task.Yield();
+            throw new TimeoutException("lock wait");
+        }
+        catch
+        {
+            await Task.Yield();
+            throw;
+        }
+    }
+
+    /// <summary>The engine's import-lock wait timeout as <c>RepositoryDistributedLockService.AcquireLockAsync</c> throws it.</summary>
+    private static TimeoutException ImportLockTimeout()
+    {
+        return new TimeoutException(
+            "Could not acquire distributed lock 'ck_model_import_System.Communication' after 90 seconds. " +
+            "Current lock expires at 2026-11-09T10:00:00.0000000Z")
+        {
+            Source = CkModelImportInProgressClassifier.EngineAssemblyName
+        };
+    }
+
     private DefaultConfigurationInitializationService NewSut()
     {
         return new DefaultConfigurationInitializationService(
