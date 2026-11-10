@@ -54,8 +54,12 @@ public sealed class OperationsMongoFixture : IAsyncLifetime
             return;
         }
 
-        Client = new MongoClient(_container.GetConnectionString());
+        ConnectionString = _container.GetConnectionString();
+        Client = new MongoClient(ConnectionString);
     }
+
+    /// <summary>Connection string of the container (host, port and the container's credentials).</summary>
+    public string ConnectionString { get; private set; } = string.Empty;
 
     /// <summary>A fresh database (one per store), standing in for the system database.</summary>
     public IMongoDatabase NewDatabase()
@@ -279,5 +283,56 @@ public class MongoOperationRuntimeTests(OperationsMongoFixture mongo) : IClassFi
             return new Host(invoker, provider.GetRequiredService<ICkMethodOperationStore>(),
                 provider.GetRequiredService<CkMethodOperationRunner>());
         }
+    }
+}
+
+/// <summary>
+///     AB#8444: the store built from the system configuration (the production constructor) uses the database name the
+///     engine uses: trimmed and lower-case. MongoDB refuses a database name that differs from an existing one only in case,
+///     so the configured spelling (default <c>OctoSystem</c>) failed every write on a local stack.
+/// </summary>
+public class MongoOperationStoreSystemDatabaseTests(OperationsMongoFixture mongo) : IClassFixture<OperationsMongoFixture>
+{
+    [Theory]
+    [InlineData("OctoSystem", "octosystem")]
+    [InlineData("octosystem", "octosystem")]
+    public void SystemDatabaseName_IsTrimmedAndLowerCase(string configured, string expected)
+    {
+        Assert.Equal(expected, CkMethodMongoOperationStore.SystemDatabaseName(
+            new Meshmakers.Octo.Runtime.Contracts.MongoDb.Configuration.OctoSystemConfiguration { SystemDatabaseName = configured }));
+    }
+
+    [Fact]
+    public async Task StoreFromConfiguration_WritesIntoTheLowerCaseSystemDatabase_ThatAlreadyExists()
+    {
+        mongo.NewDatabase(); // skips without Docker
+        var lower = $"opsysmixed{Guid.NewGuid():N}";
+        // the engine created the system database in lower case before (here: one document)
+        await mongo.Client.GetDatabase(lower).GetCollection<BsonDocument>("tenant_lifecycle")
+            .InsertOneAsync(new BsonDocument("tenantId", "octosystem"), cancellationToken: TestContext.Current.CancellationToken);
+
+        var url = new MongoUrl(mongo.ConnectionString);
+        var configuration = new Meshmakers.Octo.Runtime.Contracts.MongoDb.Configuration.OctoSystemConfiguration
+        {
+            SystemDatabaseName = "OpSysMixed" + lower["opsysmixed".Length..],
+            DatabaseHost = $"{url.Server.Host}:{url.Server.Port}",
+            AdminUser = url.Username,
+            AdminUserPassword = url.Password,
+            UseDirectConnection = true
+        };
+        using var store = new CkMethodMongoOperationStore(Options.Create(configuration), TimeProvider.System,
+            NullLogger<CkMethodMongoOperationStore>.Instance);
+        var now = DateTime.UtcNow;
+
+        await store.CreateAsync(new CkMethodOperationRecord
+        {
+            TenantId = "t1", OperationId = "op-mixed", MethodId = "Test.Ops/Backup.Dump-1", InvocationId = Guid.NewGuid(),
+            HandlerInstanceId = "h1", AcceptedAtUtc = now, HeartbeatAtUtc = now
+        }, TestContext.Current.CancellationToken);
+
+        Assert.NotNull(await store.GetAsync("t1", "op-mixed", TestContext.Current.CancellationToken));
+        Assert.Equal(1, await mongo.Client.GetDatabase(lower).GetCollection<BsonDocument>(
+            CkMethodMongoOperationStore.CollectionName).CountDocumentsAsync(FilterDefinition<BsonDocument>.Empty,
+            cancellationToken: TestContext.Current.CancellationToken));
     }
 }

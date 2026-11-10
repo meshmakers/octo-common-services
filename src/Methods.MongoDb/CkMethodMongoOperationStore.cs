@@ -49,7 +49,8 @@ public sealed class CkMethodMongoOperationStore : ICkMethodOperationStore, IDisp
     {
         var configuration = systemConfiguration.Value;
         _client = new Lazy<MongoClient>(() => CreateClient(configuration));
-        _database = () => _client.Value.GetDatabase(configuration.SystemDatabaseName);
+        var databaseName = SystemDatabaseName(configuration);
+        _database = () => _client.Value.GetDatabase(databaseName);
         _timeProvider = timeProvider;
         _logger = logger;
     }
@@ -363,6 +364,18 @@ public sealed class CkMethodMongoOperationStore : ICkMethodOperationStore, IDisp
         }
 
         return collection;
+    }
+
+    /// <summary>
+    ///     AB#8444: the system database as the engine names it, trimmed and lower-case (<c>SystemContext</c> normalizes
+    ///     <see cref="OctoSystemConfiguration.SystemDatabaseName" /> the same way). MongoDB refuses a database whose name
+    ///     differs from an existing one only in case, so the configured spelling (default <c>OctoSystem</c>) must not be
+    ///     used as is: the first write failed with "db already exists with different case".
+    /// </summary>
+    internal static string SystemDatabaseName(OctoSystemConfiguration configuration)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(configuration.SystemDatabaseName);
+        return configuration.SystemDatabaseName.Trim().ToLowerInvariant();
     }
 
     private static MongoClient CreateClient(OctoSystemConfiguration configuration)
