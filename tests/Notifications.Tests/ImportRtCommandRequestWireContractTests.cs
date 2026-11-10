@@ -1,5 +1,6 @@
 using System.Text.Json;
 using MassTransit.Serialization;
+using Meshmakers.Octo.Runtime.Contracts;
 using Meshmakers.Octo.Runtime.Contracts.Exchange;
 using Meshmakers.Octo.Services.Contracts.DistributionEventHub.Commands;
 using Xunit;
@@ -45,6 +46,27 @@ public class ImportRtCommandRequestWireContractTests
         Assert.NotNull(back);
         Assert.Equal("tenant-1", back.TenantId);
         Assert.Null(back.InitiatedBySubjectId);
+        // AB#8705: no principal kind on an older message reads as Unknown (restricted types refuse it)
+        Assert.Equal(RtPrincipalKind.Unknown, back.InitiatedByPrincipalKind);
+    }
+
+    [Theory]
+    [InlineData(RtPrincipalKind.Interactive)]
+    [InlineData(RtPrincipalKind.Client)]
+    [InlineData(RtPrincipalKind.Unknown)]
+    public void InitiatedByPrincipalKind_RoundTrips(RtPrincipalKind kind)
+    {
+        var request = new ImportRtCommandRequest("tenant-1", ImportStrategy.Upsert, "cache-key")
+        {
+            InitiatedBySubjectId = "user-sub-1",
+            InitiatedByPrincipalKind = kind
+        };
+
+        var json = JsonSerializer.Serialize(request, Options);
+        var back = JsonSerializer.Deserialize<ImportRtCommandRequest>(json, Options);
+
+        Assert.NotNull(back);
+        Assert.Equal(kind, back.InitiatedByPrincipalKind);
     }
 
     // The contract as an older consumer compiled it: no InitiatedBySubjectId.
@@ -56,7 +78,8 @@ public class ImportRtCommandRequestWireContractTests
     {
         var request = new ImportRtCommandRequest("tenant-1", ImportStrategy.Upsert, "cache-key")
         {
-            InitiatedBySubjectId = "user-sub-1"
+            InitiatedBySubjectId = "user-sub-1",
+            InitiatedByPrincipalKind = RtPrincipalKind.Client
         };
         var json = JsonSerializer.Serialize(request, Options);
 
