@@ -7,6 +7,12 @@ entries are grouped by work item until a release assigns the version.
 
 ### Added
 
+- **AB#8705** — `ImportRtCommandRequest.InitiatedByPrincipalKind` (`RtPrincipalKind`, default `Unknown`): the producer (asset
+  repository) sends whether the caller of an RT import is a signed-in person (`Interactive`) or a service client (`Client`), and
+  the consumer (bot services) passes it to the engine's `RtImportCallerContext`, where CK types with a `writeAccess` block
+  (AB#8574) admit or refuse the import by it. Optional and additive on the wire: a message of an older producer reads as
+  `Unknown` (refused only by restricted types, fail closed), an older consumer ignores the field.
+
 - **AB#8443** — asynchronous CK methods keep a durable operation record (F3.6, OD-5). A handler returns
   `CkMethodOutcome.Accepted(work)` / `CkMethodOutcome<TResult>.Accepted(work)` with an `ICkMethodOperationProgress` reporter;
   the host writes the record before the accepted envelope (`operationId`, `acceptedAtUtc`, `retryAfterSeconds`), runs the work
