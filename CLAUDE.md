@@ -1273,7 +1273,7 @@ The transaction is aborted on a miss. Read-your-writes of the underlying GridFS 
 
 A merge to `main` publishes `System.Notification` to the private CK catalog automatically (AB#8718, decision 2026-11-10). The pipeline
 parameter `publishSystemCkModels` (boolean, **default true**; gate introduced as default false by AB#7343/AB#7432/AB#7433) feeds
-`publishOnMain` of `validate-and-publish-ck-versions.yml` (`tpl-v1.8.0`). ValidateVersion, the schema compile and the cascade check
+`publishOnMain` of `validate-and-publish-ck-versions.yml` (`tpl-v1.8.0` and later; pinned: `tpl-v1.11.0`). ValidateVersion, the schema compile and the cascade check
 run on every build and refuse a breaking change declared as minor; an already-published version is a no-op. Default true because CK v2
 range retention (AB#4696) and the completed re-pin (AB#5688, AB#6708) removed the exact-pin breakage that motivated default false.
 
