@@ -47,8 +47,13 @@ line `0.1.*`) fails fast with MSBuild error `OCTO0001`. Use `-c DebugL` locally.
 `DebugL`: `TestAssemblyCorrectMigrations` was mapped to `Debug` and so restored `3.4.*` packages from
 nuget.org inside a DebugL build, which only surfaced once the fallback was gone.
 
+This repository restores the upstream `999.0.0` packages from `../nuget`, so on a fresh workspace build the
+dependency chain first (`Invoke-BuildAll -configuration DebugL`, octo-tools).
+
 Propagate the produced `Meshmakers.Octo.Services.*.999.0.0.nupkg` files from `bin/DebugL/` into
-`../nuget` so downstream services (Asset-Repo, Reporting, Identity, ...) pick up local changes.
+`../nuget` so downstream services (Asset-Repo, Reporting, Identity, ...) pick up local changes. A copy alone
+leaves a service that already restored `999.0.0` on its cached version: use `Invoke-BuildRange`, which copies
+the packages and purges their cached versions.
 
 ### Tests
 
