@@ -1,4 +1,9 @@
-# Stalled-tenant reconciler (AB#4348, AB#8117)
+---
+description: Stalled-tenant reconciler: minimum age, logging and completion of Creating tenants.
+applies_to: src/Infrastructure/Services/DefaultConfigurationCreatorServiceStandardized.cs, src/Infrastructure/Services/TenantReconcilerOptions.cs
+---
+
+# Stalled-tenant reconciler
 
 `DefaultConfigurationCreatorServiceStandardized` runs a durable reconciler (asset-repo wires the lifecycle
 store) that claims `Creating` tenants behind a Mongo lease and re-drives `CheckSetupIdentityDataAsync`.
@@ -8,7 +13,7 @@ store) that claims `Creating` tenants behind a Mongo lease and re-drives `CheckS
 A tenant is claimed only once its creation cycle is older than `TenantReconciler:MinimumAge`
 (env `OCTO_TENANTRECONCILER__MINIMUMAGE`, default `00:00:30`, `00:00:00` disables the filter). A brand-new
 tenant is still driven by the normal setup path; claiming it right away raced that path, failed on
-"not seeded yet" and parked the tenant behind the 2 minute lease (AB#8117).
+"not seeded yet" and parked the tenant behind the 2 minute lease.
 
 The scoped creator reads the value from `TenantReconcilerOptions.Current`, which
 `AddOctoServiceInfrastructure` keeps in sync with the bound configuration.

@@ -1,4 +1,9 @@
-# CK method adversarial suite (AB#6915, F3.4b)
+---
+description: Repeatable attack suite over the CK method path: cases, recorded results, findings and accepted limitations.
+background: true
+---
+
+# CK method adversarial suite
 
 A repeatable attack suite over the method path: HTTP token layer, gateway, authorization filter, bus, remote handler host,
 logs and traces. It gives F3.4 / Phase 3 an exit on evidence and lets every later change to the method path rerun the attacks.
@@ -44,26 +49,26 @@ nothing dispatched.
 | C09 | method without `authorization`, called by its owner; forged admin DTO; look-alike roles | gateway pipeline bus + in-process, gateway | METHOD_FORBIDDEN / not-authorized (control: administrator passes) | none |
 | C10 | caller without the right: existing vs missing target; default-deny; unknown method | gateway pipeline bus + in-process, gateway | byte-identical METHOD_FORBIDDEN / not-authorized, target never read | none |
 | C11 | deadline in the past | bus (valid and missing token), gateway bus + in-process, GraphQL | METHOD_TIMEOUT, same answer for any sender | none |
-| C11c-e | deadline `DateTime.MaxValue` | gateway (clamped, runs), bus with forged token (refused), bus with valid token | no overflow; valid calls run, forged ones METHOD_FORBIDDEN; the host clamps the deadline to the platform maximum (L-4 fixed, AB#7665) | none |
-| C12 | parameter payload far above any limit (8 MiB); malformed, non-object, 5000-deep JSON | host, gateway | **REFUSED**: METHOD_PARAMETERS_TOO_LARGE (default 1 MiB, own limit per service), handler not called (F-2 fixed, AB#7665); malformed forms METHOD_VALIDATION_FAILED without the value | none |
-| C13 | handler answers with a `METHOD_`-prefixed code that is no platform code | handler SDK, bus + in-process | METHOD_HANDLER_FAILED, code never forwarded; the GraphQL error applies the same allow-list, an unknown code becomes METHOD_HANDLER_FAILED (**REFUSED**, F-3 fixed, AB#7665) | none |
+| C11c-e | deadline `DateTime.MaxValue` | gateway (clamped, runs), bus with forged token (refused), bus with valid token | no overflow; valid calls run, forged ones METHOD_FORBIDDEN; the host clamps the deadline to the platform maximum (L-4 fixed) | none |
+| C12 | parameter payload far above any limit (8 MiB); malformed, non-object, 5000-deep JSON | host, gateway | **REFUSED**: METHOD_PARAMETERS_TOO_LARGE (default 1 MiB, own limit per service), handler not called (F-2 fixed); malformed forms METHOD_VALIDATION_FAILED without the value | none |
+| C13 | handler answers with a `METHOD_`-prefixed code that is no platform code | handler SDK, bus + in-process | METHOD_HANDLER_FAILED, code never forwarded; the GraphQL error applies the same allow-list, an unknown code becomes METHOD_HANDLER_FAILED (**REFUSED**, F-3 fixed) | none |
 | C14 | canary (sensitive parameter, token, claim value) over gateway, bus, host and all attacks | logs, audit view, activities, responses | no plaintext found | none |
 | C15 | valid message of A replayed with the Caller DTO of administrator B; for another tenant | bus / handler host | runs as A, never as B; other tenant tenant-not-allowed | none |
-| C16 | valid token without the declared role published on the bus | bus / handler host | **REFUSED**: METHOD_FORBIDDEN / not-authorized, handler not called (F-1 fixed, AB#7664) | none |
+| C16 | valid token without the declared role published on the bus | bus / handler host | **REFUSED**: METHOD_FORBIDDEN / not-authorized, handler not called (F-1 fixed) | none |
 
-## Findings (F-1 fixed by AB#7664; F-2, F-3 and L-4 fixed by AB#7665)
+## Findings (F-1, F-2, F-3 and L-4 fixed)
 
 | Id | Finding | Severity | Status |
 |----|---------|----------|--------|
-| F-1 | The remote handler host authenticated the caller but did not re-check the declared authorization. **Fixed (AB#7664):** the host (remote and in-process) evaluates the definition with the gateway's `ICkMethodAuthorizationEvaluator` before the parameters are read; a registration without a definition is refused. Tests: `C16_RemoteHost_RefusesACallerWithoutTheDeclaredRole`, `CkMethodHostAuthorizationTests` | medium (needed bus publish rights and a valid token) | fixed |
-| F-2 | No limit for the size of method parameters in gateway, validator, bus or host; no documented code. **Fixed (AB#7665):** `METHOD_PARAMETERS_TOO_LARGE`, `Methods:MaxParametersBytes` (default 1 MiB); the host refuses before it deserializes (this repository), the gateway before validation (octo-asset-repo-services, same story, consumes this package). Tests: `C12_*`, `CkMethodHandlerInvokerTests` | low to medium (resource use) | fixed |
-| F-3 | The GraphQL error forwards any code a responder writes, including unknown `METHOD_` codes. **Fixed (AB#7665, in octo-asset-repo-services, effective with the next release of both):** the response mapper applies the host's allow-list; any other code becomes `METHOD_HANDLER_FAILED` | low (needs a rogue responder on the queue) | fixed |
+| F-1 | The remote handler host authenticated the caller but did not re-check the declared authorization. **Fixed:** the host (remote and in-process) evaluates the definition with the gateway's `ICkMethodAuthorizationEvaluator` before the parameters are read; a registration without a definition is refused. Tests: `C16_RemoteHost_RefusesACallerWithoutTheDeclaredRole`, `CkMethodHostAuthorizationTests` | medium (needed bus publish rights and a valid token) | fixed |
+| F-2 | No limit for the size of method parameters in gateway, validator, bus or host; no documented code. **Fixed:** `METHOD_PARAMETERS_TOO_LARGE`, `Methods:MaxParametersBytes` (default 1 MiB); the host refuses before it deserializes (this repository), the gateway before validation (octo-asset-repo-services, same story, consumes this package). Tests: `C12_*`, `CkMethodHandlerInvokerTests` | low to medium (resource use) | fixed |
+| F-3 | The GraphQL error forwards any code a responder writes, including unknown `METHOD_` codes. **Fixed (in octo-asset-repo-services, effective with the next release of both):** the response mapper applies the host's allow-list; any other code becomes `METHOD_HANDLER_FAILED` | low (needs a rogue responder on the queue) | fixed |
 
-## Accepted limitations (need Odin's signature)
+## Accepted limitations (need product owner sign-off)
 
 | Id | Limitation | Source |
 |----|-----------|--------|
-| L-1 | An intact message of A replayed within the token lifetime runs again as A (no binding of token to invocation). Test `C15c_Limitation_...` | decision AB#7039 / OD-11 (B0, B1 later) |
-| L-2 | The HTTP API does not validate the audience (`ValidateAudience` false platform-wide); a remote host validates it only when `Methods:Token:ValidAudiences` is set. Test `C04_Limitation_...` (asset-repo) | AB#6913 adjustment 1 |
-| L-3 | The method gateway does not compare token tenant and route tenant itself; it relies on the tenant gate. asset-repo registers the gate in `LogOnly` as code default until the chart flips it (AB#6728). Remote handlers re-check the tenant; an in-process handler would not. Tests `C02b_`, `C02c_Limitation_...` | AB#6728 |
-| L-4 | A message published straight on the queue with a far-future deadline is not clamped by the host (only the dispatcher clamps to the platform maximum); the host cancels after at most ~24 days. Needs a valid token and bus publish rights. **Fixed (AB#7665):** the host clamps to `Methods:Dispatcher:MaxTimeout` (the dispatcher's value and helper) and logs the clamp at Information. Tests `FarFutureDeadline_IsClampedToThePlatformMaximum_*`, `C11e_` | fixed |
+| L-1 | An intact message of A replayed within the token lifetime runs again as A (no binding of token to invocation). Test `C15c_Limitation_...` | decision OD-11 on announcement authentication and the token replay window (B0, B1 later) |
+| L-2 | The HTTP API does not validate the audience (`ValidateAudience` false platform-wide); a remote host validates it only when `Methods:Token:ValidAudiences` is set. Test `C04_Limitation_...` (asset-repo) | caller token validation, adjustment 1 |
+| L-3 | The method gateway does not compare token tenant and route tenant itself; it relies on the tenant gate. asset-repo registers the gate in `LogOnly` as code default until the chart flips it. Remote handlers re-check the tenant; an in-process handler would not. Tests `C02b_`, `C02c_Limitation_...` | user-token tenant gate rollout (`LogOnly` to `Enforce`) |
+| L-4 | A message published straight on the queue with a far-future deadline is not clamped by the host (only the dispatcher clamps to the platform maximum); the host cancels after at most ~24 days. Needs a valid token and bus publish rights. **Fixed:** the host clamps to `Methods:Dispatcher:MaxTimeout` (the dispatcher's value and helper) and logs the clamp at Information. Tests `FarFutureDeadline_IsClampedToThePlatformMaximum_*`, `C11e_` | fixed |
