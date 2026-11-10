@@ -7,6 +7,13 @@ entries are grouped by work item until a release assigns the version.
 
 ### Added
 
+- **AB#8711** — Every in-process CK method call checks the caller tenant once, centrally: `CkMethodCallerTenantFilter` (band
+  `CkMethodInvocationFilterOrder.CallerTenant` = 150, registered with the local transport, always on) answers a call whose caller
+  token was issued for another tenant `METHOD_FORBIDDEN` with `reason = tenant-not-allowed` before authorization, idempotency and
+  the handler, independent of the HTTP tenant gate's `LogOnly` mode. Same rule as the bus host (`CkMethodCallerTenantRule`, now
+  shared with `CkMethodCallerTokenValidator`; clients on `TenantAuthorization:CrossTenantServiceClientIds` pass). New init-only
+  properties `CkMethodPrincipal.TokenTenantId` and `IsFromAccessToken`, set by `FromClaimsPrincipal`. Bus path unchanged.
+  Consumers: a test principal for an in-process call needs a `tenant_id` claim of the route tenant.
 - **AB#8705** — `ImportRtCommandRequest.InitiatedByPrincipalKind` (`RtPrincipalKind`, default `Unknown`): the producer (asset
   repository) sends whether the caller of an RT import is a signed-in person (`Interactive`) or a service client (`Client`), and
   the consumer (bot services) passes it to the engine's `RtImportCallerContext`, where CK types with a `writeAccess` block

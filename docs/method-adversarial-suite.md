@@ -34,6 +34,7 @@ nothing dispatched.
 | C01b | forged Caller DTO next to a valid token of a plain user | bus / handler host | runs as the token owner; DTO is informational | by design |
 | C01 | unauthenticated principal; forged Caller member in the GraphQL input | gateway, GraphQL | METHOD_FORBIDDEN / not-authorized; input member rejected by validation | none |
 | C02 | token of another tenant, parent tenant, token replayed for another tenant | bus; HTTP (gate Enforce) | METHOD_FORBIDDEN / tenant-not-allowed; HTTP 403 | none |
+| C02b | token of another tenant (user, or service not on the allow-list) with the HTTP gate in LogOnly | in-process transport (AB#8711) | METHOD_FORBIDDEN / tenant-not-allowed before the handler; allow-listed service passes | none |
 | C03 | expired token | bus; HTTP | METHOD_FORBIDDEN / token-expired; HTTP 401 | none |
 | C04 | wrong or missing audience | bus (audience configured) | METHOD_FORBIDDEN / audience-mismatch | none |
 | C05 | wrong signature (foreign key same kid, unknown kid, flipped signature, tampered payload) | bus; HTTP | METHOD_FORBIDDEN / token-invalid; HTTP 401 | none |

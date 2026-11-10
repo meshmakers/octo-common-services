@@ -31,6 +31,13 @@ public static class CkMethodInvocationFilterOrder
     /// </summary>
     public const int Audit = 100;
 
+    /// <summary>
+    ///     Caller tenant (AB#8711): on the in-process transport, refuses a caller whose access token was issued for another
+    ///     tenant than the call addresses (<see cref="Authorization.CkMethodCallerTenantFilter" />). Inside audit, so the refusal is
+    ///     recorded; outside the declared authorization and idempotency, so a foreign caller learns nothing about either.
+    /// </summary>
+    public const int CallerTenant = 150;
+
     /// <summary>Authorization (F3.4): may refuse the call; nothing inside it (idempotency, transport) runs then.</summary>
     public const int Authorization = 200;
 

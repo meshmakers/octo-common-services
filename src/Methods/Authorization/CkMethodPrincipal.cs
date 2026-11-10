@@ -35,6 +35,21 @@ public sealed record CkMethodPrincipal(
     }
 
     /// <summary>
+    ///     <c>true</c> when the principal was mapped from an access token (<see cref="FromClaimsPrincipal" />, also used by
+    ///     <see cref="ICkMethodCallerTokenValidator" />). Only such a caller is held to the caller-tenant rule of the in-process
+    ///     transport (AB#8711, <see cref="CkMethodCallerTenantFilter" />): a principal a service builds for its own job carries no
+    ///     token, so there is no token tenant to compare.
+    /// </summary>
+    public bool IsFromAccessToken { get; init; }
+
+    /// <summary>
+    ///     The <c>tenant_id</c> claim of the access token, i.e. the tenant the token was <b>issued</b> for (AB#8711); <c>null</c>
+    ///     when the token has none or the principal was not mapped from a token. Unlike <see cref="TenantId" /> it is not the
+    ///     result of a validation: the in-process transport compares it with the tenant of the call.
+    /// </summary>
+    public string? TokenTenantId { get; init; }
+
+    /// <summary>
     ///     Who the caller is: the <c>sub</c> of a user, or the <c>client_id</c> of a service token (client credentials,
     ///     no <c>sub</c>). <c>null</c> when neither is known.
     /// </summary>
@@ -55,11 +70,15 @@ public sealed record CkMethodPrincipal(
     /// <summary>The claim type of the OAuth client of the token.</summary>
     private const string ClientIdClaimType = "client_id";
 
+    /// <summary>The claim type of the tenant the token was issued for.</summary>
+    private const string TenantIdClaimType = "tenant_id";
+
     /// <summary>
     ///     Maps a validated <see cref="ClaimsPrincipal" /> (the user of an HTTP request after authentication). The
     ///     <c>scope</c> claim may hold one space-separated string or several values. The <c>client_id</c> claim is mapped
     ///     to <see cref="ClientId" /> only when the token has no subject (client credentials, AB#8078); a user token keeps
-    ///     <see cref="ClientId" /> <c>null</c>, so its <see cref="Subject" /> is always its <c>sub</c>.
+    ///     <see cref="ClientId" /> <c>null</c>, so its <see cref="Subject" /> is always its <c>sub</c>. The <c>tenant_id</c> claim
+    ///     goes to <see cref="TokenTenantId" /> and <see cref="IsFromAccessToken" /> is set (AB#8711).
     /// </summary>
     /// <param name="principal">An authenticated principal. The method does not validate tokens.</param>
     public static CkMethodPrincipal FromClaimsPrincipal(ClaimsPrincipal principal)
@@ -74,7 +93,12 @@ public sealed record CkMethodPrincipal(
         var scopes = principal.FindAll(Infrastructure.InfrastructureCommon.ClaimScope)
             .SelectMany(c => c.Value.Split(' ', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
             .Distinct(StringComparer.Ordinal).ToArray();
+        var tokenTenantId = principal.FindFirst(TenantIdClaimType)?.Value;
         return new CkMethodPrincipal(subject, roles, scopes,
-            string.IsNullOrWhiteSpace(clientId) ? null : clientId);
+            string.IsNullOrWhiteSpace(clientId) ? null : clientId)
+        {
+            IsFromAccessToken = true,
+            TokenTenantId = string.IsNullOrWhiteSpace(tokenTenantId) ? null : tokenTenantId
+        };
     }
 }
