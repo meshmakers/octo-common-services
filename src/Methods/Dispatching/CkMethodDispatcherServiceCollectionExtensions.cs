@@ -13,8 +13,9 @@ public static class CkMethodDispatcherServiceCollectionExtensions
     /// <summary>
     ///     Registers <see cref="ICkMethodDispatcher" /> and the handler registry behind it. Requires the distribution
     ///     event hub with <see cref="AddCkMethodHandlerRegistryFeed" /> in its configuration and, to resolve methods of
-    ///     derived or implementing types, the CK cache. Methods registered with <c>AddCkInProcessMethodHandlers</c> in the
-    ///     same service are called in-process; the others go over the bus. The invocation pipeline is shared with the
+    ///     derived or implementing types, the CK cache. Methods with a handler in the same service
+    ///     (<c>AddCkInProcessMethodHandlers</c>, local only, or a bus handler of <c>AddCkMethodHandlers</c>, AB#8411) are
+    ///     called in-process; the others go over the bus. The invocation pipeline is shared with the
     ///     in-process transport, register filters with <c>AddCkMethodInvocationFilter</c>. When the host registers an
     ///     <c>ICkMethodHandlerSnapshotStore</c> (the MongoDB runtime engine does), the registry is persisted as a snapshot
     ///     (<see cref="CkMethodDispatcherOptions.SnapshotEnabled" />, AB#5671); without it the registry is in memory only.

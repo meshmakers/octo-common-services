@@ -81,16 +81,14 @@ Both are `SeedOwned` like the other `Event` attributes (an event travels with an
 | `Tenant.CreateFailed` | engine-mongodb `TenantContext` | `tenantId`, `databaseName`, `correlationId` |
 | `DataPermissions.WriteViolation` / `ReadViolation` / `BlueprintLockViolation` | engine `DataPermissionRules`, `RtDataPermissionEvaluator`, `DataPermissionWriteGuard`, `ImportBlueprintLockEnforcer`; engine-mongodb `TenantRepository` | none (the message names subject and type) |
 
-## Publishing the system CK model: explicit release decision
+## Publishing the system CK model: automatic from main
 
-A merge to `main` does **not** publish `System.Notification` to the CK catalogs. The pipeline parameter `publishSystemCkModels`
-(boolean, **default false**; same name and semantics as in `octo-construction-kit-engine` and in the
-communication controller) feeds `publishOnMain` of `validate-and-publish-ck-versions.yml` (`tpl-v1.8.0`). A main build still
-runs ValidateVersion, the schema compile and the cascade check, logs `CK publish on main is OFF (publishOnMain=false)` and
-publishes nothing. Reason: a new System* version breaks exact-pinned dependents on live tenants until they are re-pinned.
+A merge to `main` publishes `System.Notification` to the private CK catalog automatically (default since 2026-11-10). The pipeline
+parameter `publishSystemCkModels` (boolean, **default true**; the gate was introduced as default false) feeds
+`publishOnMain` of `validate-and-publish-ck-versions.yml` (`tpl-v1.8.0` and later; pinned: `tpl-v1.11.0`). ValidateVersion, the schema compile and the cascade check
+run on every build and refuse a breaking change declared as minor; an already-published version is a no-op. Default true because CK v2
+range retention and the completed re-pin removed the exact-pin breakage that motivated default false.
 
-**To publish explicitly** (needs the release decision of the platform owner): Azure DevOps -> pipeline `octo-common-services-CI` ->
-*Run pipeline* -> branch `main` -> tick *Publish System CK models to the CK catalogs (main)*; CLI:
-`az pipelines run --id 90 --branch main --parameters publishSystemCkModels=true`. `r*` tags (release train) publish as
-before; `dev/*`/`test/*` builds never publish to the shared catalogs. A merge that bumps the model therefore leaves the version
-unpublished until that run; repos that restore it from the catalog must wait for it.
+**To build main without publishing:** Azure DevOps -> pipeline `octo-common-services-CI` -> *Run pipeline* -> branch `main` -> untick
+*Publish System CK models to the CK catalogs (main)*; CLI: `az pipelines run --id 90 --branch main --parameters publishSystemCkModels=false`.
+`r*` tags (release train) publish as before; `dev/*`/`test/*` builds never publish to the shared catalogs.

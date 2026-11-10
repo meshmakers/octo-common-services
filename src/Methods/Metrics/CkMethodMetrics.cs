@@ -3,6 +3,7 @@ using System.Diagnostics;
 using System.Diagnostics.Metrics;
 using Meshmakers.Octo.Services.Contracts.DistributionEventHub.Methods;
 using Meshmakers.Octo.Services.Methods.Audit;
+using Meshmakers.Octo.Services.Methods.Operations;
 
 namespace Meshmakers.Octo.Services.Methods.Metrics;
 
@@ -36,11 +37,13 @@ internal static class CkMethodMetrics
     internal const string DurationName = "ck.method.duration";
     internal const string NoHandlerName = "ck.method.no_handler";
     internal const string DuplicateRefusedName = "ck.method.duplicate_refused";
+    internal const string OperationsName = "ck.method.operations";
 
     internal const string MethodIdTag = "method_id";
     internal const string TransportTag = "transport";
     internal const string OutcomeTag = "outcome";
     internal const string ReasonTag = "reason";
+    internal const string StateTag = "state";
 
     internal const string Other = "other";
     internal const string InvalidCode = "invalid_code";
@@ -65,7 +68,32 @@ internal static class CkMethodMetrics
         DuplicateRefusedName,
         description: "Deliveries a handler host refused as possible duplicates (not executed), by reason (broker_flag, seen_id) and method");
 
+    private static readonly Counter<long> Operations = CkMethodTelemetry.Meter.CreateCounter<long>(OperationsName,
+        description: "State changes of operations of asynchronous CK methods, by method and new state (accepted, running, succeeded, failed); operations the sweep ends as lost count as failed with method_id other (AB#8443)");
+
     private static readonly CkMethodLabelBudget MethodIds = new(MaxMethodIds);
+
+    /// <summary>
+    ///     Counts operations that reached <paramref name="state" /> (AB#8443). <paramref name="methodId" /> <c>null</c> =
+    ///     <c>other</c> (the sweep does not know the methods of the records it ends).
+    /// </summary>
+    internal static void RecordOperation(string? methodId, CkMethodOperationState state, int count = 1)
+    {
+        Operations.Add(count, new TagList
+        {
+            { MethodIdTag, MethodIdLabel(methodId) },
+            { StateTag, StateLabel(state) },
+        });
+    }
+
+    internal static string StateLabel(CkMethodOperationState state) => state switch
+    {
+        CkMethodOperationState.Accepted => "accepted",
+        CkMethodOperationState.Running => "running",
+        CkMethodOperationState.Succeeded => "succeeded",
+        CkMethodOperationState.Failed => "failed",
+        _ => Other
+    };
 
     /// <summary>Counts one finished call and records its duration.</summary>
     internal static void RecordCall(string methodId, string transport, string outcome, TimeSpan duration)

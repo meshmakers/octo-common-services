@@ -6,8 +6,9 @@ using Microsoft.Extensions.Options;
 namespace Meshmakers.Octo.Services.Methods;
 
 /// <summary>
-///     Startup validation of the in-process registrations (Order 15, same as the remote validation): a method must not be
-///     registered both in-process and as a remote handler of the same service, and every registration must match its CK
+///     Startup validation of the in-process registrations, including the local-only ones of <c>AddCkMethodHandlers</c>
+///     (Order 15, same as the remote validation): a method must not be registered both in-process and as a remote handler
+///     of the same service, and every registration must match its CK
 ///     definition (unknown method id, parameter and result shape). A failure stops the service start.
 /// </summary>
 internal sealed class CkInProcessMethodValidationService(
@@ -28,8 +29,15 @@ internal sealed class CkInProcessMethodValidationService(
         if (both.Count > 0)
         {
             throw new InvalidOperationException(
-                $"CK method(s) {string.Join(", ", both.Select(m => $"'{m}'"))} are registered in-process and as remote " +
-                "handler. Register a method in exactly one place: the dispatcher would never reach the remote handler.");
+                $"CK method(s) {string.Join(", ", both.Select(m => $"'{m}'"))} are registered in-process (or local only) and " +
+                "as remote handler. Register a method in exactly one place: for the bus (Handle) or local only " +
+                "(AddCkInProcessMethodHandlers / HandleLocalOnly).");
+        }
+
+        if (registrations.Handlers.Count == 0)
+        {
+            // a bus host without local-only methods (AB#8411): its bus registrations are validated by their own service
+            return Task.CompletedTask;
         }
 
         if (!options.Value.ValidateRegistrations)

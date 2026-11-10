@@ -1,4 +1,5 @@
 using Meshmakers.Octo.Services.Contracts.DistributionEventHub.Methods;
+using Meshmakers.Octo.Services.Methods.Operations;
 
 namespace Meshmakers.Octo.Services.Methods;
 
@@ -41,7 +42,10 @@ public sealed record CkMethodFailure
     internal CkMethodError ToWire() => new() { Code = Code, Parameters = Parameters, Details = Details };
 }
 
-/// <summary>Outcome of a method without a result: success or a declared error.</summary>
+/// <summary>
+///     Outcome of a method without a result: success, a declared error, or (asynchronous method) accepted work that the
+///     platform runs after it has recorded the operation (<see cref="Accepted" />).
+/// </summary>
 public sealed class CkMethodOutcome
 {
     private CkMethodOutcome(CkMethodFailure? failure)
@@ -49,14 +53,41 @@ public sealed class CkMethodOutcome
         Failure = failure;
     }
 
-    /// <summary>True when the method succeeded.</summary>
+    private CkMethodOutcome(Func<ICkMethodOperationProgress, CancellationToken, Task<CkMethodOutcome>> work)
+    {
+        AcceptedWork = work;
+    }
+
+    /// <summary>True when the method succeeded (or was accepted).</summary>
     public bool IsSuccess => Failure is null;
+
+    /// <summary>True when the handler accepted the call as a long-running operation (<see cref="Accepted" />).</summary>
+    public bool IsAccepted => AcceptedWork is not null;
+
+    internal Func<ICkMethodOperationProgress, CancellationToken, Task<CkMethodOutcome>>? AcceptedWork { get; }
+
+    /// <summary>
+    ///     Accepts the call as a long-running operation (method with <c>execution.mode: async</c>, F3.6, AB#8443). Validate
+    ///     the parameters first and answer a declared error right away when they are wrong; return this only when the work
+    ///     can start. The platform writes the durable operation record, answers the caller with the operation handle and
+    ///     then runs <paramref name="work" /> once (at most once: a lost handler is never restarted). The work gets a
+    ///     progress reporter and a token that is cancelled when the host stops; its outcome (success or a declared error,
+    ///     never <see cref="Accepted" /> again) becomes the final state of the record. Captured services must outlive the
+    ///     call: the handler's DI scope stays open until the work ends.
+    /// </summary>
+    /// <param name="work">The work of the operation.</param>
+    public static CkMethodOutcome Accepted(
+        Func<ICkMethodOperationProgress, CancellationToken, Task<CkMethodOutcome>> work)
+    {
+        ArgumentNullException.ThrowIfNull(work);
+        return new CkMethodOutcome(work);
+    }
 
     /// <summary>The declared error when <see cref="IsSuccess" /> is false.</summary>
     public CkMethodFailure? Failure { get; }
 
     /// <summary>The method succeeded.</summary>
-    public static CkMethodOutcome Ok() => new(null);
+    public static CkMethodOutcome Ok() => new((CkMethodFailure?)null);
 
     /// <summary>The method failed with a declared error.</summary>
     public static CkMethodOutcome Fail(string code, params (string Name, string Value)[] parameters) =>
@@ -100,8 +131,31 @@ public sealed class CkMethodOutcome<TResult>
         Failure = failure;
     }
 
-    /// <summary>True when the method succeeded.</summary>
+    private CkMethodOutcome(Func<ICkMethodOperationProgress, CancellationToken, Task<CkMethodOutcome<TResult>>> work)
+    {
+        AcceptedWork = work;
+    }
+
+    /// <summary>True when the method succeeded (or was accepted).</summary>
     public bool IsSuccess => Failure is null;
+
+    /// <summary>True when the handler accepted the call as a long-running operation (<see cref="Accepted" />).</summary>
+    public bool IsAccepted => AcceptedWork is not null;
+
+    internal Func<ICkMethodOperationProgress, CancellationToken, Task<CkMethodOutcome<TResult>>>? AcceptedWork { get; }
+
+    /// <summary>
+    ///     Accepts the call as a long-running operation; the result of <paramref name="work" /> is stored in the operation
+    ///     record (unless the CK result is sensitive) and read through the handle. Same rules as
+    ///     <see cref="CkMethodOutcome.Accepted" />.
+    /// </summary>
+    /// <param name="work">The work of the operation.</param>
+    public static CkMethodOutcome<TResult> Accepted(
+        Func<ICkMethodOperationProgress, CancellationToken, Task<CkMethodOutcome<TResult>>> work)
+    {
+        ArgumentNullException.ThrowIfNull(work);
+        return new CkMethodOutcome<TResult>(work);
+    }
 
     /// <summary>The result when <see cref="IsSuccess" /> is true.</summary>
     public TResult? Value { get; }

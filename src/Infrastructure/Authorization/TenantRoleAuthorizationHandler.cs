@@ -7,7 +7,7 @@ namespace Meshmakers.Octo.Services.Infrastructure.Authorization;
 /// <summary>
 ///     Evaluates a <see cref="TenantRoleRequirement" /> (AB#7319). A token without the scope or without the role fails the
 ///     requirement with a reason naming the missing one, which <see cref="ForbiddenReasonAuthorizationResultHandler" /> writes into
-///     the <c>403</c> body.
+///     the <c>403</c> body, together with the requirement's error code (AB#8529) when it has one.
 /// </summary>
 public sealed class TenantRoleAuthorizationHandler : AuthorizationHandler<TenantRoleRequirement>
 {
@@ -16,15 +16,15 @@ public sealed class TenantRoleAuthorizationHandler : AuthorizationHandler<Tenant
     {
         if (!HasFullAccessScope(context.User))
         {
-            context.Fail(new AuthorizationFailureReason(this,
+            context.Fail(new TenantRoleAuthorizationFailureReason(this,
                 $"Access is denied: this operation requires the scope '{CommonConstants.OctoApiFullAccess}'. " +
-                "The token was issued without it; request a token with full API access."));
+                "The token was issued without it; request a token with full API access.", requirement.ErrorCode));
         }
         else if (!HasTenantRole(context.User, requirement.RoleName))
         {
-            context.Fail(new AuthorizationFailureReason(this,
+            context.Fail(new TenantRoleAuthorizationFailureReason(this,
                 $"Access is denied: this operation requires the role '{requirement.RoleName}' in the tenant. " +
-                "The token carries no such role; ask a tenant administrator to grant it."));
+                "The token carries no such role; ask a tenant administrator to grant it.", requirement.ErrorCode));
         }
         else
         {

@@ -178,7 +178,11 @@ public class CkMethodDispatcherAuditTests
             services.AddSingleton<ICkInProcessMethodTransport>(new PipelineBackedInProcess(pipeline, _methodId));
         }
 
-        var dispatcher = new CkMethodDispatcher(_resolver, pipeline, new CkMethodHandlerRegistry(_time), _eventHub,
+        var registry = new CkMethodHandlerRegistry(_time);
+        // AB#8634: the bus send needs a live handler
+        registry.OnAnnounced(new CkMethodHandlerAnnounced(Guid.NewGuid(), _time.GetUtcNow().UtcDateTime)
+            { ServiceName = "identity", InstanceId = "h", MethodIds = [_methodId], TtlSeconds = 3600 });
+        var dispatcher = new CkMethodDispatcher(_resolver, pipeline, registry, _eventHub,
             services.BuildServiceProvider(), new CkMethodSensitivityResolver(null), Options.Create(new CkMethodDispatcherOptions()),
             _time, loggers.CreateLogger<CkMethodDispatcher>());
         return new Rig(dispatcher, pipeline);

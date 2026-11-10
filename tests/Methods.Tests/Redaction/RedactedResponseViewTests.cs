@@ -381,7 +381,11 @@ public class RedactedResponseViewTests
         var resolverOfElement = A.Fake<ICkMethodDeclaringElementResolver>();
         A.CallTo(() => resolverOfElement.Resolve(A<CkMethodRequest>._)).ReturnsLazily((CkMethodRequest r) => r.MethodId);
         var pipeline = new CkMethodInvocationPipeline(filters, resolver, loggers.CreateLogger<CkMethodInvocationPipeline>());
-        return new CkMethodDispatcher(resolverOfElement, pipeline, new CkMethodHandlerRegistry(time), hub,
+        var registry = new CkMethodHandlerRegistry(time);
+        // AB#8634: the bus send needs a live handler
+        registry.OnAnnounced(new CkMethodHandlerAnnounced(Guid.NewGuid(), time.GetUtcNow().UtcDateTime)
+            { ServiceName = "identity", InstanceId = "h", MethodIds = [TestData.MethodId] });
+        return new CkMethodDispatcher(resolverOfElement, pipeline, registry, hub,
             new ServiceCollection().BuildServiceProvider(), resolver, Options.Create(new CkMethodDispatcherOptions()), time,
             loggers.CreateLogger<CkMethodDispatcher>());
     }

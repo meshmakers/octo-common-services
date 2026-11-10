@@ -398,6 +398,34 @@ public class CkMethodMetricsTests
         public void BusReturns(CkMethodResponse r) =>
             A.CallTo(() => EventHub.GetCommandResponseAsync<CkMethodRequest, CkMethodResponse>(A<string>._,
                 A<CkMethodRequest>._, A<CommandSendOptions>._, A<CancellationToken>._)).Returns(r);
+
+        /// <summary>Announces a live handler of the method (the bus send needs one, AB#8634).</summary>
+        public void Live(string methodId) =>
+            Registry.OnAnnounced(new CkMethodHandlerAnnounced(Guid.NewGuid(), Time.GetUtcNow().UtcDateTime)
+                { ServiceName = "identity", InstanceId = "h", MethodIds = [methodId] });
+
+        public void AfterWarmUp() => Time.Advance(new CkMethodDispatcherOptions().RegistryWarmUp);
+
+        public int Sends() => Fake.GetCalls(EventHub).Count(c => c.Method.Name == "GetCommandResponseAsync");
+    }
+
+    [Fact]
+    public async Task Dispatcher_NoLiveHandler_RefusedBeforeTheSend_CountsNoHandlerOnTheBusTransport()
+    {
+        using var capture = new MetricCapture();
+        var rig = new DispatcherRig();
+        var methodId = NewMethodId();
+        rig.AfterWarmUp();
+
+        var response = await rig.Dispatcher.InvokeAsync(rig.Request(methodId), TestContext.Current.CancellationToken);
+
+        // AB#8634: same counting as the broker's return before, but nothing was sent
+        Assert.Equal(0, rig.Sends());
+        Assert.Equal(CkMethodErrorCodes.MethodHandlerNotAvailable, response.Error!.Code);
+        var calls = Assert.Single(capture.Calls(methodId));
+        Assert.Equal(CkMethodTransportNames.Bus, calls.Tag(CkMethodMetrics.TransportTag));
+        Assert.Equal(CkMethodErrorCodes.MethodHandlerNotAvailable, calls.Tag(CkMethodMetrics.OutcomeTag));
+        Assert.Single(capture.Of(methodId, CkMethodMetrics.NoHandlerName));
     }
 
     [Fact]
@@ -406,6 +434,7 @@ public class CkMethodMetricsTests
         using var capture = new MetricCapture();
         var rig = new DispatcherRig();
         var methodId = NewMethodId();
+        rig.Live(methodId);
         rig.BusThrows(new CommandNotRoutableException());
 
         var response = await rig.Dispatcher.InvokeAsync(rig.Request(methodId), TestContext.Current.CancellationToken);
@@ -423,6 +452,7 @@ public class CkMethodMetricsTests
         using var capture = new MetricCapture();
         var rig = new DispatcherRig();
         var methodId = NewMethodId();
+        rig.Live(methodId);
         var request = rig.Request(methodId);
         rig.BusReturns(CkMethodResponse.Succeeded(request.InvocationId, "h"));
 

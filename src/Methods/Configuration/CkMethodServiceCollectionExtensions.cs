@@ -17,6 +17,10 @@ public static class CkMethodServiceCollectionExtensions
     ///     endpoints are ready, heartbeats and withdraws on graceful shutdown. Requires the distribution event hub
     ///     (<c>AddDistributionEventHub</c> with <see cref="AddCkMethodHandlerDiscovery" />) and the CK cache.
     ///     May be called more than once with the same service name; method ids are unique per service.
+    ///     The service itself calls the methods it hosts in-process (AB#8411): <see cref="ICkMethodDispatcher" /> in this
+    ///     process runs them through the local transport (transport <c>in-process</c>), nothing goes to the broker. A method
+    ///     registered with <see cref="ICkMethodHandlerRegistrationBuilder.HandleLocalOnly{THandler}" /> is not announced and
+    ///     has no queue; only this process can call it.
     /// </summary>
     /// <param name="services">The service collection.</param>
     /// <param name="serviceName">Name of the service in the registry, e.g. <c>identity-services</c>.</param>
@@ -28,7 +32,8 @@ public static class CkMethodServiceCollectionExtensions
 
         var registrations = GetOrAddRegistrations(services);
         registrations.SetServiceName(serviceName);
-        configure(new RegistrationBuilder(services, registrations));
+        configure(new RegistrationBuilder(services, registrations,
+            CkInProcessMethodServiceCollectionExtensions.GetOrAddInProcessRegistrations(services)));
 
         // AB#7838: an interval of 0 would crash the heartbeat loop and a TTL below two intervals expires live handlers
         services.AddOptions<CkMethodHandlerOptions>().BindConfiguration(CkMethodHandlerOptions.SectionName)
@@ -47,6 +52,8 @@ public static class CkMethodServiceCollectionExtensions
         services.TryAddSingleton<CkMethodHandlerInvoker>();
         services.TryAddSingleton<ICkMethodHandlerInvoker>(sp => sp.GetRequiredService<CkMethodHandlerInvoker>());
         services.TryAddSingleton<CkMethodBusConsumer>();
+        // AB#8411: the service calls the methods it hosts in-process (no bus hop), and runs the local-only ones
+        services.AddCkLocalMethodTransport();
         if (services.All(d => d.ImplementationType != typeof(CkMethodHandlerStartupService)))
         {
             services.AddInitializationService<CkMethodHandlerValidationService>();
@@ -80,13 +87,24 @@ public static class CkMethodServiceCollectionExtensions
         return registrations;
     }
 
-    private sealed class RegistrationBuilder(IServiceCollection services, CkMethodHandlerRegistrations registrations)
-        : ICkMethodHandlerRegistrationBuilder
+    private sealed class RegistrationBuilder(
+        IServiceCollection services,
+        CkMethodHandlerRegistrations registrations,
+        CkInProcessMethodRegistrations localOnly) : ICkMethodHandlerRegistrationBuilder
     {
         public ICkMethodHandlerRegistrationBuilder Handle<THandler>(string qualifiedMethodId)
             where THandler : class, ICkMethodHandler
         {
             registrations.Add(qualifiedMethodId, typeof(THandler));
+            services.TryAddScoped<THandler>();
+            return this;
+        }
+
+        // not announced, no queue: the in-process registrations; the startup validation refuses a method in both places
+        public ICkMethodHandlerRegistrationBuilder HandleLocalOnly<THandler>(string qualifiedMethodId)
+            where THandler : class, ICkMethodHandler
+        {
+            localOnly.Add(qualifiedMethodId, typeof(THandler));
             services.TryAddScoped<THandler>();
             return this;
         }

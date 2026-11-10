@@ -1,5 +1,6 @@
 ﻿using System;
 using Meshmakers.Octo.Runtime.Engine.Secrets;
+using Meshmakers.Octo.Services.RestDeprecation;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
@@ -117,6 +118,9 @@ internal class ObservabilityBuilder(
             .AddMeter("Meshmakers.Octo.TenantSetup")
             // CK method audit failures (AB#6919) - ck.method.audit.failures from CkMethodAuditRecorder in Methods.
             .AddMeter("Meshmakers.Octo.Methods")
+            // Deprecated REST operations (AB#8421) - octo.rest.deprecated.calls from RestDeprecationMetrics. A constant
+            // reference: RestDeprecation is a dependency of this package, so a rename fails the build here.
+            .AddMeter(RestDeprecationMetrics.MeterName)
             .AddPrometheusExporter();
 
             // AB#5430: metrics had a Prometheus scrape endpoint and nothing else, while tracing
@@ -218,6 +222,10 @@ internal class ObservabilityBuilder(
         // with the GraphQL extension listener in asset-repo-services for the same data on the
         // GraphQL surface.
         Services.AddTransient<IStartupFilter, MongoCommandSurfaceStartupFilter>();
+
+        // [OctoRestDeprecated] actions get the RFC 9745/8594 headers and are counted on octo.rest.deprecated.calls
+        // (AB#8421); the attribute is the only thing a service adds. Unmarked endpoints are unchanged.
+        Services.AddOctoRestDeprecation();
 
         Services.AddHostedService<StartupBackgroundService>();
         Services.AddSingleton<StartupHealthCheck>();

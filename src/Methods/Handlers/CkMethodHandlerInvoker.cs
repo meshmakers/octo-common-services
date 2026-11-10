@@ -2,6 +2,7 @@ using System.Diagnostics;
 using Meshmakers.Octo.ConstructionKit.Contracts.DataTransferObjects;
 using Meshmakers.Octo.Services.Contracts.DistributionEventHub.Methods;
 using Meshmakers.Octo.Services.Methods.Authorization;
+using Meshmakers.Octo.Services.Methods.Operations;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
@@ -170,41 +171,80 @@ internal sealed class CkMethodHandlerInvoker(
                     (CkMethodErrorParameters.Field, e.Field), (CkMethodErrorParameters.Reason, e.Reason));
             }
 
-            await using var scope = scopeFactory.CreateAsyncScope();
-            if (entryGuard?.FindViolation(scope.ServiceProvider) is { } violation)
-            {
-                // Tripwire (OD-8): request-bound ambient state is visible at handler entry. The handler is not created.
-                // The log names the probe, never the state it looked at.
-                logger.LogError(
-                    "CK method {MethodId} invocation {InvocationId} NOT executed: ambient state probe {ProbeType} {Verdict} at handler entry (correlation {CorrelationId})",
-                    request.MethodId, request.InvocationId, violation.ProbeType.FullName,
-                    violation.Fault is null ? "reports request-bound state" : "failed with " + violation.Fault.GetType().FullName,
-                    correlationId);
-                return Failed(request, CkMethodErrorCodes.MethodHandlerFailed,
-                    (CkMethodErrorParameters.CorrelationId, correlationId.ToString()));
-            }
-
-            var handler = scope.ServiceProvider.GetRequiredService(registration.HandlerType);
-
-            CkMethodAdapterOutcome outcome;
+            var scope = scopeFactory.CreateAsyncScope();
+            var scopeHandedOver = false;
             try
             {
-                outcome = await registration.Adapter
-                    .InvokeAsync(handler, request, parameters, timeProvider, callerPrincipal, linked.Token).ConfigureAwait(false);
-            }
-            catch (CkMethodException e)
-            {
-                outcome = new CkMethodAdapterOutcome(e.Failure, null);
-            }
+                if (entryGuard?.FindViolation(scope.ServiceProvider) is { } violation)
+                {
+                    // Tripwire (OD-8): request-bound ambient state is visible at handler entry. The handler is not created.
+                    // The log names the probe, never the state it looked at.
+                    logger.LogError(
+                        "CK method {MethodId} invocation {InvocationId} NOT executed: ambient state probe {ProbeType} {Verdict} at handler entry (correlation {CorrelationId})",
+                        request.MethodId, request.InvocationId, violation.ProbeType.FullName,
+                        violation.Fault is null ? "reports request-bound state" : "failed with " + violation.Fault.GetType().FullName,
+                        correlationId);
+                    return Failed(request, CkMethodErrorCodes.MethodHandlerFailed,
+                        (CkMethodErrorParameters.CorrelationId, correlationId.ToString()));
+                }
 
-            if (outcome.Failure is { } failure)
-            {
-                return DeclaredFailure(request, registration, failure, correlationId);
-            }
+                var handler = scope.ServiceProvider.GetRequiredService(registration.HandlerType);
 
-            logger.LogDebug("CK method {MethodId} invocation {InvocationId} finished in {ElapsedMs} ms: success",
-                request.MethodId, request.InvocationId, stopwatch.ElapsedMilliseconds);
-            return CkMethodResponse.Succeeded(request.InvocationId, instance.InstanceId, outcome.ResultJson);
+                CkMethodAdapterOutcome outcome;
+                try
+                {
+                    outcome = await registration.Adapter
+                        .InvokeAsync(handler, request, parameters, timeProvider, callerPrincipal, linked.Token).ConfigureAwait(false);
+                }
+                catch (CkMethodException e)
+                {
+                    outcome = new CkMethodAdapterOutcome(e.Failure, null);
+                }
+
+                if (outcome.AcceptedWork is { } work)
+                {
+                    if (!IsAsync(registration))
+                    {
+                        logger.LogError(
+                            "CK method {MethodId} invocation {InvocationId} failed (correlation {CorrelationId}): the handler accepted the call as an operation, but the method is not declared execution.mode: async",
+                            request.MethodId, request.InvocationId, correlationId);
+                        return Failed(request, CkMethodErrorCodes.MethodHandlerFailed,
+                            (CkMethodErrorParameters.CorrelationId, correlationId.ToString()));
+                    }
+
+                    if (scope.ServiceProvider.GetService<CkMethodOperationHost>() is not { } operationHost)
+                    {
+                        logger.LogError(
+                            "CK method {MethodId} invocation {InvocationId} failed (correlation {CorrelationId}): the handler accepted the call as an operation, but the host did not register AddCkMethodOperations()",
+                            request.MethodId, request.InvocationId, correlationId);
+                        return Failed(request, CkMethodErrorCodes.MethodHandlerFailed,
+                            (CkMethodErrorParameters.CorrelationId, correlationId.ToString()));
+                    }
+
+                    // From here the runner owns the scope: the work runs after this call has answered (AB#8443).
+                    scopeHandedOver = true;
+                    return await operationHost.Runner.AcceptAsync(new CkMethodOperationStart(request, callerPrincipal,
+                        registration.SensitiveResult, instance.InstanceId, scope, work,
+                        f => DeclaredFailure(request, registration, f, correlationId).Error!,
+                        e => LoggedException(registration, redactor, e)), linked.Token).ConfigureAwait(false);
+                }
+
+                if (outcome.Failure is { } failure)
+                {
+                    return DeclaredFailure(request, registration, failure, correlationId);
+                }
+
+                logger.LogDebug("CK method {MethodId} invocation {InvocationId} finished in {ElapsedMs} ms: success",
+                    request.MethodId, request.InvocationId, stopwatch.ElapsedMilliseconds);
+                return CkMethodResponse.Succeeded(request.InvocationId, instance.InstanceId, outcome.ResultJson);
+            }
+            finally
+            {
+                if (!scopeHandedOver)
+                {
+                    await scope.DisposeAsync().ConfigureAwait(false);
+                }
+            }
         }
         catch (OperationCanceledException) when (deadline.IsCancellationRequested)
         {
@@ -252,6 +292,9 @@ internal sealed class CkMethodHandlerInvoker(
                     "); details are withheld because the result is sensitive.")
                 : redactor.Redact(serialization.InnerException ?? serialization)
             : redactor.Redact(e);
+
+    private static bool IsAsync(CkMethodRegistration registration) =>
+        string.Equals(registration.Definition?.Execution?.Mode, CkMethodModes.Async, StringComparison.Ordinal);
 
     /// <summary>
     ///     <c>true</c> when the result of the method is sensitive; fail-closed for a method that is not registered here.

@@ -1,3 +1,4 @@
+using Meshmakers.Octo.Runtime.Contracts;
 using Meshmakers.Octo.Runtime.Contracts.Exchange;
 
 namespace Meshmakers.Octo.Services.Contracts.DistributionEventHub.Commands;
@@ -37,4 +38,14 @@ public record ImportRtCommandRequest : CommandBaseRequest
     ///     nevertheless (a missing caller is never treated as system). An older consumer ignores the field.
     /// </summary>
     public string? InitiatedBySubjectId { get; init; }
+
+    /// <summary>
+    ///     AB#8705: the kind of principal (signed-in person or service client) that started the import through the API,
+    ///     derived by the producer from the caller's token. The consumer passes it to the engine
+    ///     (<see cref="RtImportCallerContext.PrincipalKind" />), where types with a <c>writeAccess</c> block admit or
+    ///     refuse the import by it (AB#8574). Optional and additive: a message from an older producer carries none and
+    ///     reads as <see cref="RtPrincipalKind.Unknown" />, which restricted types refuse (fail closed) and every other
+    ///     type ignores. An older consumer ignores the field.
+    /// </summary>
+    public RtPrincipalKind InitiatedByPrincipalKind { get; init; } = RtPrincipalKind.Unknown;
 }

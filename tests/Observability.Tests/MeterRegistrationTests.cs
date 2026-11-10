@@ -1,5 +1,8 @@
 using Meshmakers.Octo.Runtime.Engine.Secrets;
 using Meshmakers.Octo.Services.Observability;
+using Meshmakers.Octo.Services.RestDeprecation;
+
+using Microsoft.AspNetCore.Hosting;
 
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
@@ -75,5 +78,25 @@ public class MeterRegistrationTests
         var counter = meter.CreateCounter<int>("ck.method.probe");
 
         Assert.True(counter.Enabled);
+    }
+    /// <summary>
+    ///     AB#8421: octo.rest.deprecated.calls (RestDeprecationMetrics) reaches the exporters, and AddObservability() installs
+    ///     the deprecation startup filter, so a service only puts [OctoRestDeprecated] on an action.
+    /// </summary>
+    [Fact]
+    public void RestDeprecationMeter_IsRegistered_AndStartupFilterInstalled()
+    {
+        var builder = Host.CreateApplicationBuilder();
+        builder.AddObservability();
+
+        using var host = builder.Build();
+        _ = host.Services.GetRequiredService<MeterProvider>();
+
+        using var meter = new System.Diagnostics.Metrics.Meter(RestDeprecationMetrics.MeterName);
+        var counter = meter.CreateCounter<int>("octo.rest.deprecated.probe");
+
+        Assert.True(counter.Enabled);
+        Assert.Contains(host.Services.GetServices<IStartupFilter>(),
+            f => f.GetType().FullName == "Meshmakers.Octo.Services.RestDeprecation.RestDeprecationStartupFilter");
     }
 }

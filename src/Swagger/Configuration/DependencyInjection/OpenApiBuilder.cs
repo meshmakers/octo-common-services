@@ -14,6 +14,8 @@ internal class OpenApiBuilder(IServiceCollection serviceCollection) : IOpenApiBu
         Services.AddOpenApi(versionName, options =>
         {
             options.AddOperationTransformer<AuthenticationOperationTransformer>();
+            // AB#8421: [OctoRestDeprecated] actions become deprecated operations with their sunset and successor link
+            options.AddOperationTransformer<RestDeprecationOperationTransformer>();
 
             options.AddDocumentTransformer((document, ctx, _) =>
             {

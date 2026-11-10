@@ -316,4 +316,8 @@ inbound-mapped `ClaimTypes.Role` (`TenantRoleAuthorizationHandler.HasTenantRole`
   registers its own result handler must chain it.
 - Fail closed: a host that adds the policy but not `AddOctoTenantRoleAuthorization()` has no handler for the
   requirement and refuses every request.
+- Error code: `AddTenantRolePolicy(policyName, roleName, errorCode)` puts the code into the refusal
+  (`TenantRoleAuthorizationFailureReason.Code`), and the 403 body becomes `{"message": "...", "code": "<errorCode>"}` for a
+  missing scope and a missing role. Without a code the body stays `{"message": "..."}`. Used by the asset repository's
+  `DataModelManagementPolicy` (`DataModelManagementRequired`).
 - Tests: `tests/Infrastructure.Tests/Authorization/TenantRoleAuthorizationTests.cs`.

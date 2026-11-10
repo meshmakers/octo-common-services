@@ -1,5 +1,6 @@
 using Meshmakers.Octo.Runtime.Contracts.MongoDb.Methods;
 using Meshmakers.Octo.Services.Contracts.DistributionEventHub.Methods;
+using Microsoft.Extensions.Options;
 
 namespace Meshmakers.Octo.Services.Methods.Dispatching;
 
@@ -12,8 +13,11 @@ namespace Meshmakers.Octo.Services.Methods.Dispatching;
 ///     With persistence enabled (<see cref="EnablePersistence" />, AB#5671) every change is queued for the snapshot store
 ///     and a restarted host restores the rows with <see cref="Restore" />; a restored row is a "last seen" record and
 ///     counts as live only inside its heartbeat TTL window, exactly like a received announcement.
+///     The registry is the gate of the bus send (AB#8634): it knows when its warm-up ends (<see cref="WarmUpEndsUtc" />)
+///     and signals every announcement and withdrawal (<see cref="WaitForChangeAsync" />), so the dispatcher can wait for
+///     a handler that announces itself right after a restart instead of refusing it.
 /// </summary>
-internal sealed class CkMethodHandlerRegistry(TimeProvider timeProvider) : ICkMethodHandlerRegistry
+internal sealed class CkMethodHandlerRegistry : ICkMethodHandlerRegistry
 {
     internal static readonly TimeSpan LastSeenRetention = TimeSpan.FromHours(24);
     private static readonly TimeSpan MaxTtl = TimeSpan.FromHours(24);
@@ -22,16 +26,72 @@ internal sealed class CkMethodHandlerRegistry(TimeProvider timeProvider) : ICkMe
     private readonly Dictionary<string, Dictionary<string, State>> _methods = new(StringComparer.Ordinal);
     private readonly Lock _lock = new();
     private readonly HashSet<(string MethodKey, string InstanceId)> _dirty = [];
+    private readonly TimeProvider _timeProvider;
+    private readonly TimeSpan _warmUp;
     private bool _trackChanges;
     private DateTime _lastPruneUtc;
+    private DateTime _warmUpEndsUtc;
+    private TaskCompletionSource _changed = NewSignal();
 
-    private DateTime Now => timeProvider.GetUtcNow().UtcDateTime;
+    public CkMethodHandlerRegistry(TimeProvider timeProvider, IOptions<CkMethodDispatcherOptions>? options = null)
+    {
+        _timeProvider = timeProvider;
+        var warmUp = (options?.Value ?? new CkMethodDispatcherOptions()).RegistryWarmUp;
+        _warmUp = warmUp > TimeSpan.Zero ? warmUp : TimeSpan.Zero;
+        _warmUpEndsUtc = Now + _warmUp;
+    }
+
+    private DateTime Now => _timeProvider.GetUtcNow().UtcDateTime;
+
+    /// <summary>
+    ///     Until then an empty registry may still fill (dispatcher just started or just asked for discovery): the dispatcher
+    ///     waits for an announcement instead of refusing. Starts with the registry and is extended by
+    ///     <see cref="ExtendWarmUp" />.
+    /// </summary>
+    internal DateTime WarmUpEndsUtc
+    {
+        get
+        {
+            lock (_lock)
+            {
+                return _warmUpEndsUtc;
+            }
+        }
+    }
+
+    /// <summary>Starts the warm-up again from now (the dispatcher asked every handler to announce itself); never shortens it.</summary>
+    internal void ExtendWarmUp()
+    {
+        var end = Now + _warmUp;
+        lock (_lock)
+        {
+            if (end > _warmUpEndsUtc)
+            {
+                _warmUpEndsUtc = end;
+            }
+        }
+    }
+
+    /// <summary>
+    ///     Completes with the next announcement or withdrawal received after the call (also one that changes nothing).
+    ///     Take the task before checking <see cref="GetLiveHandlers" /> again, so a message in between is not missed.
+    /// </summary>
+    internal Task WaitForChangeAsync()
+    {
+        lock (_lock)
+        {
+            return _changed.Task;
+        }
+    }
+
+    private static TaskCompletionSource NewSignal() => new(TaskCreationOptions.RunContinuationsAsynchronously);
 
     internal void OnAnnounced(CkMethodHandlerAnnounced message)
     {
         var now = Now;
         var ttl = TimeSpan.FromSeconds(Math.Clamp(message.TtlSeconds, 1, 24 * 3600));
         IReadOnlyList<string> tenants = message.Tenants.Count == 0 ? [CkMethodHandlerTenants.All] : message.Tenants.ToList();
+        TaskCompletionSource signal;
         lock (_lock)
         {
             foreach (var methodId in message.MethodIds)
@@ -50,12 +110,17 @@ internal sealed class CkMethodHandlerRegistry(TimeProvider timeProvider) : ICkMe
             }
 
             Prune(now);
+            signal = _changed;
+            _changed = NewSignal();
         }
+
+        signal.TrySetResult();
     }
 
     internal void OnWithdrawn(CkMethodHandlerWithdrawn message)
     {
         var now = Now;
+        TaskCompletionSource signal;
         lock (_lock)
         {
             foreach (var methodId in message.MethodIds)
@@ -75,7 +140,13 @@ internal sealed class CkMethodHandlerRegistry(TimeProvider timeProvider) : ICkMe
                 instances[message.InstanceId] = new State(entry, withdrawnAt);
                 MarkDirty(Normalize(methodId), message.InstanceId);
             }
+
+            signal = _changed;
+            _changed = NewSignal();
         }
+
+        // a waiting call re-checks and is refused at once (a withdrawal is an answer)
+        signal.TrySetResult();
     }
 
     /// <summary>

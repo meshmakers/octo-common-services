@@ -32,6 +32,11 @@
     </ItemGroup>
 
     <ItemGroup>
+        <!-- AB#8421: AddObservability() registers the REST deprecation headers/counter and exports its meter -->
+        <ProjectReference Include="..\RestDeprecation\RestDeprecation.csproj" />
+    </ItemGroup>
+
+    <ItemGroup>
         <None Include="..\..\assets\meshmakers64.png">
             <Pack>True</Pack>
             <PackagePath/>

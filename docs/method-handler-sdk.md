@@ -114,9 +114,11 @@ interval and TTL, and a dispatcher expires an entry at *receipt time plus the an
   of the registry). A host that violates a rule **does not start**; the message names the key and the rule, for example
   `Methods:Ttl is 00:00:20 but must be at least 2 x Methods:HeartbeatInterval (00:00:30)`. Before, an interval of 0 crashed the heartbeat
   loop and a TTL below two intervals let a live handler expire between two heartbeats.
-* **Why 15 s / 45 s.** The registry is advisory: whether a call fails fast (`METHOD_HANDLER_NOT_AVAILABLE`, under a second) is decided by the
-  broker's mandatory send, not by the TTL. The TTL only drives diagnostics and the persisted snapshot. 45 s tolerates two lost heartbeats;
-  shorter values only add bus traffic.
+* **Why 15 s / 45 s.** 45 s tolerates two lost heartbeats; shorter values only add bus traffic. The registry is the gate of
+  the bus send (section 9): a method without a live entry is refused before the send, a gracefully stopped handler withdraws at once, and a
+  handler that crashed stays live for at most its TTL, during which the broker's mandatory flag still detects it (one returned send, then
+  the entry is expired). A dispatcher's registry warm-up (`Methods:Dispatcher:RegistryWarmUp`, 20 s) must stay longer than the heartbeat
+  interval of the hosts.
 
 ## 4a. Who is the caller? Token validation in a remote handler
 
@@ -543,8 +545,9 @@ CkMethodResponse response = await dispatcher.InvokeAsync(request, cancellationTo
    `request.MethodId` to the qualified id of the declaring element, for example `Fleet/Car.Start-1` becomes
    `Fleet/Vehicle.Start-1`. This happens before the pipeline, so filters, the queue name and the handler registration all see the
    same id. A type or method the cache does not know (or a service without CK cache) is routed as given.
-2. **Prefer in-process.** A method registered with `AddCkInProcessMethodHandlers` in the same service runs through
-   `ICkInProcessMethodTransport` (pipeline transport name `in-process`); the bus and the registry are not touched.
+2. **Prefer in-process.** A method with a handler in the same service - registered with `AddCkInProcessMethodHandlers`, local
+   only (`HandleLocalOnly`), or as a bus handler of the service (`AddCkMethodHandlers`) - runs through
+   `ICkInProcessMethodTransport` (pipeline transport name `in-process`); the bus and the registry are not touched. See section 10.
 3. **Otherwise the bus.** `ICkMethodInvocationPipeline.ExecuteAsync("bus", request, send, ct)` where `send` is the dispatcher's
    only own code: one mandatory, non-persistent `GetCommandResponseAsync` to the shared queue `CkMethodQueueNames.For(methodId)`.
    Handlers consume that queue as competing consumers, so replicas of one service share the traffic.
@@ -557,7 +560,8 @@ and run once per call for both transports.
 | Situation | Envelope |
 |---|---|
 | Handler answered | the handler's `CkMethodResponse` unchanged (success, declared error, `METHOD_HANDLER_FAILED`, `METHOD_TIMEOUT`, `METHOD_OUTCOME_UNKNOWN`, ...) |
-| Nobody consumes the queue (never created, or the consumers are gone) | `METHOD_HANDLER_NOT_AVAILABLE`, parameters `methodId` and `reason` = `no-live-handler`, within milliseconds, no stack trace |
+| The registry knows no live handler (never announced, local only in another service, withdrawn, expired) | `METHOD_HANDLER_NOT_AVAILABLE`, parameters `methodId` and `reason` = `no-live-handler`, no stack trace, **nothing sent**; inside the registry warm-up the call first waits for an announcement |
+| A live entry is stale (handler crashed inside its TTL): the broker returns the mandatory send | the same envelope (`no-live-handler`) within milliseconds; the entry is expired, so the next call is refused before the send |
 | The registry knows live handlers, none serves the tenant | `METHOD_HANDLER_NOT_AVAILABLE`, `reason` = `tenant-not-served`, nothing sent |
 | The request carries a newer contract version than every live handler announced | `METHOD_CONTRACT_VERSION_UNSUPPORTED`, nothing sent (wire contract rule 4) |
 | No answer before `DeadlineUtc` + `ResponseGrace` (2 s), or the deadline has passed already | `METHOD_TIMEOUT` (outcome unknown), nothing is re-sent |
@@ -585,12 +589,39 @@ tolerance) before it answers `METHOD_TIMEOUT` itself; message TTL and send timeo
 4. **In-process.** The same clamp runs in front of the in-process branch, the handler token fires at the deadline and a handler that
    ignores it is not waited for past `DeadlineUtc` (same envelope as on the bus, tests compare them).
 
-**The registry is advisory.** `ICkMethodHandlerRegistry` (fed by `CkMethodHandlerAnnounced` / `Withdrawn`, expiry = receipt time + the
-announced TTL, 45 s by default; a dispatcher asks for a fresh announcement at start) provides the tenant and contract version
-checks and diagnostics (`GetLiveHandlers`, `GetLastSeen`, `Snapshot`; the Studio view is F3.2). It never
-vetoes a send: an empty registry (dispatcher just started, heartbeat lost) must not refuse a call the broker can still deliver, so the
-mandatory flag decides. A withdrawal beats any announcement written before it; a broker "not routable" expires only entries last seen
-before the send started.
+**The registry is the gate of the bus send.** `ICkMethodHandlerRegistry` (fed by `CkMethodHandlerAnnounced` / `Withdrawn`,
+expiry = receipt time + the announced TTL, 45 s by default; a dispatcher asks for a fresh announcement at start) decides whether a request
+leaves the process, and provides the tenant and contract version checks and diagnostics (`GetLiveHandlers`, `GetLastSeen`, `Snapshot`;
+the Studio view is F3.2). Before it became the gate it was advisory and the broker's mandatory flag decided; that meant one send per call of a method
+nobody serves, and the request carries the parameters (the new password of `User.ResetPassword-1`, `CreateUser-1`, ...) and the caller's
+access token. RabbitMQ returned it unroutable and did not store it, but it had reached the broker, and MassTransit logged every return as
+`ERROR S-FAULT ... CkMethodRequest`. The rules now:
+
+* **No live handler, no send.** Without a live entry for the method the dispatcher answers `METHOD_HANDLER_NOT_AVAILABLE` /
+  `no-live-handler` (same envelope, same WARN log line, same `ck.method.calls` / `ck.method.no_handler` counting as the broker's return)
+  and calls nothing on the event hub. This is generic: every method of every handler host, not only the identity methods. A local-only
+  handler (`HandleLocalOnly`, e.g. the identity password methods with `Methods:Identity:EnablePasswordMethods=false`) never announces
+  itself, so it is refused before the send in every other service.
+* **Warm-up.** A freshly started dispatcher has not heard every handler yet. Until `Methods:Dispatcher:RegistryWarmUp` (default 20 s,
+  longer than the 15 s heartbeat; the discovery request at start restarts it) has passed, a call whose method the registry has **not heard
+  of** (or knows only from the restored snapshot) waits for an announcement of that method, at most until the warm-up ends or the request
+  deadline passes, and is then sent or refused. A withdrawal or an expiry the registry received itself is an answer: such a call is refused
+  at once, also inside the warm-up. Zero turns the wait off.
+* **A live entry is not a guarantee.** The send stays mandatory. A handler that crashed (no withdrawal) stays live for at most its TTL; the
+  first call in that window is sent and returned by the broker (`no-live-handler`), the entry is expired (`NoQueueBound`) and every
+  further call is refused before the send. This window (one call per crashed instance, at most the TTL) is the remaining case in which a
+  request reaches the broker without a consumer; the S-FAULT line MassTransit writes for it holds the address, message id and type only,
+  never the body.
+* **Races.** A handler that starts announces itself only after its endpoint accepts messages; a call in the milliseconds before the
+  announcement arrives is refused (safe direction, the caller may retry). A graceful stop withdraws before the endpoints go, so new calls
+  are refused at once. Several dispatcher replicas each keep their own registry from the same broadcasts (and share the snapshot), so they
+  decide alike.
+* **Emergency switch.** `Methods:Dispatcher:RefuseWithoutLiveHandler=false` (env `OCTO_Methods__Dispatcher__RefuseWithoutLiveHandler`)
+  restores the advisory registry: an empty registry does not refuse and the broker decides. Use it only when the registry feed is broken
+  (handlers announce, but the dispatcher does not receive the broadcasts); it lets requests of unroutable calls, with their parameters,
+  reach the broker again.
+
+A withdrawal beats any announcement written before it; a broker "not routable" expires only entries last seen before the send.
 
 **The persisted snapshot.** When the host registers `ICkMethodHandlerSnapshotStore` (the MongoDB runtime engine does:
 non-CK collection `ck_method_handler_snapshot` in the system database, one document per method and handler instance, unique key plus a
@@ -600,7 +631,8 @@ dispatcher host therefore knows its handlers, the served tenants and the contrac
 
 * **A row is "last seen", not "live".** A restored row is live only inside its TTL window (`ExpiresUtc`, receipt time + announced TTL),
   exactly like a received announcement. Rows of a stopped handler, an expired TTL or a withdrawal are history: `GetLiveHandlers` does not
-  return them, the send is decided by the broker and ends as `METHOD_HANDLER_NOT_AVAILABLE`. A withdrawal is stored as a tombstone with the
+  return them. Inside the registry warm-up a call waits for a fresh announcement of the restarted handler; after it the call is refused as
+  `METHOD_HANDLER_NOT_AVAILABLE` without a send. A withdrawal is stored as a tombstone with the
   handler's own withdrawal timestamp, so an older announcement that arrives after a restart cannot resurrect the instance.
 * **Never more than an announcement could say.** On restore `LastSeenUtc` is capped to now and `ExpiresUtc` to `LastSeenUtc` + 24 h; rows
   last seen more than 24 h ago are skipped. A heartbeat or discovery answer that arrived since is newer and wins over the snapshot row.
@@ -632,9 +664,235 @@ dispatcher host therefore knows its handlers, the served tenants and the contrac
 `METHOD_TIMEOUT` (outcome unknown) or, when the handler finished first, with its result. It is never lost silently and never run twice.
 The `timeoutSeconds` of that `METHOD_TIMEOUT` is the timeout of the request, not a host default.
 
-**Tests.** `tests/Methods.Tests/Dispatching` (dispatcher with a faked hub, registry races, declaring-element resolution, registration)
-and `tests/Methods.IntegrationTests/CkMethodDispatcherBusTests.cs` (private RabbitMQ: the same cases over the bus and in-process,
-no consumer, consumer gone, mid-flight stop, timeout, derived type, replicas).
+**Tests.** `tests/Methods.Tests/Dispatching` (dispatcher with a faked hub, registry races, declaring-element resolution, registration;
+Registry gate: no call on the event hub without a live handler, warm-up wait and its ends, withdrawal inside the warm-up, stale entry after a
+returned send, emergency switch) and `tests/Methods.IntegrationTests/CkMethodDispatcherBusTests.cs` (private RabbitMQ: the same cases over
+the bus and in-process, no consumer, consumer gone, mid-flight stop, timeout, derived type, replicas; registry gate: the send exchange of a
+refused method does not exist on the broker, with the emergency switch off it does, a gateway started before its handler waits for the
+announcement).
+
+## 10. REST facades: a service calls a method it hosts itself
+
+A service that hosts a method handler can serve the same operation through its own REST endpoint (a *facade*), for example the
+identity service's user endpoints over the `User.*` methods. The facade calls the method through `ICkMethodDispatcher` like any other
+caller, and the handler runs **in this process** through the same invocation core as a call from another service: declared
+authorization (`ICkMethodAuthorizationEvaluator`), parameter validation, redaction of `sensitive` parameters, audit and `ck.method.*`
+metrics (transport `in-process`). No bus hop, so no parameter (a password) reaches the broker.
+
+**Two registrations, one rule.**
+
+| Registration | Announced, bus queue | Another process calls it | This process calls it |
+|---|---|---|---|
+| `m.Handle<THandler>(methodId)` in `AddCkMethodHandlers` | yes | over the bus | in-process (no send) |
+| `m.HandleLocalOnly<THandler>(methodId)` in `AddCkMethodHandlers` | **no** | `METHOD_HANDLER_NOT_AVAILABLE` (no queue) | in-process |
+| `m.Handle<THandler>(methodId)` in `AddCkInProcessMethodHandlers` | no | `METHOD_HANDLER_NOT_AVAILABLE` | in-process |
+
+`HandleLocalOnly` is for a method whose bus exposure is switched off but whose facade must keep working, e.g. the identity password
+methods before the broker is protected (B0): `EnablePasswordMethods ? m.Handle<H>(id) : m.HandleLocalOnly<H>(id)`. A method is
+registered either for the bus or local only: both for the same id stop the start (`CkInProcessMethodValidationService`, order 15).
+A bus-registered method called by its own host answers with the **announced** handler instance id, so the envelope is byte-identical to
+the one a remote caller gets from that host (tests compare success, declared error, `METHOD_FORBIDDEN` and `METHOD_HANDLER_FAILED`).
+
+**The caller.** The local path validates no token: the principal is the one the facade establishes with `CkMethodPrincipalScope`
+(from the authenticated HTTP user). Without a scope there is no principal and the declared authorization refuses the call
+(`METHOD_FORBIDDEN`); nothing falls back to a system identity. The principal needs the scope `octo_api` like every method caller.
+
+**The result.** `CkMethodFacadeResults.ToActionResult(response, options)` (`Meshmakers.Octo.Services.Methods.Facades`) maps the
+envelope to an MVC `IActionResult`:
+
+| Code | Default status |
+|---|---|
+| success with result / without result | `200` with the result JSON / `204` |
+| accepted (asynchronous call, `Operation` set) | `202` with the operation handle |
+| `METHOD_VALIDATION_FAILED` | 400 |
+| `METHOD_FORBIDDEN` | 403 |
+| `METHOD_TARGET_NOT_FOUND` | 404 |
+| `METHOD_REQUEST_IN_PROGRESS` | 409 |
+| `METHOD_PARAMETERS_TOO_LARGE` | 413 |
+| `METHOD_HANDLER_FAILED`, `METHOD_OUTCOME_UNKNOWN`, an unknown `METHOD_*` code | 500 |
+| `METHOD_HANDLER_NOT_AVAILABLE`, `METHOD_CONTRACT_VERSION_UNSUPPORTED`, `METHOD_NOT_SUPPORTED_BY_HANDLER_VERSION` | 503 |
+| `METHOD_TIMEOUT` | 504 |
+| a code the method declares | 400 |
+
+The default error body is problem details (`application/problem+json`) with the code as `title` and the extensions `code`,
+`parameters` and `details`. Error parameters never carry parameter values (wire contract), so the body is safe. An endpoint keeps
+its existing status codes and bodies with `CkMethodFacadeOptions`: `MapError(code, status)`, `MapError(code, error => result)` (also
+for platform codes) and `MapSuccess(response => result)`. Build the options once per endpoint.
+
+```csharp
+// Program.cs of the identity service
+services.AddCkMethodHandlers("IdentityService", m =>
+{
+    m.Handle<UserSetRolesHandler>(SystemIdentityCkIds.UserSetRolesMethodId);
+    if (options.EnablePasswordMethods) m.Handle<UserResetPasswordHandler>(SystemIdentityCkIds.UserResetPasswordMethodId);
+    else m.HandleLocalOnly<UserResetPasswordHandler>(SystemIdentityCkIds.UserResetPasswordMethodId);
+});
+services.AddCkMethodDispatcher();   // the facade's entry point; local methods never touch the bus
+
+// UsersController
+private static readonly CkMethodFacadeOptions ResetPasswordFacade = new CkMethodFacadeOptions()
+    .MapError("PASSWORD_POLICY_VIOLATED", error => new BadRequestObjectResult(error.Details))
+    .MapSuccess(_ => new NoContentResult());
+
+[HttpPost("{id}/reset-password")]
+public async Task<IActionResult> ResetPassword(string tenantId, string id, ResetPasswordDto dto)
+{
+    var request = new CkMethodRequest(tenantId)
+    {
+        InvocationId = Guid.NewGuid(),
+        MethodId = SystemIdentityCkIds.UserResetPasswordMethodId,
+        CkTypeId = "System.Identity/User",
+        TargetRtId = id,
+        ParametersJson = JsonSerializer.Serialize(new UserResetPasswordParameters { NewPassword = dto.Password }, CkMethodJson.Options),
+        DeadlineUtc = timeouts.GetDeadlineUtc(tenantId, "System.Identity/User", SystemIdentityCkIds.UserResetPasswordMethodId)
+    };
+    using (CkMethodPrincipalScope.Begin(CkMethodPrincipal.FromClaimsPrincipal(User)))
+    {
+        var response = await dispatcher.InvokeAsync(request, HttpContext.RequestAborted);
+        return response.ToActionResult(ResetPasswordFacade);
+    }
+}
+```
+
+`AddCkMethodHandlers` registers the local transport by itself; `AddCkMethodDispatcher` (with `AddCkMethodHandlerRegistryFeed`) gives
+the facade its `ICkMethodDispatcher`. A method the service does not host still goes over the bus; check
+`ICkInProcessMethodTransport.CanHandle(methodId)` at start if a facade must never leave the process.
+
+**Tests.** `tests/Methods.Tests/InProcess/SelfHostedMethodCallTests.cs` (no send to the broker, transport in metric and audit,
+byte-identical envelopes, local only not announced, one-place rule, missing principal refused, redaction canary over logs, spans,
+filters and audit), `tests/Methods.Tests/Facades/CkMethodFacadeResultsTests.cs` (every code, overrides) and
+`tests/Methods.IntegrationTests/CkMethodDispatcherBusTests.SelfHosted.cs` (real broker: byte-identical to a remote call of the same
+host; local only = no queue).
+
+## 11. Asynchronous handlers: long-running operations (F3.6)
+
+A method declared `execution.mode: async` (CK v2) does not return its result to the caller. The handler accepts the
+call, the platform records a durable **operation** and answers with an operation handle; the caller reads state, progress and
+result later through the handle (GraphQL `runtime.operations`). Decision OD-5 (`methodConsistency.md`): at most
+once after accept, the record is written before the accepted envelope, a lost handler ends as `METHOD_OUTCOME_UNKNOWN`, 7 days
+retention after completion, no cancel, a repeated idempotency key returns the same operation id.
+
+### The handler
+
+Validate the parameters synchronously and answer a declared error at once when they are wrong. Return `Accepted` only when the work
+can start:
+
+```csharp
+public sealed class BackupDumpHandler(IDumpService dumps)
+    : ICkMethodHandler<BackupDumpParameters, BackupDumpResult>
+{
+    public Task<CkMethodOutcome<BackupDumpResult>> HandleAsync(
+        CkMethodContext<BackupDumpParameters> context, CancellationToken cancellationToken)
+    {
+        if (string.IsNullOrEmpty(context.Parameters.Target))
+        {
+            return Task.FromResult(CkMethodOutcome<BackupDumpResult>.ValidationFailed("target", "required"));
+        }
+
+        var tenantId = context.TenantId; // copy what the work needs; never keep the token
+        return Task.FromResult(CkMethodOutcome<BackupDumpResult>.Accepted(async (progress, ct) =>
+        {
+            await progress.ReportAsync(CkMethodOperationProgress.Create(10, "COPYING_COLLECTIONS"), ct);
+            var file = await dumps.DumpAsync(tenantId, ct);
+            return new BackupDumpResult { Value = file };          // or CkMethodOutcome<...>.Fail("DUMP_FAILED", ...)
+        }));
+    }
+}
+```
+
+`CkMethodOutcome.Accepted(work)` is the same for a method without a result. Rules:
+
+* The work runs **once**, after the answer has left, in a detached flow (no ambient state of the caller), in the handler's DI scope,
+  which stays open until the work ends. Its token is cancelled when the host stops; the operation then ends as
+  `METHOD_OUTCOME_UNKNOWN` (`reason` `handler-lost`). There is no resume and no retry.
+* The work answers success (result) or a declared error. An undeclared code is `METHOD_HANDLER_FAILED`, an exception is
+  `METHOD_HANDLER_FAILED` with `correlationId` (logged, secrets masked), an unacknowledged write is `METHOD_OUTCOME_UNKNOWN` - the same
+  mapping as a synchronous call. The work cannot accept again.
+* `ICkMethodOperationProgress.ReportAsync(progress)`: an optional percentage (0-100), an optional language-neutral stage code
+  (UPPER_SNAKE_CASE) and up to 16 string parameters; no message text. A report is also a heartbeat. A store problem while reporting is
+  logged and never fails the work.
+* `Accepted` for a method that is **not** declared `execution.mode: async` is refused with `METHOD_HANDLER_FAILED` (handler bug), and
+  nothing is recorded.
+
+### Registration
+
+```csharp
+services.AddCkMethodHandlers("BotServices", m => m.Handle<BackupDumpHandler>("System/Tenant.Dump-1"));
+services.AddCkMethodMongoOperationStore();   // package Meshmakers.Octo.Services.Methods.MongoDb, system database
+services.AddCkMethodOperations();            // runner, heartbeat, sweep
+```
+
+Without `AddCkMethodOperations()` a handler that returns `Accepted` is answered `METHOD_HANDLER_FAILED`. A host that only reads
+operations (the gateway) registers the store and `AddCkMethodOperationSweep()`. Tests and single-replica hosts may use
+`AddCkMethodInMemoryOperationStore()` (not durable, not shared).
+
+### What happens on a call
+
+1. The handler returns `Accepted(work)`.
+2. The host writes the record (`Accepted`, owner, method, invocation id, handler instance) **before** it answers. If the write fails,
+   the caller gets `METHOD_HANDLER_NOT_AVAILABLE` (`reason` `operation-store-unavailable`) and the work never starts. A host that
+   is shutting down records nothing and answers `METHOD_HANDLER_NOT_AVAILABLE` (`reason` `host-stopping`), so the caller can retry.
+3. The caller gets `success: true` with `operation { operationId, acceptedAtUtc, retryAfterSeconds }`; `expiresAtUtc` is not known
+   yet (it is set on completion) and stays empty.
+4. The work starts: `Running`, progress, heartbeats every `HeartbeatInterval`.
+5. The work ends: `Succeeded` with the result JSON (none for a result the CK model marks `sensitive`) or `Failed` with code and
+   parameters; `expiresAtUtc` = completion + `Retention`. A final record never changes again.
+6. A handler that dies (killed, crashed): no heartbeat for `StaleAfter`, the sweep of any replica ends the record `Failed` /
+   `METHOD_OUTCOME_UNKNOWN` / `handler-lost`. A late outcome of that work is dropped. Nothing restarts it.
+
+### The record and the store
+
+`CkMethodOperationRecord`: tenant (lower-case), operation id (32 hex chars, opaque), method id, invocation id, correlation id,
+owner (`sub` of a user, else `client_id` of a service caller - from the trusted principal, never from `CkMethodRequest.Caller`),
+handler instance, state, progress, result JSON, error, accepted / started / heartbeat / completed / expires times. It **never**
+contains the parameters, the caller token (OD-10: the principal stays in the process) or a sensitive result.
+
+`ICkMethodOperationStore` (contract tests `OperationStoreContract`, run against the in-memory and the MongoDB store):
+
+| Member | Use |
+|--------|-----|
+| `CreateAsync(record)` | before the accepted envelope; duplicate id in the tenant or a database problem throws `CkMethodOperationStoreException` |
+| `GetAsync(tenant, operationId)` | read one; `null` for unknown, expired or another tenant's id (the gateway maps all three to `OPERATION_NOT_FOUND`) |
+| `ListAsync(query)` | paged list of one tenant, newest first; filters `Owner` (subject, or client id without subject), `MethodId`, `State`, `SinceUtc`; `Skip`, `Take` (1-200, default 50); returns `TotalCount` |
+| `MarkRunningAsync` / `ReportProgressAsync` / `HeartbeatAsync` | open records only |
+| `CompleteAsync` | first final state wins |
+| `FailLostAsync(staleBefore, now, retention)` | the sweep, across tenants (the in-memory store also drops expired records here; MongoDB uses the TTL index) |
+
+Every read names the tenant (an empty tenant is an `ArgumentException`); a read for tenant B never returns a record of tenant A.
+The MongoDB store (`CkMethodMongoOperationStore`) keeps one document per operation in the collection `MethodOperations` of the system
+database, with a unique index `tenantId + operationId`, a TTL index on `expiresAt` (open records have none) and indexes for the list and
+the sweep. It writes with its own admin client (majority read and write concern, 30 s `wtimeout`, OD-7), outside any request transaction.
+
+### Settings (`Methods:Operations`, env `OCTO_Methods__Operations__*`)
+
+| Setting | Default | Bounds |
+|---------|---------|--------|
+| `Retention` | 7 days | 1 hour to 30 days |
+| `HeartbeatInterval` | 15 s | at least 1 s |
+| `StaleAfter` | 2 min | at least 3 x `HeartbeatInterval` |
+| `SweepInterval` | 1 min | at least 1 s |
+| `RetryAfterSeconds` | 5 | 1 to 3600 |
+
+An invalid value stops the service at start; the message names the setting and its bounds, never the configured value.
+
+### Idempotency
+
+A keyed call to an async method behaves like any keyed call (section 8, idempotency filter): the first call stores the accepted
+envelope, a repeat with the same key and parameters gets the same envelope (same `operationId`) with its own `invocationId`, and the
+handler is not called again, so only one operation exists. Test: `tests/Methods.Tests/Operations/AsyncIdempotencyTests.cs`.
+
+### Metrics
+
+`ck.method.operations` (counter, meter `Meshmakers.Octo.Methods`), labels `method_id` and `state` (`accepted`, `running`, `succeeded`,
+`failed`); operations the sweep ends count as `failed` with `method_id` `other`. No tenant or user label. See `docs/method-metrics.md`.
+
+### Tests
+
+`tests/Methods.Tests/Operations/` (record written before the envelope, progress and final states, declared / undeclared / exception
+outcomes, sensitive result, redaction, sync method refused, host without the runtime refused, store down = not accepted, host stop,
+lost handler and sweep, heartbeat, options, metrics, idempotency) and `tests/Methods.IntegrationTests/Operations/` (contract against a
+MongoDB replica set, indexes, readable after a restart, a handler host killed while working ended by the sweep of another host, raw
+documents without parameters or token).
 
 ## Replicas and sharing
 
