@@ -34,7 +34,7 @@ nothing dispatched.
 | C01b | forged Caller DTO next to a valid token of a plain user | bus / handler host | runs as the token owner; DTO is informational | by design |
 | C01 | unauthenticated principal; forged Caller member in the GraphQL input | gateway, GraphQL | METHOD_FORBIDDEN / not-authorized; input member rejected by validation | none |
 | C02 | token of another tenant, parent tenant, token replayed for another tenant | bus; HTTP (gate Enforce) | METHOD_FORBIDDEN / tenant-not-allowed; HTTP 403 | none |
-| C02b | token of another tenant (user, or service not on the allow-list) with the HTTP gate in LogOnly | in-process transport (AB#8711) | METHOD_FORBIDDEN / tenant-not-allowed before the handler; allow-listed service passes | none |
+| C02d | token of another tenant (user, or service not on the allow-list) with the HTTP gate in LogOnly | in-process transport (AB#8711, `CkMethodCallerTenantTests`) | METHOD_FORBIDDEN / tenant-not-allowed before the handler; allow-listed service passes | none |
 | C03 | expired token | bus; HTTP | METHOD_FORBIDDEN / token-expired; HTTP 401 | none |
 | C04 | wrong or missing audience | bus (audience configured) | METHOD_FORBIDDEN / audience-mismatch | none |
 | C05 | wrong signature (foreign key same kid, unknown kid, flipped signature, tampered payload) | bus; HTTP | METHOD_FORBIDDEN / token-invalid; HTTP 401 | none |
@@ -66,5 +66,5 @@ nothing dispatched.
 |----|-----------|--------|
 | L-1 | An intact message of A replayed within the token lifetime runs again as A (no binding of token to invocation). Test `C15c_Limitation_...` | decision AB#7039 / OD-11 (B0, B1 later) |
 | L-2 | The HTTP API does not validate the audience (`ValidateAudience` false platform-wide); a remote host validates it only when `Methods:Token:ValidAudiences` is set. Test `C04_Limitation_...` (asset-repo) | AB#6913 adjustment 1 |
-| L-3 | The method gateway does not compare token tenant and route tenant itself; it relies on the tenant gate. asset-repo registers the gate in `LogOnly` as code default until the chart flips it (AB#6728). Remote handlers re-check the tenant; an in-process handler would not. Tests `C02b_`, `C02c_Limitation_...` | AB#6728 |
+| L-3 | The method gateway does not compare token tenant and route tenant itself; it relies on the tenant gate. asset-repo registers the gate in `LogOnly` as code default until the chart flips it (AB#6728). Remote handlers re-check the tenant; since AB#8711 the in-process transport enforces the same tenant rule for every token-derived principal before the handler runs (C02d), so the remaining gap is the gateway itself (target lookup before dispatch). Tests `C02b_`, `C02c_Limitation_...` | AB#6728 |
 | L-4 | A message published straight on the queue with a far-future deadline is not clamped by the host (only the dispatcher clamps to the platform maximum); the host cancels after at most ~24 days. Needs a valid token and bus publish rights. **Fixed (AB#7665):** the host clamps to `Methods:Dispatcher:MaxTimeout` (the dispatcher's value and helper) and logs the clamp at Information. Tests `FarFutureDeadline_IsClampedToThePlatformMaximum_*`, `C11e_` | fixed |
