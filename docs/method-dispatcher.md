@@ -28,7 +28,8 @@ applies_to: src/Methods/Dispatching/**
 - **No retry**: one `GetCommandResponseAsync` per call, never resent; every transport fault is `METHOD_TIMEOUT`,
   `METHOD_HANDLER_NOT_AVAILABLE` or `METHOD_HANDLER_FAILED`. Duplicates: see the bus transport in `docs/method-host.md`. Not detected (no "at most once"):
   new invocation id, other instance without broker flag, restarted instance, single instance that loses its connection. A shared
-  duplicate store / idempotency store is open decision OD-3/OD-4 (`methodConsistency.md`) and is **not** built; do not add one here.
+  duplicate-delivery store is open decision OD-3 (`methodConsistency.md`) and is **not** built; do not add one here. Keyed retries are
+  a separate mechanism, the idempotency filter and store (`docs/method-pipeline.md`, `docs/method-wire-contract.md`).
 - **Registry** (`ICkMethodHandlerRegistry`, in-memory, **gate of the bus send**): fed by announce/withdraw, expiry = receipt
   time + TTL (dispatcher clock), withdrawal beats older announcements, `MarkNoQueueBound` spares instances announced during the send. No
   live entry = `METHOD_HANDLER_NOT_AVAILABLE` / `no-live-handler` **without a send** (the request carries passwords and the caller token);

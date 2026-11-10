@@ -143,8 +143,8 @@ tests `tests/Methods.Tests/InProcess/`. Guide: `docs/method-handler-sdk.md` sect
   are untouched). The outermost step restores the raw `ResultJson` when the response that comes back from the chain still carries the
   placeholder, so the **caller gets the real result**; a filter that returns another response (failed, another result) keeps its
   change, and a filter that answers without calling `next` is returned as is. The view exists only in-process; the wire envelope and
-  `ContractVersion` are unchanged. Consequence for F3.5: an idempotency store behind the filters holds the masked result, so how a
-  replay answers is decided there. Not covered: per-attribute masking inside a record result (the marker is whole-result), pipeline
+  `ContractVersion` are unchanged. Consequence for F3.5: the idempotency filter refuses a keyed call of a method whose result is sensitive
+  (`METHOD_VALIDATION_FAILED`, field `idempotencyKey`, reason `result-sensitive`) and stores nothing, so no masked result is replayed. Not covered: per-attribute masking inside a record result (the marker is whole-result), pipeline
   handlers (they refuse a sensitive result, see the controller), and what a handler itself writes. The `CK method handle` span carries only ids and the
   transport name, never a result. The canary tests listen to all activity sources, so a new source cannot leak a result unnoticed.
 

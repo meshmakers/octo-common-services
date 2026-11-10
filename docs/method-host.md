@@ -114,7 +114,8 @@ the handler runs in this process, nothing is sent to the broker. Code: `src/Meth
 Code: `src/Methods/Operations/` (contract, in-memory store, runner, options, registration) and the new package
 `Meshmakers.Octo.Services.Methods.MongoDb` (`src/Methods.MongoDb/`, MongoDB store). Guide: `docs/method-handler-sdk.md` section 11.
 Decision OD-5: at most once after accept, record before the accepted envelope, lost handler = `METHOD_OUTCOME_UNKNOWN`,
-7 d retention after completion (1 h to 30 d), owner + tenant admin read, no cancel, repeated idempotency key = same operation id.
+7 d retention after completion (1 h to 30 d), owner + tenant admin read, no cancel; a repeated idempotency key returns the same operation id only where the idempotency filter runs (a method declared
+`execution.idempotent` ignores the key and starts a new operation per call).
 
 - **Handler SDK**: `CkMethodOutcome.Accepted(work)` / `CkMethodOutcome<TResult>.Accepted(work)` (static factories on the sealed outcome
   classes; no member was added to `ICkMethodHandler<,>`, so the change is additive for other repositories, §4a). The adapter wraps the work
