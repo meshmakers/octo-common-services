@@ -8,10 +8,12 @@ namespace Meshmakers.Octo.Services.Methods.Dispatching;
 /// <summary>
 ///     Asks every handler instance to announce itself right after the bus has started, so the registry fills within
 ///     milliseconds instead of after up to one heartbeat interval. Order 30: after the event hub (20) and the endpoints
-///     of handlers hosted in the same process (25).
+///     of handlers hosted in the same process (25). The registry warm-up (AB#8634) starts again from here, so the
+///     answers to the discovery and the next heartbeat round arrive before a call without a live handler is refused.
 /// </summary>
 internal sealed class CkMethodDispatcherStartupService(
     IDistributionEventHubService eventHub,
+    CkMethodHandlerRegistry registry,
     TimeProvider timeProvider,
     ILogger<CkMethodDispatcherStartupService> logger) : IAsyncInitializationService
 {
@@ -21,6 +23,7 @@ internal sealed class CkMethodDispatcherStartupService(
 
     public async Task InitializeAsync()
     {
+        registry.ExtendWarmUp();
         try
         {
             await eventHub.PublishAsync(new CkMethodHandlerDiscoveryRequested(Guid.NewGuid(),

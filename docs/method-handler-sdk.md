@@ -21,6 +21,8 @@ This file covers the model, the handler, errors, registration and unit tests. Th
   invocation pipeline (filters, facts).
 * [method-handler-sdk-idempotency.md](method-handler-sdk-idempotency.md): idempotency store contract, parameter fingerprint
   and the idempotency filter.
+* [method-handler-sdk-async.md](method-handler-sdk-async.md): asynchronous handlers, the accepted outcome, the durable operation
+  record, the store contract, options and the metric.
 * [method-handler-sdk-delivery.md](method-handler-sdk-delivery.md): duplicate deliveries and failing sends, the dispatcher
   (routing, outcomes, timeouts, registry) and replicas.
 
@@ -127,9 +129,11 @@ interval and TTL, and a dispatcher expires an entry at *receipt time plus the an
   of the registry). A host that violates a rule **does not start**; the message names the key and the rule, for example
   `Methods:Ttl is 00:00:20 but must be at least 2 x Methods:HeartbeatInterval (00:00:30)`. Before, an interval of 0 crashed the heartbeat
   loop and a TTL below two intervals let a live handler expire between two heartbeats.
-* **Why 15 s / 45 s.** The registry is advisory: whether a call fails fast (`METHOD_HANDLER_NOT_AVAILABLE`, under a second) is decided by the
-  broker's mandatory send, not by the TTL. The TTL only drives diagnostics and the persisted snapshot. 45 s tolerates two lost heartbeats;
-  shorter values only add bus traffic.
+* **Why 15 s / 45 s.** 45 s tolerates two lost heartbeats; shorter values only add bus traffic. The registry is the gate of
+  the bus send ([the dispatcher](method-handler-sdk-delivery.md#calling-a-method-the-dispatcher)): a method without a live entry is refused before the send, a gracefully stopped handler withdraws at once, and a
+  handler that crashed stays live for at most its TTL, during which the broker's mandatory flag still detects it (one returned send, then
+  the entry is expired). A dispatcher's registry warm-up (`Methods:Dispatcher:RegistryWarmUp`, 20 s) must stay longer than the heartbeat
+  interval of the hosts.
 
 ## 5. Unit-testing a handler
 

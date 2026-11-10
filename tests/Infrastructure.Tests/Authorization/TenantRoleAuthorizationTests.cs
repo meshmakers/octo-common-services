@@ -224,4 +224,88 @@ public class TenantRoleAuthorizationTests
 
         Assert.True(nextCalled);
     }
+    private const string CodedPolicyName = "DataModelManagementPolicy";
+    private const string ErrorCode = "DataModelManagementRequired";
+
+    private static ServiceProvider CreateCodedServices()
+    {
+        var services = new ServiceCollection();
+        services.AddLogging();
+        services.AddAuthorization(o =>
+            o.AddTenantRolePolicy(CodedPolicyName, CommonConstants.DataModelManagementRole, ErrorCode));
+        services.AddOctoTenantRoleAuthorization();
+        return services.BuildServiceProvider();
+    }
+
+    private static async Task<JsonDocument> ForbiddenBodyAsync(ServiceProvider sp, AuthorizationResult result)
+    {
+        var context = new DefaultHttpContext();
+        var body = new MemoryStream();
+        context.Response.Body = body;
+
+        await sp.GetRequiredService<IAuthorizationMiddlewareResultHandler>().HandleAsync(
+            _ => Task.CompletedTask,
+            context,
+            new AuthorizationPolicyBuilder().RequireAssertion(_ => false).Build(),
+            PolicyAuthorizationResult.Forbid(result.Failure));
+
+        Assert.Equal(StatusCodes.Status403Forbidden, context.Response.StatusCode);
+        body.Position = 0;
+        return await JsonDocument.ParseAsync(body, cancellationToken: TestContext.Current.CancellationToken);
+    }
+
+    [Fact]
+    public async Task CodedPolicy_WithoutRole_WritesMessageAndCode()
+    {
+        await using var sp = CreateCodedServices();
+        var result = await sp.GetRequiredService<IAuthorizationService>()
+            .AuthorizeAsync(User(CommonConstants.OctoApiFullAccess, ("role", "TenantManagement")), CodedPolicyName);
+
+        Assert.False(result.Succeeded);
+        using var json = await ForbiddenBodyAsync(sp, result);
+        Assert.Equal(ErrorCode, json.RootElement.GetProperty("code").GetString());
+        Assert.Contains(CommonConstants.DataModelManagementRole, json.RootElement.GetProperty("message").GetString());
+    }
+
+    [Fact]
+    public async Task CodedPolicy_WithoutScope_WritesTheScopeReasonAndTheCode()
+    {
+        await using var sp = CreateCodedServices();
+        var result = await sp.GetRequiredService<IAuthorizationService>().AuthorizeAsync(
+            User(CommonConstants.OctoApiReadOnly, ("role", CommonConstants.DataModelManagementRole)), CodedPolicyName);
+
+        Assert.False(result.Succeeded);
+        using var json = await ForbiddenBodyAsync(sp, result);
+        Assert.Equal(ErrorCode, json.RootElement.GetProperty("code").GetString());
+        Assert.Contains(CommonConstants.OctoApiFullAccess, json.RootElement.GetProperty("message").GetString());
+    }
+
+    [Fact]
+    public async Task CodedPolicy_WithScopeAndRole_Succeeds()
+    {
+        await using var sp = CreateCodedServices();
+        var result = await sp.GetRequiredService<IAuthorizationService>().AuthorizeAsync(
+            User(CommonConstants.OctoApiFullAccess, (ClaimTypes.Role, CommonConstants.DataModelManagementRole)),
+            CodedPolicyName);
+
+        Assert.True(result.Succeeded);
+    }
+
+    [Fact]
+    public async Task UncodedPolicy_BodyHasNoCodeProperty()
+    {
+        await using var sp = CreateServices();
+        var result = await AuthorizeAsync(sp, User(CommonConstants.OctoApiFullAccess));
+
+        using var json = await ForbiddenBodyAsync(sp, result);
+        Assert.False(json.RootElement.TryGetProperty("code", out _));
+    }
+
+    [Fact]
+    public void CodedPolicy_BlankCode_IsRejected()
+    {
+        var options = new AuthorizationOptions();
+        Assert.ThrowsAny<ArgumentException>(() =>
+            options.AddTenantRolePolicy(CodedPolicyName, CommonConstants.DataModelManagementRole, " "));
+    }
 }

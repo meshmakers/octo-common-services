@@ -65,7 +65,7 @@ public class CkMethodDispatcherRegistrationTests
     [Fact]
     public void DiscoveryRequest_RunsAfterTheEventHubAndTheHandlerEndpoints()
     {
-        var service = new CkMethodDispatcherStartupService(A.Fake<IDistributionEventHubService>(), TimeProvider.System,
+        var service = new CkMethodDispatcherStartupService(A.Fake<IDistributionEventHubService>(), new CkMethodHandlerRegistry(TimeProvider.System), TimeProvider.System,
             new Microsoft.Extensions.Logging.Testing.FakeLogger<CkMethodDispatcherStartupService>());
 
         Assert.True(service.Order > 25, "after EventHubStartupService (20) and the endpoints of handlers in the same process (25)");
@@ -76,7 +76,7 @@ public class CkMethodDispatcherRegistrationTests
     {
         var hub = A.Fake<IDistributionEventHubService>();
         A.CallTo(hub).Where(c => c.Method.Name == "PublishAsync").Throws<InvalidOperationException>();
-        var service = new CkMethodDispatcherStartupService(hub, TimeProvider.System,
+        var service = new CkMethodDispatcherStartupService(hub, new CkMethodHandlerRegistry(TimeProvider.System), TimeProvider.System,
             new Microsoft.Extensions.Logging.Testing.FakeLogger<CkMethodDispatcherStartupService>());
 
         await service.InitializeAsync();

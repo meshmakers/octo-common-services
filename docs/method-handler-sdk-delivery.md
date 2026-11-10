@@ -82,8 +82,9 @@ CkMethodResponse response = await dispatcher.InvokeAsync(request, cancellationTo
    `request.MethodId` to the qualified id of the declaring element, for example `Fleet/Car.Start-1` becomes
    `Fleet/Vehicle.Start-1`. This happens before the pipeline, so filters, the queue name and the handler registration all see the
    same id. A type or method the cache does not know (or a service without CK cache) is routed as given.
-2. **Prefer in-process.** A method registered with `AddCkInProcessMethodHandlers` in the same service runs through
-   `ICkInProcessMethodTransport` (pipeline transport name `in-process`); the bus and the registry are not touched.
+2. **Prefer in-process.** A method with a handler in the same service - registered with `AddCkInProcessMethodHandlers`, local
+   only (`HandleLocalOnly`), or as a bus handler of the service (`AddCkMethodHandlers`) - runs through
+   `ICkInProcessMethodTransport` (pipeline transport name `in-process`); the bus and the registry are not touched. See [REST facades](method-handler-sdk-in-process.md#rest-facades-a-service-calls-a-method-it-hosts-itself).
 3. **Otherwise the bus.** `ICkMethodInvocationPipeline.ExecuteAsync("bus", request, send, ct)` where `send` is the dispatcher's
    only own code: one mandatory, non-persistent `GetCommandResponseAsync` to the shared queue `CkMethodQueueNames.For(methodId)`.
    Handlers consume that queue as competing consumers, so replicas of one service share the traffic.
@@ -96,7 +97,8 @@ and run once per call for both transports.
 | Situation | Envelope |
 |---|---|
 | Handler answered | the handler's `CkMethodResponse` unchanged (success, declared error, `METHOD_HANDLER_FAILED`, `METHOD_TIMEOUT`, `METHOD_OUTCOME_UNKNOWN`, ...) |
-| Nobody consumes the queue (never created, or the consumers are gone) | `METHOD_HANDLER_NOT_AVAILABLE`, parameters `methodId` and `reason` = `no-live-handler`, within milliseconds, no stack trace |
+| The registry knows no live handler (never announced, local only in another service, withdrawn, expired) | `METHOD_HANDLER_NOT_AVAILABLE`, parameters `methodId` and `reason` = `no-live-handler`, no stack trace, **nothing sent**; inside the registry warm-up the call first waits for an announcement |
+| A live entry is stale (handler crashed inside its TTL): the broker returns the mandatory send | the same envelope (`no-live-handler`) within milliseconds; the entry is expired, so the next call is refused before the send |
 | The registry knows live handlers, none serves the tenant | `METHOD_HANDLER_NOT_AVAILABLE`, `reason` = `tenant-not-served`, nothing sent |
 | The request carries a newer contract version than every live handler announced | `METHOD_CONTRACT_VERSION_UNSUPPORTED`, nothing sent (wire contract rule 4) |
 | No answer before `DeadlineUtc` + `ResponseGrace` (2 s), or the deadline has passed already | `METHOD_TIMEOUT` (outcome unknown), nothing is re-sent |
@@ -124,12 +126,39 @@ tolerance) before it answers `METHOD_TIMEOUT` itself; message TTL and send timeo
 4. **In-process.** The same clamp runs in front of the in-process branch, the handler token fires at the deadline and a handler that
    ignores it is not waited for past `DeadlineUtc` (same envelope as on the bus, tests compare them).
 
-**The registry is advisory.** `ICkMethodHandlerRegistry` (fed by `CkMethodHandlerAnnounced` / `Withdrawn`, expiry = receipt time + the
-announced TTL, 45 s by default; a dispatcher asks for a fresh announcement at start) provides the tenant and contract version
-checks and diagnostics (`GetLiveHandlers`, `GetLastSeen`, `Snapshot`; the Studio view is F3.2). It never
-vetoes a send: an empty registry (dispatcher just started, heartbeat lost) must not refuse a call the broker can still deliver, so the
-mandatory flag decides. A withdrawal beats any announcement written before it; a broker "not routable" expires only entries last seen
-before the send started.
+**The registry is the gate of the bus send.** `ICkMethodHandlerRegistry` (fed by `CkMethodHandlerAnnounced` / `Withdrawn`,
+expiry = receipt time + the announced TTL, 45 s by default; a dispatcher asks for a fresh announcement at start) decides whether a request
+leaves the process, and provides the tenant and contract version checks and diagnostics (`GetLiveHandlers`, `GetLastSeen`, `Snapshot`;
+the Studio view is F3.2). Before it became the gate it was advisory and the broker's mandatory flag decided; that meant one send per call of a method
+nobody serves, and the request carries the parameters (the new password of `User.ResetPassword-1`, `CreateUser-1`, ...) and the caller's
+access token. RabbitMQ returned it unroutable and did not store it, but it had reached the broker, and MassTransit logged every return as
+`ERROR S-FAULT ... CkMethodRequest`. The rules now:
+
+* **No live handler, no send.** Without a live entry for the method the dispatcher answers `METHOD_HANDLER_NOT_AVAILABLE` /
+  `no-live-handler` (same envelope, same WARN log line, same `ck.method.calls` / `ck.method.no_handler` counting as the broker's return)
+  and calls nothing on the event hub. This is generic: every method of every handler host, not only the identity methods. A local-only
+  handler (`HandleLocalOnly`, e.g. the identity password methods with `Methods:Identity:EnablePasswordMethods=false`) never announces
+  itself, so it is refused before the send in every other service.
+* **Warm-up.** A freshly started dispatcher has not heard every handler yet. Until `Methods:Dispatcher:RegistryWarmUp` (default 20 s,
+  longer than the 15 s heartbeat; the discovery request at start restarts it) has passed, a call whose method the registry has **not heard
+  of** (or knows only from the restored snapshot) waits for an announcement of that method, at most until the warm-up ends or the request
+  deadline passes, and is then sent or refused. A withdrawal or an expiry the registry received itself is an answer: such a call is refused
+  at once, also inside the warm-up. Zero turns the wait off.
+* **A live entry is not a guarantee.** The send stays mandatory. A handler that crashed (no withdrawal) stays live for at most its TTL; the
+  first call in that window is sent and returned by the broker (`no-live-handler`), the entry is expired (`NoQueueBound`) and every
+  further call is refused before the send. This window (one call per crashed instance, at most the TTL) is the remaining case in which a
+  request reaches the broker without a consumer; the S-FAULT line MassTransit writes for it holds the address, message id and type only,
+  never the body.
+* **Races.** A handler that starts announces itself only after its endpoint accepts messages; a call in the milliseconds before the
+  announcement arrives is refused (safe direction, the caller may retry). A graceful stop withdraws before the endpoints go, so new calls
+  are refused at once. Several dispatcher replicas each keep their own registry from the same broadcasts (and share the snapshot), so they
+  decide alike.
+* **Emergency switch.** `Methods:Dispatcher:RefuseWithoutLiveHandler=false` (env `OCTO_Methods__Dispatcher__RefuseWithoutLiveHandler`)
+  restores the advisory registry: an empty registry does not refuse and the broker decides. Use it only when the registry feed is broken
+  (handlers announce, but the dispatcher does not receive the broadcasts); it lets requests of unroutable calls, with their parameters,
+  reach the broker again.
+
+A withdrawal beats any announcement written before it; a broker "not routable" expires only entries last seen before the send.
 
 **The persisted snapshot.** When the host registers `ICkMethodHandlerSnapshotStore` (the MongoDB runtime engine does:
 non-CK collection `ck_method_handler_snapshot` in the system database, one document per method and handler instance, unique key plus a
@@ -139,7 +168,8 @@ dispatcher host therefore knows its handlers, the served tenants and the contrac
 
 * **A row is "last seen", not "live".** A restored row is live only inside its TTL window (`ExpiresUtc`, receipt time + announced TTL),
   exactly like a received announcement. Rows of a stopped handler, an expired TTL or a withdrawal are history: `GetLiveHandlers` does not
-  return them, the send is decided by the broker and ends as `METHOD_HANDLER_NOT_AVAILABLE`. A withdrawal is stored as a tombstone with the
+  return them. Inside the registry warm-up a call waits for a fresh announcement of the restarted handler; after it the call is refused as
+  `METHOD_HANDLER_NOT_AVAILABLE` without a send. A withdrawal is stored as a tombstone with the
   handler's own withdrawal timestamp, so an older announcement that arrives after a restart cannot resurrect the instance.
 * **Never more than an announcement could say.** On restore `LastSeenUtc` is capped to now and `ExpiresUtc` to `LastSeenUtc` + 24 h; rows
   last seen more than 24 h ago are skipped. A heartbeat or discovery answer that arrived since is newer and wins over the snapshot row.
@@ -171,9 +201,12 @@ dispatcher host therefore knows its handlers, the served tenants and the contrac
 `METHOD_TIMEOUT` (outcome unknown) or, when the handler finished first, with its result. It is never lost silently and never run twice.
 The `timeoutSeconds` of that `METHOD_TIMEOUT` is the timeout of the request, not a host default.
 
-**Tests.** `tests/Methods.Tests/Dispatching` (dispatcher with a faked hub, registry races, declaring-element resolution, registration)
-and `tests/Methods.IntegrationTests/CkMethodDispatcherBusTests.cs` (private RabbitMQ: the same cases over the bus and in-process,
-no consumer, consumer gone, mid-flight stop, timeout, derived type, replicas).
+**Tests.** `tests/Methods.Tests/Dispatching` (dispatcher with a faked hub, registry races, declaring-element resolution, registration;
+Registry gate: no call on the event hub without a live handler, warm-up wait and its ends, withdrawal inside the warm-up, stale entry after a
+returned send, emergency switch) and `tests/Methods.IntegrationTests/CkMethodDispatcherBusTests.cs` (private RabbitMQ: the same cases over
+the bus and in-process, no consumer, consumer gone, mid-flight stop, timeout, derived type, replicas; registry gate: the send exchange of a
+refused method does not exist on the broker, with the emergency switch off it does, a gateway started before its handler waits for the
+announcement).
 
 ## Replicas and sharing
 

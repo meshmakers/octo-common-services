@@ -27,6 +27,11 @@
     </ItemGroup>
 
     <ItemGroup>
+        <!-- OctoRestDeprecatedAttribute, read by RestDeprecationOperationTransformer (AB#8421) -->
+        <ProjectReference Include="..\RestDeprecation\RestDeprecation.csproj" />
+    </ItemGroup>
+
+    <ItemGroup>
         <None Include="..\..\assets\meshmakers64.png">
             <Pack>True</Pack>
             <PackagePath/>

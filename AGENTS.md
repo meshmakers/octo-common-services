@@ -17,11 +17,12 @@ for the published package list. Targets .NET 10, DebugL for local development.
 | `src/Observability/**`, `src/Infrastructure/Routing/**`, `src/Infrastructure/Cors/**`, `src/**/TenantMiddleware.cs`, `src/Infrastructure/Middleware/Cookie*.cs` | `docs/http-pipeline.md` |
 | `src/Methods/Audit/**` | `docs/method-audit.md` |
 | `src/Methods/Dispatching/**` | `docs/method-dispatcher.md` |
-| `src/Methods/Handlers/**`, `src/Methods/Typed/**`, `src/Methods/Configuration/**` | `docs/method-host.md` |
+| `src/Methods/Handlers/**`, `src/Methods/Typed/**`, `src/Methods/Configuration/**`, `src/Methods/Operations/**`, `src/Methods/Facades/**`, `src/Methods.MongoDb/**` | `docs/method-host.md` |
 | `src/Methods/Metrics/**`, `src/Observability/ObservabilityBuilder.cs` | `docs/method-metrics.md` |
 | `src/Methods/InProcess/**`, `src/Methods/Authorization/**`, `src/Methods/Redaction/**` | `docs/method-pipeline.md` |
 | `src/Contracts/DistributionEventHub/Methods/**`, `tests/Contracts.Tests/Methods/**`, `src/Methods/Idempotency/**` | `docs/method-wire-contract.md` |
 | `src/Notifications/**`, `tests/Notifications.Tests/**`, `tests/Notifications.IntegrationTests/**`, `azure-pipelines.yml` | `docs/notification-ck-model.md` |
+| `src/RestDeprecation/**`, `src/Swagger/Transformers/**`, `tests/RestDeprecation.Tests/**` | `docs/rest-deprecation.md` |
 | `src/Infrastructure/**/TenantAuthorization*.cs`, `src/Infrastructure/Authorization/**`, `src/Infrastructure/Services/*TenantHierarchyReader.cs` | `docs/tenant-authorization.md` |
 | `src/Infrastructure/Services/DefaultConfigurationCreatorServiceStandardized.cs`, `src/Infrastructure/Services/TenantReconcilerOptions.cs` | `docs/tenant-reconciler.md` |
 | `src/Infrastructure/Services/**`, `src/Infrastructure/Consumers/**`, `src/Infrastructure/Initialization/**`, `src/Contracts/DistributionEventHub/Commands/**` | `docs/tenant-setup.md` |
@@ -54,6 +55,8 @@ Propagate the produced `Meshmakers.Octo.Services.*.999.0.0.nupkg` files from `bi
 `tests/Infrastructure.Tests` — xUnit + FakeItEasy. `Infrastructure.csproj` exposes internals to this
 assembly via `<InternalsVisibleTo Include="Infrastructure.Tests" />` so internal middleware such as
 `TenantMiddleware` can be unit-tested directly (see `Middleware/TenantMiddlewareTests.cs`).
+`tests/RestDeprecation.Tests` — TestServer tests of the REST deprecation headers, counter, startup validation and
+OpenAPI transformer.
 
 ## Before you commit
 
@@ -82,5 +85,5 @@ assembly via `<InternalsVisibleTo Include="Infrastructure.Tests" />` so internal
 - **Never log a `DistClientDto`, a `CkMethodRequest` payload, a caller token, a method result or a staging
   location's `RevealUri()`.** Keep the redacting `ToString()` overrides when you add members.
 - **Every CK attribute declares `ownership`** (`OCTO-CK001`, `docs/notification-ck-model.md`).
-- **A merge to `main` does not publish System.Notification.** Publishing is an explicit pipeline run
-  (`docs/notification-ck-model.md`).
+- **A merge to `main` publishes System.Notification** to the private CK catalog by default; a pipeline run can
+  switch it off (`docs/notification-ck-model.md`).

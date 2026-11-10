@@ -2,9 +2,11 @@ namespace Meshmakers.Octo.Services.Methods;
 
 /// <summary>
 ///     In-memory view of the remote CK method handler instances a dispatcher knows, fed by the
-///     <c>CkMethodHandlerAnnounced</c> / <c>CkMethodHandlerWithdrawn</c> broadcasts. It is <b>advisory</b>: the mandatory
-///     send of the dispatcher decides whether a handler is reachable. The registry adds the contract version and tenant
-///     checks, the reason of a refusal and the data for diagnostics (F3.2).
+///     <c>CkMethodHandlerAnnounced</c> / <c>CkMethodHandlerWithdrawn</c> broadcasts. Since AB#8634 it is the
+///     <b>gate</b> of the bus send: without a live handler the dispatcher refuses the call before anything is sent
+///     (after the warm-up, <see cref="CkMethodDispatcherOptions.RegistryWarmUp" />). A live entry is not a guarantee: the
+///     send stays mandatory, so a handler that is gone inside its TTL is still detected by the broker. The registry also
+///     provides the contract version and tenant checks, the reason of a refusal and the data for diagnostics (F3.2).
 /// </summary>
 public interface ICkMethodHandlerRegistry
 {

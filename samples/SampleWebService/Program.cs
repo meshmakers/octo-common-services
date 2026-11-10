@@ -1,3 +1,4 @@
+using Meshmakers.Octo.Services.Observability;
 using Meshmakers.Octo.Services.Swagger.Configuration;
 using NLog;
 using NLog.Web;
@@ -22,6 +23,9 @@ try
 // Add services to the container.
     builder.Services.ConfigureOptions<ConfigureOctoOpenApiOptions>();
 
+    // Observability: OTLP/Prometheus metrics (incl. octo.rest.deprecated.calls) and the REST deprecation headers
+    builder.AddObservability();
+
     builder.Services.AddControllers();
 // Learn more about configuring OpenAPI at https://aka.ms/aspnet/openapi
     builder.Services.AddOctoApiVersioningAndDocumentation()
@@ -37,6 +41,7 @@ try
     app.UseOctoApiVersioningAndDocumentation();
 
     app.MapControllers();
+    app.MapObservability();
 
     app.Run();
 }
