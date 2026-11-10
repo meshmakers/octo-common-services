@@ -87,7 +87,7 @@ and registry (F3.2/F3.3) and the pipeline handler are other stories. Developer g
 
 A service calls a method it hosts itself (REST facade, first consumer: identity) through `ICkMethodDispatcher`;
 the handler runs in this process, nothing is sent to the broker. Code: `src/Methods/InProcess/` (transport), `src/Methods/Configuration/`
-(registration), `src/Methods/Facades/CkMethodFacadeResults.cs`. Guide: `docs/method-handler-sdk.md` section 10.
+(registration), `src/Methods/Facades/CkMethodFacadeResults.cs`. Guide: `docs/method-handler-sdk-in-process.md`, REST facades.
 
 - **Bus handlers are local for their own host.** `AddCkMethodHandlers` also registers the local transport (`AddCkLocalMethodTransport`,
   internal, idempotent). `CkInProcessMethodTransport` takes the bus registrations (`CkMethodHandlerRegistrations`) and the announced
@@ -112,7 +112,7 @@ the handler runs in this process, nothing is sent to the broker. Code: `src/Meth
 ### Asynchronous methods: durable operation record (F3.6, OD-5)
 
 Code: `src/Methods/Operations/` (contract, in-memory store, runner, options, registration) and the new package
-`Meshmakers.Octo.Services.Methods.MongoDb` (`src/Methods.MongoDb/`, MongoDB store). Guide: `docs/method-handler-sdk.md` section 11.
+`Meshmakers.Octo.Services.Methods.MongoDb` (`src/Methods.MongoDb/`, MongoDB store). Guide: `docs/method-handler-sdk-async.md`.
 Decision OD-5: at most once after accept, record before the accepted envelope, lost handler = `METHOD_OUTCOME_UNKNOWN`,
 7 d retention after completion (1 h to 30 d), owner + tenant admin read, no cancel; a repeated idempotency key returns the same operation id only where the idempotency filter runs (a method declared
 `execution.idempotent` ignores the key and starts a new operation per call).

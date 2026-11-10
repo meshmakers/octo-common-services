@@ -8,7 +8,7 @@ applies_to: src/Methods/InProcess/**, src/Methods/Authorization/**, src/Methods/
 ### In-process transport and invocation pipeline
 
 For methods the calling service owns itself (`Tenant.*`, `Archive.*` of the asset-repo gateway). Files: `src/Methods/InProcess/`,
-tests `tests/Methods.Tests/InProcess/`. Guide: `docs/method-handler-sdk.md` section "In-process handlers".
+tests `tests/Methods.Tests/InProcess/`. Guide: `docs/method-handler-sdk-in-process.md`.
 
 - **Registration**: `AddCkInProcessMethodHandlers(m => m.Handle<THandler>(methodId))`, the same typed handler classes as for
   `AddCkMethodHandlers`. In-process registrations live in their own `CkInProcessMethodRegistrations`: no bus queue, no
