@@ -1,6 +1,7 @@
 using FakeItEasy;
 using Meshmakers.Octo.Common.DistributionEventHub.Services;
 using Meshmakers.Octo.Services.Infrastructure.Initialization;
+using Meshmakers.Octo.Services.Methods.Authorization;
 using Meshmakers.Octo.Services.Methods.Dispatching;
 using Meshmakers.Octo.Services.Methods.Handlers;
 using Meshmakers.Octo.Services.Methods.Tests.Handlers;
@@ -57,7 +58,9 @@ public class CkMethodDispatcherRegistrationTests
         using var provider = services.BuildServiceProvider();
 
         Assert.Single(services, d => d.ServiceType == typeof(ICkMethodInvocationPipeline));
-        Assert.Single(provider.GetServices<ICkMethodInvocationFilter>());
+        // the own filter once, next to the caller-tenant filter that the local transport always registers (AB#8711)
+        Assert.Equal([typeof(CkMethodCallerTenantFilter), typeof(NoopFilter)],
+            provider.GetServices<ICkMethodInvocationFilter>().Select(f => f.GetType()).OrderBy(t => t.Name));
         Assert.NotNull(provider.GetRequiredService<ICkInProcessMethodTransport>());
         Assert.NotNull(provider.GetRequiredService<ICkMethodDispatcher>());
     }

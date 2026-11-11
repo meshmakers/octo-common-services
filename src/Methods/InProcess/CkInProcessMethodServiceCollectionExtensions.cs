@@ -1,4 +1,5 @@
 using Meshmakers.Octo.ConstructionKit.Contracts.Services;
+using Meshmakers.Octo.Services.Infrastructure.Configuration;
 using Meshmakers.Octo.Services.Methods;
 using Meshmakers.Octo.Services.Methods.Authorization;
 using Meshmakers.Octo.Services.Methods.Handlers;
@@ -50,7 +51,7 @@ public static class CkInProcessMethodServiceCollectionExtensions
 
     /// <summary>
     ///     Registers the local transport (<see cref="ICkInProcessMethodTransport" />) with the invocation pipeline, the
-    ///     authorization evaluator and the startup validation of the in-process registrations (AB#8411). The transport serves
+    ///     caller-tenant filter (<see cref="CkMethodCallerTenantFilter" />, AB#8711), the authorization evaluator and the startup validation of the in-process registrations (AB#8411). The transport serves
     ///     the in-process registrations and, when the service hosts bus handlers (<c>AddCkMethodHandlers</c>), those too, so a
     ///     service calls the methods it hosts without a bus hop. Idempotent.
     /// </summary>
@@ -64,6 +65,9 @@ public static class CkInProcessMethodServiceCollectionExtensions
         services.TryAddSingleton<ICkMethodDefinitionSource, CkCacheMethodDefinitionSource>();
         services.TryAddSingleton<CkMethodRegistrationValidator>();
         services.AddCkMethodInvocationPipeline();
+        // AB#8711: the caller-tenant check of every in-process call; always on, independent of the HTTP tenant gate's mode
+        services.AddOptions<TenantAuthorizationOptions>().BindConfiguration(TenantAuthorizationOptions.SectionName);
+        services.TryAddEnumerable(ServiceDescriptor.Singleton<ICkMethodInvocationFilter, CkMethodCallerTenantFilter>());
         services.AddOptions<CkMethodAuthorizationOptions>().BindConfiguration(CkMethodAuthorizationOptions.SectionName);
         services.TryAddSingleton<ICkMethodAuthorizationEvaluator, CkMethodAuthorizationEvaluator>();
         services.TryAddSingleton<CkInProcessMethodTransport>();

@@ -170,8 +170,13 @@ validation always enforces; the `LogOnly` and `Disabled` modes of the HTTP side 
 An expired token is only reported as `token-expired` if it is genuine otherwise; an expired forgery is `token-invalid`. If the signing
 keys cannot be loaded at all (identity service down and nothing cached) the call is answered `METHOD_HANDLER_FAILED`, never accepted.
 
-**Not covered.** The in-process transport does not validate a token: it runs in the process that already authenticated the caller and
-hands the principal of that process (`CkMethodPrincipalScope`) to the handler as `CallerPrincipal`. A remote service that does not call
+**In-process calls.** The in-process transport does not validate a token: it runs in the process that already authenticated the caller and
+hands the principal of that process (`CkMethodPrincipalScope`) to the handler as `CallerPrincipal`. It does apply the **tenant rule** above
+to every in-process call (AB#8711, `CkMethodCallerTenantFilter`): a principal mapped from a token (`CkMethodPrincipal.FromClaimsPrincipal`)
+whose `tenant_id` names another tenant than the call is refused with `METHOD_FORBIDDEN` / `tenant-not-allowed` before the handler runs, with
+the same allow-list for service tokens, whatever mode the HTTP tenant gate runs in. A handler needs no tenant check of its own.
+
+**Not covered.** A remote service that does not call
 `AddCkMethodCallerTokenValidation` has no validated caller, so the host refuses every call (`METHOD_FORBIDDEN`, see "The host enforces the declared authorization"). A handler that receives the raw token can replay it
 against the APIs until it expires (about an hour by default); an unauthenticated handler announcement on the bus is a separate
 decision (AB#7039). Switching the validation off (`Methods:Token:DisableValidation`) is a test configuration; the service refuses to

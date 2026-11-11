@@ -16,7 +16,7 @@ namespace Meshmakers.Octo.Services.Methods.Authorization;
 /// </summary>
 /// <remarks>
 ///     <para>
-///         <b>Tenant rule</b> (the one of <c>TenantAuthorizationMiddleware</c>, always enforcing): the <c>tenant_id</c> claim
+///         <b>Tenant rule</b> (<see cref="CkMethodCallerTenantRule" />, shared with the in-process transport since AB#8711; the one of <c>TenantAuthorizationMiddleware</c>, always enforcing): the <c>tenant_id</c> claim
 ///         must equal the tenant of the request. <c>allowed_tenants</c> is a tenant-selection hint, never an authorization.
 ///         A token without <c>sub</c> is a service token (client credentials): it needs <c>client_id</c>, and is
 ///         accepted for the request tenant or when the client is listed in
@@ -150,36 +150,25 @@ internal sealed class CkMethodCallerTokenValidator : ICkMethodCallerTokenValidat
             return CkMethodTokenReasons.TokenInvalid;
         }
 
-        var tokenTenant = principal.FindFirstValue(TenantIdClaimType);
-        var tenantMatches = !string.IsNullOrEmpty(tokenTenant) &&
-                            string.Equals(tokenTenant, expectedTenantId, StringComparison.OrdinalIgnoreCase);
-        var hasSubject = !string.IsNullOrWhiteSpace(principal.FindFirstValue(SubClaimType));
-        if (hasSubject)
+        // the one caller-tenant rule, shared with the in-process transport (AB#8711)
+        var verdict = CkMethodCallerTenantRule.Evaluate(principal.FindFirstValue(SubClaimType),
+            principal.FindFirstValue(ClientIdClaimType), principal.FindFirstValue(TenantIdClaimType), expectedTenantId,
+            _tenantOptions);
+        switch (verdict)
         {
-            if (tenantMatches)
-            {
+            case CkMethodCallerTenantVerdict.Allowed:
                 return null;
-            }
-
-            category = Category.UserTenant;
-            return CkMethodTokenReasons.TenantNotAllowed;
+            case CkMethodCallerTenantVerdict.UserTenantMismatch:
+                category = Category.UserTenant;
+                return CkMethodTokenReasons.TenantNotAllowed;
+            case CkMethodCallerTenantVerdict.ServiceTenantMismatch:
+                category = Category.ServiceTenant;
+                return CkMethodTokenReasons.TenantNotAllowed;
+            default:
+                // no sub and no client_id: the token cannot be attributed to a caller
+                category = Category.NoIdentity;
+                return CkMethodTokenReasons.TokenInvalid;
         }
-
-        // no sub: a service token (client credentials) is identified by its client_id
-        var clientId = principal.FindFirstValue(ClientIdClaimType);
-        if (string.IsNullOrWhiteSpace(clientId))
-        {
-            category = Category.NoIdentity;
-            return CkMethodTokenReasons.TokenInvalid;
-        }
-
-        if (tenantMatches || _tenantOptions.IsCrossTenantServiceClient(clientId))
-        {
-            return null;
-        }
-
-        category = Category.ServiceTenant;
-        return CkMethodTokenReasons.TenantNotAllowed;
     }
 
     private static CkMethodPrincipal BuildPrincipal(ClaimsPrincipal principal, string expectedTenantId)
