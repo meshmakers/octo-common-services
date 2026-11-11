@@ -1,4 +1,5 @@
 ﻿using System;
+using Meshmakers.Octo.Runtime.Engine.AuditTrails;
 using Meshmakers.Octo.Runtime.Engine.Secrets;
 using Meshmakers.Octo.Services.RestDeprecation;
 using Microsoft.AspNetCore.Hosting;
@@ -112,6 +113,10 @@ internal class ObservabilityBuilder(
             // crosses no layer, and a rename on the engine side then fails the build here instead
             // of silently dropping every measurement (the AB#5430 failure mode).
             .AddMeter(SecretDiagnostics.MeterName)
+            // AuditOnly data-permission violations (AB#7279) - octo.datapermissions.audit.violations from
+            // DataPermissionAudit in octo-construction-kit-engine. Counts every violation, also the ones the
+            // audit log only reports as a window summary. A constant reference, like SecretDiagnostics.
+            .AddMeter(DataPermissionAudit.MeterName)
             // Tenant setup retry (AB#7249) - octo.tenant_setup.failed / .pending_seconds from
             // TenantSetupMetrics in Infrastructure. A string, not a reference: Observability does not depend
             // on Infrastructure; TenantSetupRetryTests pins the constant it must equal.

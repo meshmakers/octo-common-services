@@ -29,6 +29,8 @@
 
     <ItemGroup>
         <PackageReference Include="Meshmakers.Octo.Runtime.Contracts.MongoDb" Version="$(OctoCoreLibVersion)" />
+        <!-- AB#7279: AggregatingAuditEventSink (flushed on host stop by AuditEventAggregationFlushService) -->
+        <PackageReference Include="Meshmakers.Octo.Runtime.Engine" Version="$(OctoCoreLibVersion)" />
         <ProjectReference Include="..\Contracts\Contracts.csproj" />
         <ProjectReference Include="..\Infrastructure\Infrastructure.csproj" />
     </ItemGroup>
