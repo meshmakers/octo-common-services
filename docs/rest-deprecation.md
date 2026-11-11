@@ -4,10 +4,11 @@ When an operation moves from REST to a CK method (CK v2 Phase 5, Feature F5.7 AB
 a compatibility window. During that window every caller must see that the endpoint is deprecated and when it goes away,
 and the platform must know who still calls it. One attribute does all of that.
 
-The window (decided by Gerald 2026-11-07, replaces "one release train and at least three months"): an endpoint is
-**deprecated from the delivery of the release that contains the replacing method**, and its **sunset is one week after
-that release is deployed to both prod-1 and prod-2**. Neither date is known when the code is merged, so migration waves
-take their dates from configuration (`Wave`, below), not from code.
+The window (decided by Gerald 2026-11-11, replaces the rules of 2026-11-07 and 2026-11-10): an endpoint is
+**deprecated from the delivery of the release that contains the replacing method**. There is **no fixed compatibility
+window**: the **sunset date is to be announced** — Gerald decides it once the migration functions are implemented. Until
+then no sunset date is configured and no `Sunset` header is sent. Neither date is known when the code is merged, so
+migration waves take their dates from configuration (`Wave`, below), not from code.
 
 ## Marking an endpoint
 
@@ -60,15 +61,16 @@ With `Wave`, `Since` and `Sunset` stay empty in the attribute and come from the 
 - The values are read once at startup; a change takes effect with the restart that a Helm value change triggers.
 - Wave names are letters and digits and start with a letter (they are part of an environment variable name).
 - Rollout of a wave (Gerald's rule above): when the release with the wave is delivered, set `since` to the delivery day
-  in the values of every cluster; after the release runs on prod-1 and prod-2, set `sunset` to the later of the two
-  deployment days plus 7 days on every cluster, and enter both dates on the deprecated-endpoints page
-  (octo-documentation, `developerGuide/solutionArchitecture/deprecatedRestEndpoints.md`).
+  in the values of every cluster and leave `sunset` empty. Once Gerald has decided the sunset date (after the migration
+  functions are implemented), set `sunset` on every cluster and enter it on the deprecated-endpoints page
+  (octo-documentation, `developerGuide/solutionArchitecture/deprecatedRestEndpoints.md`); until then that page says
+  "to be announced".
 
 Current waves:
 
 | Wave | Service | Endpoints | Work item |
 |------|---------|-----------|-----------|
-| `IdentityUsers1` | octo-identity-services | `PUT users/{userName}/roles`, `PUT` and `DELETE users/{userName}/roles/{roleName}`, `POST users/{userName}/merge` | AB#8415 |
+| `IdentityUsers1` | octo-identity-services | `PUT users/{userName}/roles`, `PUT` and `DELETE users/{userName}/roles/{roleName}`, `POST users/{userName}/merge` (since 2026-11-08, sunset to be announced) | AB#8415 |
 
 ### Startup validation
 
