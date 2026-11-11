@@ -16,6 +16,12 @@ entries are grouped by work item until a release assigns the version.
 
 ### Added
 
+- **AB#8707** — `CkMethodJson.Options` binds generated runtime records (`Rt{Record}Record`) with their CK attributes only: a
+  record array, string array or int array attribute (`IAttributeValueList<T>`) is read as a list into the record instead of
+  failing with `NotSupportedException` (`METHOD_HANDLER_FAILED`), and the attribute bag members `attributes` / `ckRecordId` are
+  no longer written to or read from method JSON. The generated `{Type}{Method}Parameters` of a model now work as handler
+  parameter types also when a Record parameter holds a record array. Wire change for a Record *result*: only the CK attributes
+  are written (before, the bag was written as well). No change to the generated model code.
 - **AB#7279** — `AddObservability()` registers the engine meter `Meshmakers.Octo.DataPermissions`
   (`octo.datapermissions.audit.violations`, tags `tenant`, `subject`, `type`, `action`): every AuditOnly data-permission
   violation is counted, while the audit log and the event store now only carry the first occurrence and one summary per
