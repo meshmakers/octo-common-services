@@ -53,6 +53,29 @@ public class AuditEventAggregationEventStoreTests
     }
 
     [Fact]
+    public async Task StopAsync_IsBoundedByTheShutdownToken_WhenTheEventStoreHangs()
+    {
+        var hanging = new TaskCompletionSource();
+        var inner = A.Fake<IAuditEventSink>();
+        A.CallTo(() => inner.PublishAsync(A<AuditEvent>.That.Matches(e => e.AggregationKey == null), A<CancellationToken>._))
+            .Returns(hanging.Task);
+        await using var aggregator = new AggregatingAuditEventSink(inner, Options.Create(new AuditEventAggregationOptions()));
+        var services = new ServiceCollection().AddSingleton(aggregator).BuildServiceProvider();
+        var flush = new AuditEventAggregationFlushService(services);
+        for (var i = 0; i < 3; i++)
+        {
+            await DataPermissionAudit.PublishReadViolationAsync(aggregator, "tenantA", "sa-1", "A/A-1", "read");
+        }
+
+        using var shutdown = new CancellationTokenSource(TimeSpan.FromMilliseconds(200));
+        var stop = flush.StopAsync(shutdown.Token);
+
+        Assert.Same(stop, await Task.WhenAny(stop, Task.Delay(TimeSpan.FromSeconds(10), TestContext.Current.CancellationToken)));
+        await stop;
+        hanging.SetResult();
+    }
+
+    [Fact]
     public void AddOctoNotification_RegistersTheFlushOnStop()
     {
         var services = new ServiceCollection();
