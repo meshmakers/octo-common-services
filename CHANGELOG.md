@@ -68,6 +68,10 @@ entries are grouped by work item until a release assigns the version.
 
 ### Fixed
 
+- **AB#8872** — `AuditEventAggregationFlushService.StopAsync` no longer throws `ObjectDisposedException` when the host's
+  service provider is already disposed (a `WebApplicationFactory` that disposes its derived factories again stops their
+  hosted services a second time). The stop is then a no-op: the container's dispose already disposed
+  `AggregatingAuditEventSink`, which publishes its pending summaries on dispose. A normal stop still flushes first.
 - **AB#8677** — a service no longer stops on start because another service upgrades a CK model in place at the same moment. The
   system tenant setup (`DefaultConfigurationInitializationService`) retries a failure the CK engine marked as "a CK model is being
   imported right now" (`Exception.Data` key `Meshmakers.Octo.CkModelImportInProgress`, set by `octo-construction-kit-engine-mongodb`),

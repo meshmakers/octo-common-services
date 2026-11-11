@@ -16,6 +16,11 @@ namespace Meshmakers.Octo.Services.Notifications.Services;
 /// The flush is bounded by the host's shutdown token: when the event store is too slow, the host stops on time and
 /// the summaries not yet written are logged as lost (the counter <c>octo.datapermissions.audit.violations</c> still
 /// has every occurrence).
+/// <para>
+/// A stop after the container is disposed (AB#8872: a <c>WebApplicationFactory</c> disposed twice or by a derived
+/// factory stops its hosted services again) is a no-op: disposing the container already disposed the aggregator,
+/// and its <see cref="AggregatingAuditEventSink.DisposeAsync"/> published the pending summaries.
+/// </para>
 /// </remarks>
 internal sealed class AuditEventAggregationFlushService(
     IServiceProvider serviceProvider,
@@ -27,7 +32,18 @@ internal sealed class AuditEventAggregationFlushService(
 
     public async Task StopAsync(CancellationToken cancellationToken)
     {
-        var aggregator = serviceProvider.GetService<AggregatingAuditEventSink>();
+        AggregatingAuditEventSink? aggregator;
+        try
+        {
+            aggregator = serviceProvider.GetService<AggregatingAuditEventSink>();
+        }
+        catch (ObjectDisposedException)
+        {
+            // AB#8872: the container is already disposed, and with it the aggregator, which flushed on dispose.
+            _logger.LogDebug("Service provider already disposed; aggregated audit event summaries were flushed on dispose");
+            return;
+        }
+
         if (aggregator == null)
         {
             return;

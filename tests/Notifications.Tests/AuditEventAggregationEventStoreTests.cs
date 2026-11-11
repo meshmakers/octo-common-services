@@ -76,6 +76,52 @@ public class AuditEventAggregationEventStoreTests
     }
 
     [Fact]
+    public async Task StopAsync_DoesNotThrow_WhenTheServiceProviderIsAlreadyDisposed()
+    {
+        // AB#8872: a WebApplicationFactory disposed twice (or by a derived factory) stops the hosted services after
+        // the container is gone; GetService then threw ObjectDisposedException and failed 53 identity test teardowns.
+        var inner = A.Fake<IAuditEventSink>();
+        var services = new ServiceCollection()
+            .AddSingleton(_ => new AggregatingAuditEventSink(inner, Options.Create(new AuditEventAggregationOptions())))
+            .BuildServiceProvider();
+        var aggregator = services.GetRequiredService<AggregatingAuditEventSink>();
+        for (var i = 0; i < 3; i++)
+        {
+            await DataPermissionAudit.PublishReadViolationAsync(aggregator, "tenantA", "sa-1", "A/A-1", "read");
+        }
+
+        var flush = new AuditEventAggregationFlushService(services);
+        await services.DisposeAsync();
+
+        await flush.StopAsync(TestContext.Current.CancellationToken);
+
+        // The container's dispose flushed the aggregator: the summary of the 2 repetitions is not lost.
+        A.CallTo(() => inner.PublishAsync(A<AuditEvent>.That.Matches(e => e.AggregationKey != null),
+                A<CancellationToken>._))
+            .MustHaveHappenedOnceExactly();
+    }
+
+    [Fact]
+    public async Task HostStop_AfterTheHostIsDisposed_DoesNotThrow()
+    {
+        var builder = Host.CreateApplicationBuilder();
+        builder.Services.AddSingleton(_ =>
+            new AggregatingAuditEventSink(A.Fake<IAuditEventSink>(), Options.Create(new AuditEventAggregationOptions())));
+        builder.Services.AddHostedService(sp => new AuditEventAggregationFlushService(sp));
+        var host = builder.Build();
+        await host.StartAsync(TestContext.Current.CancellationToken);
+        var hostedServices = host.Services.GetServices<IHostedService>().ToList();
+        await host.StopAsync(TestContext.Current.CancellationToken);
+        host.Dispose();
+
+        // What a second WebApplicationFactory.Dispose does: stop the hosted services of a disposed host again.
+        foreach (var hostedService in hostedServices)
+        {
+            await hostedService.StopAsync(TestContext.Current.CancellationToken);
+        }
+    }
+
+    [Fact]
     public void AddOctoNotification_RegistersTheFlushOnStop()
     {
         var services = new ServiceCollection();
