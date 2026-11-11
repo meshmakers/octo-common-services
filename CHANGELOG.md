@@ -5,6 +5,14 @@ entries are grouped by work item until a release assigns the version.
 
 ## Unreleased
 
+### Fixed
+
+- **AB#8876** — `AuditEventAggregationFlushService` resolves the engine `AggregatingAuditEventSink` once in `StartAsync`
+  instead of in `StopAsync`. A host that stops after its service provider was disposed (`WebApplicationFactory.Dispose`
+  in integration tests, shutdown races) threw `ObjectDisposedException` out of `Host.StopAsync`; `StopAsync` now never
+  touches the provider and logs an `ObjectDisposedException` during the flush at debug level. The shutdown-token bound is
+  unchanged.
+
 ### Added
 
 - **AB#7279** — `AddObservability()` registers the engine meter `Meshmakers.Octo.DataPermissions`

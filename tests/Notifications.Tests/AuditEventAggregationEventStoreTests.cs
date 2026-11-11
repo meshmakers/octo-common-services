@@ -30,6 +30,7 @@ public class AuditEventAggregationEventStoreTests
             Options.Create(new AuditEventAggregationOptions()));
         var services = new ServiceCollection().AddSingleton(aggregator).BuildServiceProvider();
         var flush = new AuditEventAggregationFlushService(services);
+        await flush.StartAsync(TestContext.Current.CancellationToken);
 
         for (var i = 0; i < 100; i++)
         {
@@ -62,6 +63,7 @@ public class AuditEventAggregationEventStoreTests
         await using var aggregator = new AggregatingAuditEventSink(inner, Options.Create(new AuditEventAggregationOptions()));
         var services = new ServiceCollection().AddSingleton(aggregator).BuildServiceProvider();
         var flush = new AuditEventAggregationFlushService(services);
+        await flush.StartAsync(TestContext.Current.CancellationToken);
         for (var i = 0; i < 3; i++)
         {
             await DataPermissionAudit.PublishReadViolationAsync(aggregator, "tenantA", "sa-1", "A/A-1", "read");
@@ -73,6 +75,39 @@ public class AuditEventAggregationEventStoreTests
         Assert.Same(stop, await Task.WhenAny(stop, Task.Delay(TimeSpan.FromSeconds(10), TestContext.Current.CancellationToken)));
         await stop;
         hanging.SetResult();
+    }
+
+    [Fact]
+    public async Task StopAsync_FlushesWithoutTouchingTheProvider_WhenTheProviderIsAlreadyDisposed()
+    {
+        // AB#8876: WebApplicationFactory.Dispose stopped the host after its service provider was disposed; the
+        // lazy resolve in StopAsync threw ObjectDisposedException out of Host.StopAsync.
+        var inner = A.Fake<IAuditEventSink>();
+        await using var aggregator = new AggregatingAuditEventSink(inner, Options.Create(new AuditEventAggregationOptions()));
+        var services = new ServiceCollection().AddSingleton(aggregator).BuildServiceProvider();
+        var flush = new AuditEventAggregationFlushService(services);
+        await flush.StartAsync(TestContext.Current.CancellationToken);
+        for (var i = 0; i < 3; i++)
+        {
+            await DataPermissionAudit.PublishReadViolationAsync(aggregator, "tenantA", "sa-1", "A/A-1", "read");
+        }
+
+        await services.DisposeAsync();
+        await flush.StopAsync(TestContext.Current.CancellationToken);
+
+        A.CallTo(() => inner.PublishAsync(A<AuditEvent>.That.Matches(e => e.AggregationKey == null),
+                A<CancellationToken>._))
+            .MustHaveHappenedOnceExactly();
+    }
+
+    [Fact]
+    public async Task StopAsync_DoesNothing_WhenTheHostNeverStarted_AndTheProviderIsDisposed()
+    {
+        var services = new ServiceCollection().BuildServiceProvider();
+        var flush = new AuditEventAggregationFlushService(services);
+        await services.DisposeAsync();
+
+        await flush.StopAsync(TestContext.Current.CancellationToken);
     }
 
     [Fact]
