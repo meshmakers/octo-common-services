@@ -30,6 +30,7 @@ public class AuditEventAggregationEventStoreTests
             Options.Create(new AuditEventAggregationOptions()));
         var services = new ServiceCollection().AddSingleton(aggregator).BuildServiceProvider();
         var flush = new AuditEventAggregationFlushService(services);
+        await flush.StartAsync(TestContext.Current.CancellationToken);
 
         for (var i = 0; i < 100; i++)
         {
@@ -62,6 +63,7 @@ public class AuditEventAggregationEventStoreTests
         await using var aggregator = new AggregatingAuditEventSink(inner, Options.Create(new AuditEventAggregationOptions()));
         var services = new ServiceCollection().AddSingleton(aggregator).BuildServiceProvider();
         var flush = new AuditEventAggregationFlushService(services);
+        await flush.StartAsync(TestContext.Current.CancellationToken);
         for (var i = 0; i < 3; i++)
         {
             await DataPermissionAudit.PublishReadViolationAsync(aggregator, "tenantA", "sa-1", "A/A-1", "read");
@@ -73,6 +75,90 @@ public class AuditEventAggregationEventStoreTests
         Assert.Same(stop, await Task.WhenAny(stop, Task.Delay(TimeSpan.FromSeconds(10), TestContext.Current.CancellationToken)));
         await stop;
         hanging.SetResult();
+    }
+
+    [Fact]
+    public async Task StopAsync_FlushesWithoutTouchingTheProvider_WhenTheProviderIsAlreadyDisposed()
+    {
+        // AB#8876: WebApplicationFactory.Dispose stopped the host after its service provider was disposed; the
+        // lazy resolve in StopAsync threw ObjectDisposedException out of Host.StopAsync.
+        var inner = A.Fake<IAuditEventSink>();
+        await using var aggregator = new AggregatingAuditEventSink(inner, Options.Create(new AuditEventAggregationOptions()));
+        var services = new ServiceCollection().AddSingleton(aggregator).BuildServiceProvider();
+        var flush = new AuditEventAggregationFlushService(services);
+        await flush.StartAsync(TestContext.Current.CancellationToken);
+        for (var i = 0; i < 3; i++)
+        {
+            await DataPermissionAudit.PublishReadViolationAsync(aggregator, "tenantA", "sa-1", "A/A-1", "read");
+        }
+
+        await services.DisposeAsync();
+        await flush.StopAsync(TestContext.Current.CancellationToken);
+
+        A.CallTo(() => inner.PublishAsync(A<AuditEvent>.That.Matches(e => e.AggregationKey == null),
+                A<CancellationToken>._))
+            .MustHaveHappenedOnceExactly();
+    }
+
+    [Fact]
+    public async Task StopAsync_DoesNotThrow_WhenTheContainerOwnedAggregatorWasDisposedWithTheProvider()
+    {
+        // Production wiring: the container owns the aggregator and the event-store sink. Disposing the provider first
+        // disposes the aggregator, whose own flush cannot open a scope any more - the summary is lost (error log only),
+        // and the host stop afterwards must not throw.
+        var repository = A.Fake<IEventRepository>();
+        var services = new ServiceCollection()
+            .AddSingleton(repository)
+            .AddSingleton(sp => new EventRepositoryAuditEventSink(sp, Options.Create(new AuditEventSinkOptions()),
+                NullLogger<EventRepositoryAuditEventSink>.Instance))
+            .AddSingleton(sp => new AggregatingAuditEventSink(sp.GetRequiredService<EventRepositoryAuditEventSink>(),
+                Options.Create(new AuditEventAggregationOptions())))
+            .BuildServiceProvider();
+        var flush = new AuditEventAggregationFlushService(services);
+        await flush.StartAsync(TestContext.Current.CancellationToken);
+        var aggregator = services.GetRequiredService<AggregatingAuditEventSink>();
+        for (var i = 0; i < 3; i++)
+        {
+            await DataPermissionAudit.PublishReadViolationAsync(aggregator, "tenantA", "sa-1", "A/A-1", "read");
+        }
+
+        await services.DisposeAsync();
+        await flush.StopAsync(TestContext.Current.CancellationToken);
+
+        A.CallTo(() => repository.StoreEventAsync(A<string>._, A<RtEventSourcesEnum>._, A<RtEventLevelsEnum>._,
+                A<string>.That.Contains("[aggregated:"), A<string>._,
+                A<IReadOnlyCollection<KeyValuePair<string, string>>?>._, A<RtEntityId?>._))
+            .MustNotHaveHappened();
+    }
+
+    [Fact]
+    public async Task StopAsync_FlushesPendingSummaries_WhenStartAsyncNeverRan()
+    {
+        // An earlier hosted service failed to start, so this one never started; the explicit host stop still flushes.
+        var inner = A.Fake<IAuditEventSink>();
+        await using var aggregator = new AggregatingAuditEventSink(inner, Options.Create(new AuditEventAggregationOptions()));
+        var services = new ServiceCollection().AddSingleton(aggregator).BuildServiceProvider();
+        var flush = new AuditEventAggregationFlushService(services);
+        for (var i = 0; i < 3; i++)
+        {
+            await DataPermissionAudit.PublishReadViolationAsync(aggregator, "tenantA", "sa-1", "A/A-1", "read");
+        }
+
+        await flush.StopAsync(TestContext.Current.CancellationToken);
+
+        A.CallTo(() => inner.PublishAsync(A<AuditEvent>.That.Matches(e => e.AggregationKey == null),
+                A<CancellationToken>._))
+            .MustHaveHappenedOnceExactly();
+    }
+
+    [Fact]
+    public async Task StopAsync_DoesNothing_WhenTheHostNeverStarted_AndTheProviderIsDisposed()
+    {
+        var services = new ServiceCollection().BuildServiceProvider();
+        var flush = new AuditEventAggregationFlushService(services);
+        await services.DisposeAsync();
+
+        await flush.StopAsync(TestContext.Current.CancellationToken);
     }
 
     [Fact]
