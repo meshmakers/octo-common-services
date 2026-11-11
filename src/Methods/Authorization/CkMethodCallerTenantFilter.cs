@@ -49,27 +49,16 @@ public sealed class CkMethodCallerTenantFilter(
         }
 
         var principal = (principalProvider ?? CkMethodPrincipalScope.Instance).GetPrincipal(context);
-        if (principal is not { IsFromAccessToken: true })
+        if (!CkMethodCallerTenantCheck.IsRefused(principal, request.TenantId, request.MethodId, tenantOptions.Value,
+                out var error, out var verdict))
         {
             return next(request);
         }
 
-        var verdict = CkMethodCallerTenantRule.Evaluate(principal.SubjectId, principal.ClientId, principal.TokenTenantId,
-            request.TenantId, tenantOptions.Value);
-        if (verdict == CkMethodCallerTenantVerdict.Allowed)
-        {
-            return next(request);
-        }
-
-        var reason = verdict == CkMethodCallerTenantVerdict.NoIdentity
-            ? CkMethodTokenReasons.TokenInvalid
-            : CkMethodTokenReasons.TenantNotAllowed;
         logger.LogWarning(
             "CK method {MethodId} invocation {InvocationId} refused in tenant {TenantId} (transport {Transport}): caller token {Reason} ({Verdict})",
-            request.MethodId, request.InvocationId, request.TenantId, context.Transport, reason, verdict);
-        return Task.FromResult(CkMethodResponse.Failed(request.InvocationId, string.Empty,
-            CkMethodError.Create(CkMethodErrorCodes.MethodForbidden,
-                (CkMethodErrorParameters.MethodId, request.MethodId),
-                (CkMethodErrorParameters.Reason, reason))));
+            request.MethodId, request.InvocationId, request.TenantId, context.Transport, error.Parameters[CkMethodErrorParameters.Reason],
+            verdict);
+        return Task.FromResult(CkMethodResponse.Failed(request.InvocationId, string.Empty, error));
     }
 }
