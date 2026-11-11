@@ -136,7 +136,7 @@ public class CkMethodJsonRuntimeRecordTests
             "{\"archive\":{\"targetCkTypeId\":\"" + Target + "\",\"columns\":" + columns + "}}"));
 
         Assert.Equal("invalid-value", e.Reason);
-        Assert.StartsWith("archive", e.Field);
+        Assert.Equal("archive.columns", e.Field);
     }
 
     private sealed class CreateArchiveHandler
