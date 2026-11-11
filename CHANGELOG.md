@@ -9,9 +9,10 @@ entries are grouped by work item until a release assigns the version.
 
 - **AB#8876** — `AuditEventAggregationFlushService` resolves the engine `AggregatingAuditEventSink` once in `StartAsync`
   instead of in `StopAsync`. A host that stops after its service provider was disposed (`WebApplicationFactory.Dispose`
-  in integration tests, shutdown races) threw `ObjectDisposedException` out of `Host.StopAsync`; `StopAsync` now never
-  touches the provider and logs an `ObjectDisposedException` during the flush at debug level. The shutdown-token bound is
-  unchanged.
+  in integration tests, shutdown races) threw `ObjectDisposedException` out of `Host.StopAsync`. `StopAsync` resolves the
+  aggregator only when `StartAsync` never ran (an earlier hosted service failed to start) and treats a disposed provider
+  as nothing to flush; an `ObjectDisposedException` during the flush is logged at debug level. The shutdown-token bound
+  is unchanged.
 
 ### Added
 

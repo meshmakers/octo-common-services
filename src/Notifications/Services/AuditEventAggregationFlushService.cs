@@ -19,10 +19,17 @@ namespace Meshmakers.Octo.Services.Notifications.Services;
 /// has every occurrence).
 /// </para>
 /// <para>
-/// The aggregator is resolved once in <see cref="StartAsync"/>, never in <see cref="StopAsync"/> (AB#8876): a host
-/// can stop after its service provider was disposed (<c>WebApplicationFactory.Dispose</c>, shutdown races), and a
-/// resolve from the disposed provider threw <see cref="ObjectDisposedException"/> out of <c>Host.StopAsync</c>. The
-/// aggregator is not resolved in the constructor, so building the hosted services does not create the sink chain.
+/// The aggregator is resolved once in <see cref="StartAsync"/> (AB#8876): a host can stop after its service provider
+/// was disposed (<c>WebApplicationFactory.Dispose</c>, shutdown races), and a resolve from the disposed provider threw
+/// <see cref="ObjectDisposedException"/> out of <c>Host.StopAsync</c>. <see cref="StopAsync"/> resolves it only when
+/// <see cref="StartAsync"/> never ran (an earlier hosted service failed to start), and then treats a disposed provider
+/// as nothing to flush. The aggregator is not resolved in the constructor, so building the hosted services does not
+/// create the sink chain.
+/// </para>
+/// <para>
+/// When the provider is disposed before the host stops, the container disposes the aggregator first; its own flush
+/// cannot open the scope the event-store sink writes through, so those last summaries only reach the error log. This
+/// service cannot recover them and just must not throw.
 /// </para>
 /// </remarks>
 internal sealed class AuditEventAggregationFlushService(
@@ -40,7 +47,7 @@ internal sealed class AuditEventAggregationFlushService(
 
     public async Task StopAsync(CancellationToken cancellationToken)
     {
-        var aggregator = _aggregator;
+        var aggregator = _aggregator ?? ResolveAggregatorAfterFailedStart();
         if (aggregator == null)
         {
             return;
@@ -57,10 +64,24 @@ internal sealed class AuditEventAggregationFlushService(
         }
         catch (ObjectDisposedException ex)
         {
-            // The container was disposed while the host was stopping; what is still pending is published when the
-            // container disposes the aggregator.
+            // The container was disposed while the host was stopping. Its disposal of the aggregator tries to publish
+            // what is pending, but the event-store sink cannot open a scope on a disposed provider.
             _logger.LogDebug(ex,
                 "Service provider already disposed when the host stopped; aggregated audit event summaries were not flushed here");
+        }
+    }
+
+    private AggregatingAuditEventSink? ResolveAggregatorAfterFailedStart()
+    {
+        try
+        {
+            return serviceProvider.GetService<AggregatingAuditEventSink>();
+        }
+        catch (ObjectDisposedException ex)
+        {
+            _logger.LogDebug(ex,
+                "Service provider already disposed when the host stopped before this service started; nothing to flush");
+            return null;
         }
     }
 }
