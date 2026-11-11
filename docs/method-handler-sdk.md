@@ -13,6 +13,14 @@ Code"): `AccountChangePasswordParameters` (required parameters are `required` pr
 when the method has a result, and the method id constant in the model's `*CkIds` class, for example
 `Sample.Accounts/Account.ChangePassword-1`. Use the constant; never type the id by hand.
 
+**Record parameters bind as the generated `Rt{Record}Record` (AB#8707).** A parameter of value type `Record` is the model's
+runtime record, an attribute bag. `CkMethodJson.Options` binds it with its CK attributes only: the bookkeeping members
+`attributes` and `ckRecordId` are neither read nor written, and an array attribute (`IAttributeValueList<T>`, an interface
+System.Text.Json cannot create on its own) is read as a list into the record. So a record that holds a record array, a string
+array or an int array works as a handler parameter type; write no plain look-alike classes. A missing mandatory array reads as
+an empty list (the generated getter), a missing optional one as `null`, an explicit `[]` as an empty list. A record result is
+written the same way (`{"path":...,"indexed":...}`).
+
 **The result on the wire is the bare `Value` (AB#8079).** The host serializes only `Value` of the result record with
 `CkMethodJson.Options`: `new AccountChangePasswordResult { Value = 12 }` becomes `resultJson` `12`, a String `"abc"`, a record
 `{"name":...}`; never `{"value": 12}`. A null `Value` is a success without `resultJson`. The registration refuses a result type
