@@ -22,7 +22,7 @@ namespace Meshmakers.Octo.Services.Methods.MongoDb;
 ///         <item><description><b>Connection</b>: an own admin client with majority read and write concern (30 s <c>wtimeout</c>, OD-7) built from <see cref="OctoSystemConfiguration" />, outside any request transaction. Database problems are thrown as <see cref="CkMethodOperationStoreException" />.</description></item>
 ///     </list>
 /// </summary>
-public sealed class CkMethodMongoOperationStore : ICkMethodOperationStore, IDisposable
+public sealed class CkMethodMongoOperationStore : ICkMethodOperationStore, ICkMethodOperationTenantPurge, IDisposable
 {
     /// <summary>Collection in the system database.</summary>
     public const string CollectionName = "MethodOperations";
@@ -92,6 +92,20 @@ public sealed class CkMethodMongoOperationStore : ICkMethodOperationStore, IDisp
 
             return true;
         }, cancellationToken).ConfigureAwait(false);
+    }
+
+    /// <inheritdoc />
+    public Task<long> DeleteTenantAsync(string tenantId, CancellationToken cancellationToken = default)
+    {
+        var normalized = CkMethodOperationTenant.Normalize(tenantId);
+        return Run(async ct =>
+        {
+            var collection = await GetCollectionAsync(ct).ConfigureAwait(false);
+            var result = await collection
+                .DeleteManyAsync(Builders<BsonDocument>.Filter.Eq("tenantId", normalized), ct)
+                .ConfigureAwait(false);
+            return result.IsAcknowledged ? result.DeletedCount : 0L;
+        }, cancellationToken);
     }
 
     /// <inheritdoc />

@@ -318,4 +318,40 @@ public abstract class OperationStoreContract
             (await store.GetAsync(TenantA, finished.OperationId, ct))!.State);
         Assert.Equal(0, await store.FailLostAsync(Now - TimeSpan.FromMinutes(2), Now, Retention, ct));
     }
+
+    [Fact]
+    public async Task DeleteTenant_RemovesEveryRecordOfThatTenantOnly()
+    {
+        // AB#8447: a deleted tenant takes its records with it, open and final ones; other tenants keep theirs.
+        var store = await CreateStoreAsync();
+        var ct = TestContext.Current.CancellationToken;
+        var open = NewRecord(TenantA);
+        var running = NewRecord(TenantA, MethodTwo);
+        var finished = NewRecord(TenantA);
+        var other = NewRecord(TenantB);
+        foreach (var r in new[] { open, running, finished, other })
+        {
+            await store.CreateAsync(r, ct);
+        }
+
+        await store.MarkRunningAsync(TenantA, running.OperationId, Now, ct);
+        await store.CompleteAsync(TenantA, finished.OperationId, Success(), ct);
+        var purge = Assert.IsAssignableFrom<ICkMethodOperationTenantPurge>(store);
+
+        var removed = await purge.DeleteTenantAsync("TenantA", ct);
+
+        Assert.Equal(3, removed);
+        foreach (var record in new[] { open, running, finished })
+        {
+            Assert.Null(await store.GetAsync(TenantA, record.OperationId, ct));
+        }
+
+        Assert.Equal(0, (await store.ListAsync(new CkMethodOperationQuery { TenantId = TenantA }, ct)).TotalCount);
+        Assert.NotNull(await store.GetAsync(TenantB, other.OperationId, ct));
+        // the work of a removed record completes into nothing; the record is not written again
+        Assert.False(await store.CompleteAsync(TenantA, running.OperationId, Success(), ct));
+        Assert.Null(await store.GetAsync(TenantA, running.OperationId, ct));
+        Assert.Equal(0, await purge.DeleteTenantAsync(TenantA, ct));
+        await Assert.ThrowsAnyAsync<ArgumentException>(() => purge.DeleteTenantAsync(" ", ct));
+    }
 }

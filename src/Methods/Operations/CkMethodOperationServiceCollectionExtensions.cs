@@ -79,6 +79,20 @@ public static class CkMethodOperationServiceCollectionExtensions
     {
         services.AddCkMethodOperationOptions(configure);
         services.TryAddSingleton<ICkMethodOperationStore, CkMethodInMemoryOperationStore>();
+        services.AddCkMethodOperationTenantPurge();
+        return services;
+    }
+
+    /// <summary>
+    ///     Registers <see cref="ICkMethodOperationTenantPurge" /> (AB#8447) unless one is registered: the registered
+    ///     <see cref="ICkMethodOperationStore" /> when it implements the purge, else <see cref="CkMethodNoOperationTenantPurge" />.
+    ///     Called by the store registrations; a host with its own store calls it after registering the store.
+    /// </summary>
+    public static IServiceCollection AddCkMethodOperationTenantPurge(this IServiceCollection services)
+    {
+        services.TryAddSingleton<ICkMethodOperationTenantPurge>(sp =>
+            sp.GetRequiredService<ICkMethodOperationStore>() as ICkMethodOperationTenantPurge ??
+            new CkMethodNoOperationTenantPurge());
         return services;
     }
 }
