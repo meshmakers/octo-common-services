@@ -1248,8 +1248,9 @@ both reference it). Full reference: `docs/rest-deprecation.md`.
 - **Unmarked endpoints are byte-identical** in headers, OpenAPI and metrics (tests, incl. an OpenAPI snapshot).
 - **Waves (AB#8415)**: `[OctoRestDeprecated(Wave = "IdentityUsers1", Link = …)]` takes `Since`/`Sunset` from
   `RestDeprecation:Waves:<wave>` (`RestDeprecationOptions`; env `OCTO_RestDeprecation__Waves__<wave>__Since|Sunset`,
-  Helm `restDeprecation.waves` in octo-helm-core), because the dates are only known at rollout (Gerald 2026-11-07:
-  deprecated from delivery of the release, sunset one week after it runs on prod-1 and prod-2). A date that is not
+  Helm `restDeprecation.waves` in octo-helm-core), because the dates are only known at rollout (Gerald 2026-11-11:
+  deprecated from delivery of the release; no fixed compatibility window, the sunset date is to be announced — Gerald
+  decides it once the migration functions are implemented, until then no `Sunset` is configured). A date that is not
   configured leaves its header out; Link, OpenAPI flag and counter always apply. `RestDeprecationResolver` (singleton)
   turns attribute + options into header values, cached per attribute instance; middleware, startup filter and the
   OpenAPI transformer (via `InternalsVisibleTo`) all use it. Never put an invented date into code for a wave.
