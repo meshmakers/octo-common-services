@@ -328,8 +328,14 @@ public abstract class DefaultConfigurationCreatorServiceStandardized : DefaultCo
                         _logger.LogInformation(
                             "Re-dropping database '{DatabaseName}' of deleted tenant '{TenantId}': a late " +
                             "import resurrected it after the delete.", record.DatabaseName, tenantId);
+                        // AB#8807: the ownership override the delete granted before its metadata commit is kept in
+                        // the tombstone; the drop re-checks its conditions (an orphaned foreign marker only) on every
+                        // attempt and refuses - leaving the database and this tombstone for the next tick - otherwise.
                         await _systemContext.DropTenantDatabaseAsync(
-                                new TenantDeletionHandle(record.DatabaseName, record.CorrelationId), tenantId)
+                                new TenantDeletionHandle(record.DatabaseName, record.CorrelationId)
+                                {
+                                    ForeignOwnershipOverridden = record.ForeignOwnershipOverridden
+                                }, tenantId)
                             .ConfigureAwait(false);
                     }
                     else

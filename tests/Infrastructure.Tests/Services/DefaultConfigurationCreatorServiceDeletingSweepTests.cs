@@ -31,7 +31,8 @@ public class DefaultConfigurationCreatorServiceDeletingSweepTests
     private SweepTestCreator CreateSut(bool withLifecycleStore = true) => new(
         _systemContext, withLifecycleStore ? _lifecycleStore : null, _retryStore);
 
-    private void SetupTombstone(TimeSpan age, string? databaseName = DatabaseName)
+    private void SetupTombstone(TimeSpan age, string? databaseName = DatabaseName,
+        bool foreignOwnershipOverridden = false)
     {
         A.CallTo(() => _lifecycleStore.ListAsync(A<CancellationToken>._))
             .Returns(new[]
@@ -43,6 +44,7 @@ public class DefaultConfigurationCreatorServiceDeletingSweepTests
                     CorrelationId = _correlationId,
                     State = TenantLifecycleState.Deleting,
                     LastTransitionUtc = DateTime.UtcNow - age,
+                    ForeignOwnershipOverridden = foreignOwnershipOverridden,
                 },
             });
     }
@@ -81,6 +83,43 @@ public class DefaultConfigurationCreatorServiceDeletingSweepTests
             .Then(A.CallTo(() => _retryStore.ClearAllForTenantAsync(TenantId, A<CancellationToken>._))
                 .MustHaveHappened())
             .Then(A.CallTo(() => _lifecycleStore.RemoveAsync(TenantId, A<CancellationToken>._)).MustHaveHappened());
+    }
+
+    [Fact]
+    public async Task Sweep_FinishesAnInterruptedDelete_WithTheOwnershipOverrideItsTombstoneRecorded()
+    {
+        // AB#8807: the delete granted the override for an orphaned foreign marker and recorded it in the tombstone
+        // before its metadata commit; the process stopped before the drop. The sweep's handle carries the decision,
+        // the engine re-checks its conditions at the drop.
+        SetupTombstone(TimeSpan.FromMinutes(10), foreignOwnershipOverridden: true);
+        A.CallTo(() => _systemContext.TryFindTenantContextAsync(TenantId)).Returns((ITenantContext?)null);
+        A.CallTo(() => _systemContext.IsDatabaseExistingAsync(DatabaseName)).Returns(true);
+        A.CallTo(() => _systemContext.TryGetTenantIdByDatabaseNameAsync(DatabaseName)).Returns((string?)null);
+
+        await CreateSut().RetryFailedTenantsAsync();
+
+        A.CallTo(() => _systemContext.DropTenantDatabaseAsync(
+            A<TenantDeletionHandle>.That.Matches(h =>
+                h.DatabaseName == DatabaseName && h.CorrelationId == _correlationId && h.ForeignOwnershipOverridden),
+            TenantId)).MustHaveHappenedOnceExactly();
+        A.CallTo(() => _lifecycleStore.RemoveAsync(TenantId, A<CancellationToken>._)).MustHaveHappened();
+    }
+
+    [Fact]
+    public async Task Sweep_KeepsTheTombstone_WhenTheEngineRefusesTheDrop()
+    {
+        // AB#8807: another instance owns the database by now (or the recorded override no longer applies). The
+        // drop refuses with the uniform conflict; the database and the tombstone stay, the next tick retries.
+        SetupTombstone(TimeSpan.FromMinutes(10), foreignOwnershipOverridden: true);
+        A.CallTo(() => _systemContext.TryFindTenantContextAsync(TenantId)).Returns((ITenantContext?)null);
+        A.CallTo(() => _systemContext.IsDatabaseExistingAsync(DatabaseName)).Returns(true);
+        A.CallTo(() => _systemContext.TryGetTenantIdByDatabaseNameAsync(DatabaseName)).Returns((string?)null);
+        A.CallTo(() => _systemContext.DropTenantDatabaseAsync(A<TenantDeletionHandle>._, A<string>._))
+            .Throws(TenantException.DatabaseNameNotAvailable(DatabaseName));
+
+        await CreateSut().RetryFailedTenantsAsync();
+
+        A.CallTo(() => _lifecycleStore.RemoveAsync(A<string>._, A<CancellationToken>._)).MustNotHaveHappened();
     }
 
     [Fact]
