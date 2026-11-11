@@ -25,7 +25,7 @@ entries are grouped by work item until a release assigns the version.
 - **AB#8776** (security) — public `CkMethodCallerTenantCheck.IsRefused(principal, callTenantId, methodId, tenantOptions, out error,
   out verdict)`: the caller-tenant rule of AB#8711 (`CkMethodCallerTenantRule`) and its refusal (`METHOD_FORBIDDEN`, `methodId`,
   `reason = tenant-not-allowed` / `token-invalid`) as one step for hosts that check before the invocation pipeline. The asset
-  repository's method gateway runs it first, before role check, target load and parameter validation, so a foreign-tenant token
+  repository's method gateway runs it first, before role check, target load and parameter validation, so a foreign-tenant token the rule refuses
   learns nothing about the target. `CkMethodCallerTenantFilter` uses the same step (behaviour unchanged).
 - **AB#7279** — `AddObservability()` registers the engine meter `Meshmakers.Octo.DataPermissions`
   (`octo.datapermissions.audit.violations`, tags `tenant`, `subject`, `type`, `action`): every AuditOnly data-permission
