@@ -2,6 +2,7 @@ using FakeItEasy;
 using Meshmakers.Octo.Common.DistributionEventHub.Services;
 using Meshmakers.Octo.Runtime.Contracts.MongoDb;
 using Meshmakers.Octo.Runtime.Contracts.MongoDb.TenantLifecycle;
+using Meshmakers.Octo.Runtime.Contracts.MongoDb.TenantOwnership;
 using Meshmakers.Octo.Services.Contracts.DistributionEventHub.Commands;
 using Meshmakers.Octo.Services.Infrastructure.Services;
 using Microsoft.Extensions.Logging.Abstractions;
@@ -31,8 +32,11 @@ public class DefaultConfigurationCreatorServiceDeletingSweepTests
     private SweepTestCreator CreateSut(bool withLifecycleStore = true) => new(
         _systemContext, withLifecycleStore ? _lifecycleStore : null, _retryStore);
 
+    private static readonly TenantOwnershipMarkerIdentity OverriddenMarker = new("octosystemgone",
+        new DateTime(2026, 11, 11, 10, 15, 30, 123, DateTimeKind.Utc));
+
     private void SetupTombstone(TimeSpan age, string? databaseName = DatabaseName,
-        bool foreignOwnershipOverridden = false)
+        TenantOwnershipMarkerIdentity? overriddenForeignMarker = null)
     {
         A.CallTo(() => _lifecycleStore.ListAsync(A<CancellationToken>._))
             .Returns(new[]
@@ -44,7 +48,8 @@ public class DefaultConfigurationCreatorServiceDeletingSweepTests
                     CorrelationId = _correlationId,
                     State = TenantLifecycleState.Deleting,
                     LastTransitionUtc = DateTime.UtcNow - age,
-                    ForeignOwnershipOverridden = foreignOwnershipOverridden,
+                    OverriddenForeignMarkerOwner = overriddenForeignMarker?.OwnerSystemDatabaseName,
+                    OverriddenForeignMarkerStampedUtc = overriddenForeignMarker?.StampedAtUtc,
                 },
             });
     }
@@ -89,9 +94,9 @@ public class DefaultConfigurationCreatorServiceDeletingSweepTests
     public async Task Sweep_FinishesAnInterruptedDelete_WithTheOwnershipOverrideItsTombstoneRecorded()
     {
         // AB#8807: the delete granted the override for an orphaned foreign marker and recorded it in the tombstone
-        // before its metadata commit; the process stopped before the drop. The sweep's handle carries the decision,
-        // the engine re-checks its conditions at the drop.
-        SetupTombstone(TimeSpan.FromMinutes(10), foreignOwnershipOverridden: true);
+        // before its metadata commit; the process stopped before the drop. The sweep's handle carries exactly the
+        // marker the override was granted for; the engine drops only while that marker is still on the database.
+        SetupTombstone(TimeSpan.FromMinutes(10), overriddenForeignMarker: OverriddenMarker);
         A.CallTo(() => _systemContext.TryFindTenantContextAsync(TenantId)).Returns((ITenantContext?)null);
         A.CallTo(() => _systemContext.IsDatabaseExistingAsync(DatabaseName)).Returns(true);
         A.CallTo(() => _systemContext.TryGetTenantIdByDatabaseNameAsync(DatabaseName)).Returns((string?)null);
@@ -100,7 +105,8 @@ public class DefaultConfigurationCreatorServiceDeletingSweepTests
 
         A.CallTo(() => _systemContext.DropTenantDatabaseAsync(
             A<TenantDeletionHandle>.That.Matches(h =>
-                h.DatabaseName == DatabaseName && h.CorrelationId == _correlationId && h.ForeignOwnershipOverridden),
+                h.DatabaseName == DatabaseName && h.CorrelationId == _correlationId &&
+                h.OverriddenForeignMarker == OverriddenMarker),
             TenantId)).MustHaveHappenedOnceExactly();
         A.CallTo(() => _lifecycleStore.RemoveAsync(TenantId, A<CancellationToken>._)).MustHaveHappened();
     }
@@ -110,7 +116,7 @@ public class DefaultConfigurationCreatorServiceDeletingSweepTests
     {
         // AB#8807: another instance owns the database by now (or the recorded override no longer applies). The
         // drop refuses with the uniform conflict; the database and the tombstone stay, the next tick retries.
-        SetupTombstone(TimeSpan.FromMinutes(10), foreignOwnershipOverridden: true);
+        SetupTombstone(TimeSpan.FromMinutes(10), overriddenForeignMarker: OverriddenMarker);
         A.CallTo(() => _systemContext.TryFindTenantContextAsync(TenantId)).Returns((ITenantContext?)null);
         A.CallTo(() => _systemContext.IsDatabaseExistingAsync(DatabaseName)).Returns(true);
         A.CallTo(() => _systemContext.TryGetTenantIdByDatabaseNameAsync(DatabaseName)).Returns((string?)null);
