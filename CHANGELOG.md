@@ -7,6 +7,10 @@ entries are grouped by work item until a release assigns the version.
 
 ### Added
 
+- **AB#7279** — `AddObservability()` registers the engine meter `Meshmakers.Octo.DataPermissions`
+  (`octo.datapermissions.audit.violations`, tags `tenant`, `subject`, `type`, `action`): every AuditOnly data-permission
+  violation is counted, while the audit log and the event store now only carry the first occurrence and one summary per
+  window per key (engine `AggregatingAuditEventSink`, option `AuditEventAggregation:Window`, default 15 min).
 - **AB#8711** — Every in-process CK method call checks the caller tenant once, centrally: `CkMethodCallerTenantFilter` (band
   `CkMethodInvocationFilterOrder.CallerTenant` = 150, registered with the local transport, always on) answers a call whose caller
   token was issued for another tenant `METHOD_FORBIDDEN` with `reason = tenant-not-allowed` before authorization, idempotency and

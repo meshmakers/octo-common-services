@@ -1,3 +1,4 @@
+using Meshmakers.Octo.Runtime.Engine.AuditTrails;
 using Meshmakers.Octo.Runtime.Engine.Secrets;
 using Meshmakers.Octo.Services.Observability;
 using Meshmakers.Octo.Services.RestDeprecation;
@@ -39,6 +40,22 @@ public class MeterRegistrationTests
 
         Assert.True(SecretDiagnostics.Decrypts.Enabled);
         Assert.True(SecretDiagnostics.PlaintextReads.Enabled);
+    }
+
+    /// <summary>
+    ///     AB#7279: octo.datapermissions.audit.violations (DataPermissionAudit in the engine) reaches the exporters, so
+    ///     the full count of AuditOnly violations stays queryable while the audit log only carries window summaries.
+    /// </summary>
+    [Fact]
+    public void DataPermissionAuditMeter_IsRegistered()
+    {
+        var builder = Host.CreateApplicationBuilder();
+        builder.AddObservability();
+
+        using var host = builder.Build();
+        _ = host.Services.GetRequiredService<MeterProvider>();
+
+        Assert.True(DataPermissionAudit.Violations.Enabled);
     }
 
     /// <summary>

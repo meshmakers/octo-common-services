@@ -1,0 +1,64 @@
+using FakeItEasy;
+using Meshmakers.Octo.ConstructionKit.Contracts;
+using Meshmakers.Octo.Runtime.Contracts.AuditTrails;
+using Meshmakers.Octo.Runtime.Engine.AuditTrails;
+using Meshmakers.Octo.Services.Notifications;
+using Meshmakers.Octo.Services.Notifications.Generated.System.Notification.v2;
+using Meshmakers.Octo.Services.Notifications.Services;
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Hosting;
+using Microsoft.Extensions.Logging.Abstractions;
+using Microsoft.Extensions.Options;
+using Xunit;
+
+namespace Notifications.Tests;
+
+/// <summary>
+///     AB#7279: the event-store path (asset-repo) gets the same aggregation as the adapter log - first violation
+///     stored at once, repetitions as one summary - and the last summaries are stored when the host stops.
+/// </summary>
+public class AuditEventAggregationEventStoreTests
+{
+    [Fact]
+    public async Task RepeatedViolations_AreStoredOnce_AndTheSummaryWhenTheHostStops()
+    {
+        var repository = A.Fake<IEventRepository>();
+        var provider = new ServiceCollection().AddSingleton(repository).BuildServiceProvider();
+        var eventStoreSink = new EventRepositoryAuditEventSink(provider, Options.Create(new AuditEventSinkOptions()),
+            NullLogger<EventRepositoryAuditEventSink>.Instance);
+        await using var aggregator = new AggregatingAuditEventSink(eventStoreSink,
+            Options.Create(new AuditEventAggregationOptions()));
+        var services = new ServiceCollection().AddSingleton(aggregator).BuildServiceProvider();
+        var flush = new AuditEventAggregationFlushService(services);
+
+        for (var i = 0; i < 100; i++)
+        {
+            await DataPermissionAudit.PublishReadViolationAsync(aggregator, "tenantA", "sa-1",
+                "Basic.Accounting/BankTransaction-1", DataPermissionAudit.Actions.Read);
+        }
+
+        A.CallTo(() => repository.StoreEventAsync("tenantA", A<RtEventSourcesEnum>._, RtEventLevelsEnum.Warning,
+                A<string>.That.Not.Contains("[aggregated:"), "DataPermissions.ReadViolation",
+                A<IReadOnlyCollection<KeyValuePair<string, string>>?>._, A<RtEntityId?>._))
+            .MustHaveHappenedOnceExactly();
+
+        await flush.StopAsync(TestContext.Current.CancellationToken);
+
+        A.CallTo(() => repository.StoreEventAsync("tenantA", A<RtEventSourcesEnum>._, RtEventLevelsEnum.Warning,
+                A<string>.That.Contains("[aggregated: 99 more time(s)"), "DataPermissions.ReadViolation",
+                A<IReadOnlyCollection<KeyValuePair<string, string>>?>.That.Matches(d =>
+                    d != null && d.Contains(new KeyValuePair<string, string>("AggregatedCount", "99"))),
+                A<RtEntityId?>._))
+            .MustHaveHappenedOnceExactly();
+    }
+
+    [Fact]
+    public void AddOctoNotification_RegistersTheFlushOnStop()
+    {
+        var services = new ServiceCollection();
+        services.AddOctoNotification();
+
+        Assert.Contains(services, d => d.ServiceType == typeof(IHostedService) &&
+                                       d.ImplementationType == typeof(AuditEventAggregationFlushService));
+    }
+}

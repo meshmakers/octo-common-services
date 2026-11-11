@@ -36,6 +36,11 @@ public static class ServiceCollectionExtensions
         services.RemoveAll<IAuditEventSink>();
         services.AddSingleton<IAuditEventSink, EventRepositoryAuditEventSink>();
 
+        // AB#7279: repeated AuditOnly data-permission violations reach this sink through the engine's
+        // AggregatingAuditEventSink (first occurrence, then one summary per window). Its last summaries are
+        // published when the host stops, while the event repository can still be resolved.
+        services.AddHostedService<AuditEventAggregationFlushService>();
+
         return services;
     }
 }
