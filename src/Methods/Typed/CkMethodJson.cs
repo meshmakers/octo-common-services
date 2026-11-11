@@ -93,6 +93,13 @@ internal static class CkRuntimeRecordContract
         property.Set = (target, value) =>
         {
             var record = (RtTypeWithAttributes)target;
+            if (value is System.Collections.IEnumerable items && items.Cast<object?>().Any(item => item is null))
+            {
+                // A null element is no record and no value: refuse the payload (METHOD_VALIDATION_FAILED on the member)
+                // instead of storing a list the handler cannot read.
+                throw new JsonException($"The array '{original.Name}' must not contain null elements.");
+            }
+
             record.SetAttributeRawValue(attributeName, value switch
             {
                 null => null,

@@ -124,6 +124,21 @@ public class CkMethodJsonRuntimeRecordTests
         Assert.Equal("invalid-value", e.Reason);
     }
 
+    [Theory]
+    [InlineData("[null]")]
+    [InlineData("[{\"path\":\"Voltage\"},null]")]
+    public void Registration_DeserializeParameters_ANullElement_IsAValidationFailure(string columns)
+    {
+        var registration = CkMethodRegistration.Create(SystemStreamDataCkIds.TimeRangeArchiveCreateArchiveMethodId,
+            typeof(CreateArchiveHandler));
+
+        var e = Assert.Throws<CkMethodParameterException>(() => registration.DeserializeParameters(
+            "{\"archive\":{\"targetCkTypeId\":\"" + Target + "\",\"columns\":" + columns + "}}"));
+
+        Assert.Equal("invalid-value", e.Reason);
+        Assert.StartsWith("archive", e.Field);
+    }
+
     private sealed class CreateArchiveHandler
         : ICkMethodHandler<TimeRangeArchiveCreateArchiveParameters, TimeRangeArchiveCreateArchiveResult>
     {
