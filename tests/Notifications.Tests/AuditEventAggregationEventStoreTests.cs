@@ -96,7 +96,8 @@ public class AuditEventAggregationEventStoreTests
         await flush.StopAsync(TestContext.Current.CancellationToken);
 
         // The container's dispose flushed the aggregator: the summary of the 2 repetitions is not lost.
-        A.CallTo(() => inner.PublishAsync(A<AuditEvent>.That.Matches(e => e.AggregationKey != null),
+        A.CallTo(() => inner.PublishAsync(
+                A<AuditEvent>.That.Matches(e => e.Message.Contains("[aggregated: 2 more time(s)")),
                 A<CancellationToken>._))
             .MustHaveHappenedOnceExactly();
     }
