@@ -183,6 +183,12 @@ hands the principal of that process (`CkMethodPrincipalScope`) to the handler as
 to every in-process call (AB#8711, `CkMethodCallerTenantFilter`): a principal mapped from a token (`CkMethodPrincipal.FromClaimsPrincipal`)
 whose `tenant_id` names another tenant than the call is refused with `METHOD_FORBIDDEN` / `tenant-not-allowed` before the handler runs, with
 the same allow-list for service tokens, whatever mode the HTTP tenant gate runs in. A handler needs no tenant check of its own.
+A host that does its own work **before** the pipeline (the method gateway of the asset repository: role check, target load,
+parameter validation) runs the same step first: `CkMethodCallerTenantCheck.IsRefused` (AB#8776). A foreign-tenant token that the rule
+refuses then gets `METHOD_FORBIDDEN` / `tenant-not-allowed` for every call, never `METHOD_TARGET_NOT_FOUND`, a role refusal or a validation
+error that would tell it whether a target exists. A service token of another tenant on the allow-list
+(`TenantAuthorization:CrossTenantServiceClientIds`) passes this step and is judged like a caller of the tenant: it can receive a role,
+target or validation error.
 
 **Not covered.** A remote service that does not call
 `AddCkMethodCallerTokenValidation` has no validated caller, so the host refuses every call (`METHOD_FORBIDDEN`, see "The host enforces the declared authorization"). A handler that receives the raw token can replay it
