@@ -873,9 +873,12 @@ contains the parameters, the caller token (OD-10: the principal stays in the pro
 | `FailLostAsync(staleBefore, now, retention)` | the sweep, across tenants (the in-memory store also drops expired records here; MongoDB uses the TTL index) |
 
 **Deleted tenants (AB#8447).** `ICkMethodOperationTenantPurge.DeleteTenantAsync(tenant)` removes every record of a tenant (any
-state) and returns the count; a new tenant with the same id never reads an operation of the old one. Both stores implement it, and
-`AddCkMethodInMemoryOperationStore()` / `AddCkMethodMongoOperationStore()` register it (`AddCkMethodOperationTenantPurge()`; a custom
-store without it gets a no-op). The bot service calls it on `PreDeleteTenant`. It is a separate interface, so `ICkMethodOperationStore`
+state) and returns the count, so a new tenant with the same id does not read an operation of the old one. Both stores implement it, and
+`AddCkMethodInMemoryOperationStore()` / `AddCkMethodMongoOperationStore()` register it (`AddCkMethodOperationTenantPurge()`). A custom
+store that does not implement `ICkMethodOperationTenantPurge` gets the no-op `CkMethodNoOperationTenantPurge`: the same-id guarantee
+then holds only if that store deletes the old tenant's records itself. Not covered: a call admitted just before the delete whose
+record is created after the purge (narrow window between `PreDeleteTenant` and the registry removal; such a record expires with the
+retention). The bot service calls it on `PreDeleteTenant`. It is a separate interface, so `ICkMethodOperationStore`
 is unchanged. A **restore** replaces the tenant database, not the tenant, and does not purge: the records live in the system database,
 so the restore's own operation stays readable while the tenant database is replaced. Contract test `DeleteTenant_RemovesEveryRecordOfThatTenantOnly`.
 
