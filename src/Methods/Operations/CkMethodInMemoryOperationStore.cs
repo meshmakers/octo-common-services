@@ -7,7 +7,8 @@ namespace Meshmakers.Octo.Services.Methods.Operations;
 ///     between replicas and do not survive a restart, so it does <b>not</b> meet the durability rule of OD-5. Production
 ///     hosts use the MongoDB store (<c>Meshmakers.Octo.Services.Methods.MongoDb</c>).
 /// </summary>
-public sealed class CkMethodInMemoryOperationStore(TimeProvider timeProvider) : ICkMethodOperationStore
+public sealed class CkMethodInMemoryOperationStore(TimeProvider timeProvider)
+    : ICkMethodOperationStore, ICkMethodOperationTenantPurge
 {
     private readonly Lock _gate = new();
     private readonly Dictionary<(string TenantId, string OperationId), CkMethodOperationRecord> _records = new();
@@ -41,6 +42,23 @@ public sealed class CkMethodInMemoryOperationStore(TimeProvider timeProvider) : 
         }
 
         return Task.CompletedTask;
+    }
+
+    /// <inheritdoc />
+    public Task<long> DeleteTenantAsync(string tenantId, CancellationToken cancellationToken = default)
+    {
+        var normalized = Normalize(tenantId);
+        long removed = 0;
+        lock (_gate)
+        {
+            foreach (var key in _records.Keys.Where(k => k.TenantId == normalized).ToList())
+            {
+                _records.Remove(key);
+                removed++;
+            }
+        }
+
+        return Task.FromResult(removed);
     }
 
     /// <inheritdoc />

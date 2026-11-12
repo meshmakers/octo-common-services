@@ -1084,6 +1084,9 @@ Decision OD-5 (AB#6927): at most once after accept, record before the accepted e
   (2 min, >= 3 x heartbeat), `SweepInterval` (1 min), `RetryAfterSeconds` (5, 1-3600); `CkMethodOperationOptionsValidator` + `ValidateOnStart`,
   messages name the setting only.
 - **Metric** `ck.method.operations` (labels `method_id`, `state`); sweep-ended operations count as `failed` with `method_id` `other`.
+- **Deleted tenant (AB#8447)**: `ICkMethodOperationTenantPurge.DeleteTenantAsync(tenant)` (separate interface, both stores implement it,
+  registered by both store registrations via `AddCkMethodOperationTenantPurge()`, no-op for a custom store) removes all records of the
+  tenant; the bot service calls it on `PreDeleteTenant`. A restore does not purge (records are in the system database).
 - **Tests**: `tests/Methods.Tests/Operations/` (`OperationStoreContract` is linked into `Methods.IntegrationTests`, which runs it against a
   MongoDB replica set via Testcontainers; skipped without Docker or with `OCTO_SKIP_CONTAINER_TESTS=true`), `AsyncHandlerTests`,
   `AsyncIdempotencyTests`, `OperationOptionsTests`; `tests/Methods.IntegrationTests/Operations/MongoOperationStoreTests.cs`.
