@@ -1086,7 +1086,15 @@ Decision OD-5 (AB#6927): at most once after accept, record before the accepted e
 - **Metric** `ck.method.operations` (labels `method_id`, `state`); sweep-ended operations count as `failed` with `method_id` `other`.
 - **Deleted tenant (AB#8447)**: `ICkMethodOperationTenantPurge.DeleteTenantAsync(tenant)` (separate interface, both stores implement it,
   registered by both store registrations via `AddCkMethodOperationTenantPurge()`, no-op for a custom store) removes all records of the
-  tenant; the bot service calls it on `PreDeleteTenant`. A restore does not purge (records are in the system database).
+  tenant; the bot service calls it on `PosDeleteTenant` (Deleting tombstone only). A restore does not purge (records are in the system database).
+- **Tenant generation (AB#8881, security)**: both store registrations wrap the store in `CkMethodTenantGenerationOperationStore`
+  (`AddCkMethodOperationStoreWithTenantGeneration<TStore>()`): reads ignore records accepted before the current tenant's creation time
+  (`ICkMethodOperationTenantGeneration`, `CkMethodTenantLifecycleGeneration` = `TenantLifecycleRecord.CreatedUtc`; `null` = no filter;
+  unreadable = `CkMethodOperationStoreException`). Closes the failed-purge and the late-write gap for a tenant id created again.
+  `ICkMethodOperationTenantPurge.DeleteTenantAcceptedBeforeAsync` (default: removes nothing) is the setup cleanup the bot calls. A custom
+  store registered before the registration is not wrapped (documented in `docs/method-handler-sdk.md`). Resolving
+  `ICkMethodOperationStore` gives the guard; the concrete store is `.Inner` (tests use `AsyncOperationFixture.InMemoryStore`).
+  Tests `TenantGenerationStoreContract` (linked into `Methods.IntegrationTests` for MongoDB), `TenantGenerationOperationStoreTests.cs`.
 - **Tests**: `tests/Methods.Tests/Operations/` (`OperationStoreContract` is linked into `Methods.IntegrationTests`, which runs it against a
   MongoDB replica set via Testcontainers; skipped without Docker or with `OCTO_SKIP_CONTAINER_TESTS=true`), `AsyncHandlerTests`,
   `AsyncIdempotencyTests`, `OperationOptionsTests`; `tests/Methods.IntegrationTests/Operations/MongoOperationStoreTests.cs`.

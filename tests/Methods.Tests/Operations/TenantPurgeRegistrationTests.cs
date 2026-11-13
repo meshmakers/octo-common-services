@@ -7,7 +7,7 @@ namespace Meshmakers.Octo.Services.Methods.Tests.Operations;
 
 /// <summary>
 ///     AB#8447: the store registrations also register <see cref="ICkMethodOperationTenantPurge" />, resolving to the store
-///     itself; a custom store without a purge gets the no-op.
+///     itself (AB#8881: the generation guard that wraps it); a custom store without a purge gets the no-op.
 /// </summary>
 public class TenantPurgeRegistrationTests
 {
@@ -35,5 +35,21 @@ public class TenantPurgeRegistrationTests
 
         Assert.IsType<CkMethodNoOperationTenantPurge>(purge);
         Assert.Equal(0, await purge.DeleteTenantAsync("tenanta", TestContext.Current.CancellationToken));
+    }
+
+    [Fact]
+    public async Task CustomStoreRegisteredFirst_IsNotWrapped()
+    {
+        // AB#8881: a host with its own store wraps it in CkMethodTenantGenerationOperationStore itself (documented)
+        var custom = A.Fake<ICkMethodOperationStore>();
+        var services = new ServiceCollection();
+        services.AddSingleton(TimeProvider.System);
+        services.AddSingleton(custom);
+        services.AddCkMethodInMemoryOperationStore();
+        await using var provider = services.BuildServiceProvider();
+
+        Assert.Same(custom, provider.GetRequiredService<ICkMethodOperationStore>());
+        Assert.IsType<CkMethodNoOperationTenantGeneration>(
+            provider.GetRequiredService<ICkMethodOperationTenantGeneration>());
     }
 }

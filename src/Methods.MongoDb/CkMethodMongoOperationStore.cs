@@ -109,6 +109,22 @@ public sealed class CkMethodMongoOperationStore : ICkMethodOperationStore, ICkMe
     }
 
     /// <inheritdoc />
+    public Task<long> DeleteTenantAcceptedBeforeAsync(string tenantId, DateTime acceptedBeforeUtc,
+        CancellationToken cancellationToken = default)
+    {
+        var normalized = CkMethodOperationTenant.Normalize(tenantId);
+        return Run(async ct =>
+        {
+            var collection = await GetCollectionAsync(ct).ConfigureAwait(false);
+            var result = await collection
+                .DeleteManyAsync(Builders<BsonDocument>.Filter.Eq("tenantId", normalized) &
+                                 Builders<BsonDocument>.Filter.Lt("acceptedAt", acceptedBeforeUtc), ct)
+                .ConfigureAwait(false);
+            return result.IsAcknowledged ? result.DeletedCount : 0L;
+        }, cancellationToken);
+    }
+
+    /// <inheritdoc />
     public Task<CkMethodOperationRecord?> GetAsync(string tenantId, string operationId,
         CancellationToken cancellationToken = default)
     {

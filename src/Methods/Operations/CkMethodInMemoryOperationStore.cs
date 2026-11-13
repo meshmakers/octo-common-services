@@ -62,6 +62,25 @@ public sealed class CkMethodInMemoryOperationStore(TimeProvider timeProvider)
     }
 
     /// <inheritdoc />
+    public Task<long> DeleteTenantAcceptedBeforeAsync(string tenantId, DateTime acceptedBeforeUtc,
+        CancellationToken cancellationToken = default)
+    {
+        var normalized = Normalize(tenantId);
+        long removed = 0;
+        lock (_gate)
+        {
+            foreach (var (key, _) in _records
+                         .Where(e => e.Key.TenantId == normalized && e.Value.AcceptedAtUtc < acceptedBeforeUtc).ToList())
+            {
+                _records.Remove(key);
+                removed++;
+            }
+        }
+
+        return Task.FromResult(removed);
+    }
+
+    /// <inheritdoc />
     public Task<CkMethodOperationRecord?> GetAsync(string tenantId, string operationId,
         CancellationToken cancellationToken = default)
     {

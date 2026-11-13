@@ -55,7 +55,7 @@ public class AsyncIdempotencyTests
         Assert.NotEqual(first.InvocationId, second.InvocationId);
         Assert.Equal(1, handler.Accepts);
         await fixture.FinishedAsync(first);
-        Assert.Equal(1, ((CkMethodInMemoryOperationStore)fixture.Store).Count);
+        Assert.Equal(1, fixture.InMemoryStore.Count);
         var page = await fixture.Store.ListAsync(new CkMethodOperationQuery { TenantId = "meshtest" },
             TestContext.Current.CancellationToken);
         Assert.Equal(1, page.TotalCount);
