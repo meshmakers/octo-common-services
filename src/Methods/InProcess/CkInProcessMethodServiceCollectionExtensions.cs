@@ -5,6 +5,7 @@ using Meshmakers.Octo.Services.Methods.Authorization;
 using Meshmakers.Octo.Services.Methods.Handlers;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Options;
 
 // ReSharper disable once CheckNamespace
 namespace Microsoft.Extensions.DependencyInjection;
@@ -59,6 +60,9 @@ public static class CkInProcessMethodServiceCollectionExtensions
     {
         GetOrAddInProcessRegistrations(services);
         services.AddOptions<CkMethodHandlerOptions>().BindConfiguration(CkMethodHandlerOptions.SectionName);
+        // AB#8969: an in-process-only host validates Methods:CacheLoadTimeout too (idempotent with AddCkMethodHandlers)
+        services.TryAddEnumerable(
+            ServiceDescriptor.Singleton<IValidateOptions<CkMethodHandlerOptions>, CkMethodHandlerOptionsValidator>());
         services.AddOptions<CkMethodLimitsOptions>().BindConfiguration(CkMethodLimitsOptions.SectionName);
         services.AddOptions<CkMethodDispatcherOptions>().BindConfiguration(CkMethodDispatcherOptions.SectionName);
         services.TryAddSingleton(TimeProvider.System);
