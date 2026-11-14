@@ -2,6 +2,7 @@ using Meshmakers.Octo.Services.Contracts.DistributionEventHub.Methods;
 using Meshmakers.Octo.Services.Methods.Authorization;
 using Meshmakers.Octo.Services.Methods.Handlers;
 using Meshmakers.Octo.Services.Methods.Tests.Handlers;
+using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
@@ -122,5 +123,24 @@ public class InProcessRegistrationTests
 
         Assert.Throws<InvalidOperationException>(() =>
             services.AddCkInProcessMethodHandlers(m => m.Handle<ChangePasswordHandler>(TestData.MethodId)));
+    }
+
+    [Fact]
+    public async Task InProcessOnlyHost_ValidatesTheCacheLoadTimeout()
+    {
+        // AB#8969 review: without AddCkMethodHandlers the option validator must run too
+        var services = new ServiceCollection();
+        services.AddLogging();
+        services.AddSingleton<Microsoft.Extensions.Configuration.IConfiguration>(
+            new Microsoft.Extensions.Configuration.ConfigurationBuilder().AddInMemoryCollection(
+                new Dictionary<string, string?> { ["Methods:CacheLoadTimeout"] = "00:00:00" }).Build());
+        services.AddCkInProcessMethodHandlers(m => m.Handle<ChangePasswordHandler>(TestData.MethodId));
+        await using var provider = services.BuildServiceProvider();
+
+        var e = Assert.Throws<OptionsValidationException>(() =>
+            provider.GetRequiredService<IOptions<CkMethodHandlerOptions>>().Value);
+
+        Assert.Contains("Methods:CacheLoadTimeout", e.Message);
+        Assert.Single(services, d => d.ServiceType == typeof(IValidateOptions<CkMethodHandlerOptions>));
     }
 }

@@ -85,6 +85,32 @@ public class CkMethodHandlerOptionsValidationTests
     }
 
     [Fact]
+    public void CacheLoadTimeout_DefaultsToTwoMinutes_AndBinds()
+    {
+        Assert.Equal(TimeSpan.FromMinutes(2), new CkMethodHandlerOptions().CacheLoadTimeout);
+
+        var configuration = new ConfigurationBuilder().AddInMemoryCollection(new Dictionary<string, string?>
+        {
+            ["Methods:CacheLoadTimeout"] = "00:05:00"
+        }).Build();
+        var options = configuration.GetSection(CkMethodHandlerOptions.SectionName).Get<CkMethodHandlerOptions>()!;
+
+        Assert.Equal(TimeSpan.FromMinutes(5), options.CacheLoadTimeout);
+    }
+
+    [Theory]
+    [InlineData(0)]
+    [InlineData(-1)]
+    public void CacheLoadTimeoutNotPositive_FailsNamingTheKey(int seconds)
+    {
+        var result = new CkMethodHandlerOptionsValidator().Validate(null,
+            new CkMethodHandlerOptions { CacheLoadTimeout = TimeSpan.FromSeconds(seconds) });
+
+        Assert.True(result.Failed);
+        Assert.Contains("Methods:CacheLoadTimeout", result.FailureMessage);
+    }
+
+    [Fact]
     public void SeveralViolations_AreAllReported()
     {
         var result = Validate(TimeSpan.Zero, TimeSpan.FromDays(2));
