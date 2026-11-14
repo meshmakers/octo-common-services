@@ -20,7 +20,7 @@ internal sealed class CkInProcessMethodValidationService(
 {
     public int Order => 15;
 
-    public Task InitializeAsync()
+    public async Task InitializeAsync()
     {
         var remote = (CkMethodHandlerRegistrations?)services.GetService(typeof(CkMethodHandlerRegistrations));
         var both = remote == null
@@ -37,19 +37,20 @@ internal sealed class CkInProcessMethodValidationService(
         if (registrations.Handlers.Count == 0)
         {
             // a bus host without local-only methods (AB#8411): its bus registrations are validated by their own service
-            return Task.CompletedTask;
+            return;
         }
 
         if (!options.Value.ValidateRegistrations)
         {
             logger.LogWarning(
                 "In-process CK method registrations are NOT validated (Methods:ValidateRegistrations=false)");
-            return Task.CompletedTask;
+            return;
         }
 
-        validator.Validate(registrations);
+        // AB#8969: loads (or waits for) a validation tenant's CK cache instead of treating it as empty
+        await validator.ValidateAsync(registrations, options.Value.CacheLoadTimeout, CancellationToken.None)
+            .ConfigureAwait(false);
         logger.LogInformation("{Count} in-process CK method registration(s) validated against the CK cache",
             registrations.Handlers.Count);
-        return Task.CompletedTask;
     }
 }

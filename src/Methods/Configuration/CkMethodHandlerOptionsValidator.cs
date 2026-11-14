@@ -7,7 +7,8 @@ namespace Meshmakers.Octo.Services.Methods;
 ///     dispatcher drop live handlers or would crash the heartbeat loop (AB#7838): <c>Methods:HeartbeatInterval</c> at least
 ///     <see cref="CkMethodHandlerOptions.MinHeartbeatInterval" />, <c>Methods:Ttl</c> at least
 ///     <see cref="CkMethodHandlerOptions.MinTtlToHeartbeatRatio" /> times the interval (two lost heartbeats are tolerated) and
-///     at most <see cref="CkMethodHandlerOptions.MaxTtl" /> (the clamp of the registry). The message names the key and the rule.
+///     at most <see cref="CkMethodHandlerOptions.MaxTtl" /> (the clamp of the registry), and
+///     <c>Methods:CacheLoadTimeout</c> positive (AB#8969). The message names the key and the rule.
 /// </summary>
 internal sealed class CkMethodHandlerOptionsValidator : IValidateOptions<CkMethodHandlerOptions>
 {
@@ -39,6 +40,13 @@ internal sealed class CkMethodHandlerOptionsValidator : IValidateOptions<CkMetho
                          $"{intervalKey} ({interval * CkMethodHandlerOptions.MinTtlToHeartbeatRatio}), " +
                          "otherwise a live handler expires between two heartbeats (default " +
                          $"{TimeSpan.FromSeconds(45)}).");
+        }
+
+        // AB#8969: zero would fail every start whose CK cache is not loaded yet
+        if (options.CacheLoadTimeout <= TimeSpan.Zero)
+        {
+            failures.Add($"{CkMethodHandlerOptions.SectionName}:{nameof(CkMethodHandlerOptions.CacheLoadTimeout)} is " +
+                         $"{options.CacheLoadTimeout} but must be positive (default {TimeSpan.FromMinutes(2)}).");
         }
 
         return failures.Count == 0 ? ValidateOptionsResult.Success : ValidateOptionsResult.Fail(failures);
