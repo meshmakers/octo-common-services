@@ -16,6 +16,11 @@ namespace Meshmakers.Octo.Services.Methods.Operations;
 ///         A <b>restore</b> replaces the tenant database, not the tenant: it must not purge. The records live in the system
 ///         database, so the restore's own operation stays readable while and after the tenant database is replaced.
 ///     </para>
+///     <para>
+///         A purge can fail, and a call admitted just before the delete can write its record after the purge. Neither may
+///         show an old record to a new tenant with the same id: reads compare every record against the tenant's generation
+///         (AB#8881, <see cref="CkMethodTenantGenerationOperationStore" />), so the purge is cleanup, not the guarantee.
+///     </para>
 /// </remarks>
 public interface ICkMethodOperationTenantPurge
 {
@@ -24,6 +29,26 @@ public interface ICkMethodOperationTenantPurge
     /// <exception cref="ArgumentException">The tenant id is empty.</exception>
     /// <exception cref="CkMethodOperationStoreException">The store could not be written.</exception>
     Task<long> DeleteTenantAsync(string tenantId, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    ///     AB#8881: removes the records of <paramref name="tenantId" /> accepted before <paramref name="acceptedBeforeUtc" />
+    ///     (any state, expired or not): the records of an earlier tenant with the same id, when the setup of the current
+    ///     tenant knows its creation time (<see cref="ICkMethodOperationTenantGeneration" />). Cleanup only: reads already
+    ///     ignore those records (<see cref="CkMethodTenantGenerationOperationStore" />).
+    /// </summary>
+    /// <remarks>
+    ///     The default implementation removes nothing (a store without records of its own, or a custom store written before
+    ///     AB#8881); its records then expire with their retention and stay invisible to the current tenant.
+    /// </remarks>
+    /// <returns>The number of records removed.</returns>
+    /// <exception cref="ArgumentException">The tenant id is empty.</exception>
+    /// <exception cref="CkMethodOperationStoreException">The store could not be written.</exception>
+    Task<long> DeleteTenantAcceptedBeforeAsync(string tenantId, DateTime acceptedBeforeUtc,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(tenantId);
+        return Task.FromResult(0L);
+    }
 }
 
 /// <summary>

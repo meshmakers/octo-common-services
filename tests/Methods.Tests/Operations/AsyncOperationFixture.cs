@@ -26,6 +26,13 @@ internal sealed class AsyncOperationFixture
 
     public ICkMethodOperationStore Store { get; private set; } = null!;
 
+    /// <summary>
+    ///     The in-memory store behind <see cref="Store" /> (AB#8881: the registration wraps it in
+    ///     <see cref="CkMethodTenantGenerationOperationStore" />).
+    /// </summary>
+    public CkMethodInMemoryOperationStore InMemoryStore =>
+        (CkMethodInMemoryOperationStore)((CkMethodTenantGenerationOperationStore)Store).Inner;
+
     public CkMethodOperationRunner Runner { get; private set; } = null!;
 
     public ICkMethodHandlerInvoker Invoker { get; private set; } = null!;

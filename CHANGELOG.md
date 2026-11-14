@@ -7,6 +7,14 @@ entries are grouped by work item until a release assigns the version.
 
 ### Fixed
 
+- **AB#8881** (security) — a tenant created again with the id of a deleted tenant no longer reads the deleted tenant's method
+  operation records. The store registrations (`AddCkMethodMongoOperationStore`, `AddCkMethodInMemoryOperationStore`) wrap the store in
+  `CkMethodTenantGenerationOperationStore`: `GetAsync` / `ListAsync` ignore every record accepted before the current tenant's creation
+  time (`ICkMethodOperationTenantGeneration`, from the tenant lifecycle record; unknown = no filter, unreadable = fail closed). This
+  covers a purge on delete that failed and a record a call admitted just before the delete wrote after the purge. New
+  `ICkMethodOperationTenantPurge.DeleteTenantAcceptedBeforeAsync` (default interface member, removes nothing) lets the tenant setup remove
+  those records. `ICkMethodOperationStore` is unchanged; resolving it now gives the wrapper (the concrete store is `Inner`). A host that
+  registers its own store must wrap it itself (`docs/method-handler-sdk.md`).
 - **AB#8876** — `AuditEventAggregationFlushService` resolves the engine `AggregatingAuditEventSink` once in `StartAsync`
   instead of in `StopAsync`. A host that stops after its service provider was disposed (`WebApplicationFactory.Dispose`
   in integration tests, shutdown races) threw `ObjectDisposedException` out of `Host.StopAsync`. `StopAsync` resolves the

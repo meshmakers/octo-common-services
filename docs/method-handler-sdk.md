@@ -873,14 +873,36 @@ contains the parameters, the caller token (OD-10: the principal stays in the pro
 | `FailLostAsync(staleBefore, now, retention)` | the sweep, across tenants (the in-memory store also drops expired records here; MongoDB uses the TTL index) |
 
 **Deleted tenants (AB#8447).** `ICkMethodOperationTenantPurge.DeleteTenantAsync(tenant)` removes every record of a tenant (any
-state) and returns the count, so a new tenant with the same id does not read an operation of the old one. Both stores implement it, and
-`AddCkMethodInMemoryOperationStore()` / `AddCkMethodMongoOperationStore()` register it (`AddCkMethodOperationTenantPurge()`). A custom
-store that does not implement `ICkMethodOperationTenantPurge` gets the no-op `CkMethodNoOperationTenantPurge`: the same-id guarantee
-then holds only if that store deletes the old tenant's records itself. Not covered: a call admitted just before the delete whose
-record is created after the purge (narrow window between `PreDeleteTenant` and the registry removal; such a record expires with the
-retention). The bot service calls it on `PreDeleteTenant`. It is a separate interface, so `ICkMethodOperationStore`
-is unchanged. A **restore** replaces the tenant database, not the tenant, and does not purge: the records live in the system database,
-so the restore's own operation stays readable while the tenant database is replaced. Contract test `DeleteTenant_RemovesEveryRecordOfThatTenantOnly`.
+state) and returns the count. Both stores implement it, and `AddCkMethodInMemoryOperationStore()` / `AddCkMethodMongoOperationStore()`
+register it (`AddCkMethodOperationTenantPurge()`). The bot service calls it on `PosDeleteTenant` when the tenant carries the `Deleting`
+lifecycle tombstone. It is a separate interface, so `ICkMethodOperationStore` is unchanged. A **restore** replaces the tenant database,
+not the tenant, and does not purge: the records live in the system database, so the restore's own operation stays readable while the
+tenant database is replaced. Contract test `DeleteTenant_RemovesEveryRecordOfThatTenantOnly`.
+
+**Tenant generation (AB#8881, security).** The purge is cleanup, not the guarantee: it can fail, and a call admitted just before the
+delete can write its record after the purge. Neither may reach a new tenant created later with the same id. Therefore:
+
+- `ICkMethodOperationTenantGeneration.GetStartUtcAsync(tenant)` returns the creation time of the current tenant with that id.
+  `CkMethodTenantLifecycleGeneration` reads it from the tenant lifecycle record (`ITenantLifecycleStore`, `CreatedUtc`): a new creation
+  cycle sets it, a restore keeps it, and a recreated id gets a new one (the create endpoint refuses the id until the delete has settled,
+  about 90 s after the drop). `null` (no lifecycle record: legacy tenant, or a host without the engine) means "no filter".
+- `CkMethodTenantGenerationOperationStore` wraps the store: `GetAsync` returns `null` and `ListAsync` leaves out (via `SinceUtc`, so paging
+  and `TotalCount` stay right) every record whose `AcceptedAtUtc` is before that time. Writes pass through unchanged. A generation that
+  cannot be read throws `CkMethodOperationStoreException` (fail closed). Both store registrations wrap the store and register the generation
+  (`AddCkMethodOperationStoreWithTenantGeneration<TStore>()`, `AddCkMethodOperationTenantGeneration()`: the lifecycle generation when the host
+  has `ITenantLifecycleStore`, else `CkMethodNoOperationTenantGeneration`).
+- `ICkMethodOperationTenantPurge.DeleteTenantAcceptedBeforeAsync(tenant, acceptedBefore)` removes the earlier generations' records; the bot
+  service calls it with the generation in every tenant setup (`OperationRecordGenerationCleanup`, never blocks the setup). The default
+  interface implementation removes nothing.
+- **Custom stores.** A host that registers its own `ICkMethodOperationStore` before the store registration is **not** wrapped: it must wrap
+  the store in `CkMethodTenantGenerationOperationStore` itself, otherwise a recreated tenant can read the old tenant's records. A custom
+  store that does not implement `ICkMethodOperationTenantPurge` gets the no-op `CkMethodNoOperationTenantPurge`; its old records then stay
+  until they expire, invisible behind the generation guard.
+- Clocks: the accept time comes from the handler host, the creation time from the asset repository. Clock skew below the delete's settle
+  period does not let an old record through.
+
+Contract tests `TenantGenerationStoreContract` (in-memory and MongoDB; failed purge and late write, then recreate) and
+`DeleteTenantAcceptedBefore_RemovesOlderRecordsOfThatTenantOnly`.
 
 Every read names the tenant (an empty tenant is an `ArgumentException`); a read for tenant B never returns a record of tenant A.
 The MongoDB store (`CkMethodMongoOperationStore`) keeps one document per operation in the collection `MethodOperations` of the system

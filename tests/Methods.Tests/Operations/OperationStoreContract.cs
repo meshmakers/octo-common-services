@@ -354,4 +354,34 @@ public abstract class OperationStoreContract
         Assert.Equal(0, await purge.DeleteTenantAsync(TenantA, ct));
         await Assert.ThrowsAnyAsync<ArgumentException>(() => purge.DeleteTenantAsync(" ", ct));
     }
+
+    [Fact]
+    public async Task DeleteTenantAcceptedBefore_RemovesOlderRecordsOfThatTenantOnly()
+    {
+        // AB#8881: the setup of a tenant created again removes what an earlier tenant with the same id left behind.
+        var store = await CreateStoreAsync();
+        var ct = TestContext.Current.CancellationToken;
+        var cut = Now;
+        var oldOpen = NewRecord(TenantA, acceptedAt: cut - TimeSpan.FromMinutes(10));
+        var oldFinished = NewRecord(TenantA, acceptedAt: cut - TimeSpan.FromMinutes(5));
+        var current = NewRecord(TenantA, acceptedAt: cut);
+        var otherTenant = NewRecord(TenantB, acceptedAt: cut - TimeSpan.FromMinutes(10));
+        foreach (var r in new[] { oldOpen, oldFinished, current, otherTenant })
+        {
+            await store.CreateAsync(r, ct);
+        }
+
+        await store.CompleteAsync(TenantA, oldFinished.OperationId, Success(), ct);
+        var purge = Assert.IsAssignableFrom<ICkMethodOperationTenantPurge>(store);
+
+        var removed = await purge.DeleteTenantAcceptedBeforeAsync("TenantA", cut, ct);
+
+        Assert.Equal(2, removed);
+        Assert.Null(await store.GetAsync(TenantA, oldOpen.OperationId, ct));
+        Assert.Null(await store.GetAsync(TenantA, oldFinished.OperationId, ct));
+        Assert.NotNull(await store.GetAsync(TenantA, current.OperationId, ct));
+        Assert.NotNull(await store.GetAsync(TenantB, otherTenant.OperationId, ct));
+        Assert.Equal(0, await purge.DeleteTenantAcceptedBeforeAsync(TenantA, cut, ct));
+        await Assert.ThrowsAnyAsync<ArgumentException>(() => purge.DeleteTenantAcceptedBeforeAsync(" ", cut, ct));
+    }
 }

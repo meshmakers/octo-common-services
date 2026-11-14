@@ -149,7 +149,7 @@ public class AsyncHandlerTests
 
         Assert.False(response.Success);
         Assert.Equal(CkMethodErrorCodes.MethodHandlerFailed, response.Error!.Code);
-        Assert.Equal(0, ((CkMethodInMemoryOperationStore)fixture.Store).Count);
+        Assert.Equal(0, fixture.InMemoryStore.Count);
     }
 
     [Fact]
@@ -195,7 +195,7 @@ public class AsyncHandlerTests
 
         Assert.False(response.Success);
         Assert.Equal(CkMethodErrorCodes.MethodValidationFailed, response.Error!.Code);
-        Assert.Equal(0, ((CkMethodInMemoryOperationStore)fixture.Store).Count);
+        Assert.Equal(0, fixture.InMemoryStore.Count);
     }
 
     [Fact]
@@ -244,7 +244,7 @@ public class AsyncHandlerTests
         Assert.False(response.Success);
         Assert.Equal(CkMethodErrorCodes.MethodHandlerNotAvailable, response.Error!.Code);
         Assert.Equal(CkMethodOperationReasons.HostStopping, response.Error.Parameters[CkMethodErrorParameters.Reason]);
-        Assert.Equal(0, ((CkMethodInMemoryOperationStore)fixture.Store).Count);
+        Assert.Equal(0, fixture.InMemoryStore.Count);
         Assert.Equal(0, started);
     }
 
