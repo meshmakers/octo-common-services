@@ -17,17 +17,18 @@ internal sealed class CkMethodHandlerValidationService(
 {
     public int Order => 15;
 
-    public Task InitializeAsync()
+    public async Task InitializeAsync()
     {
         if (!options.Value.ValidateRegistrations)
         {
             logger.LogWarning("CK method handler registrations are NOT validated (Methods:ValidateRegistrations=false)");
-            return Task.CompletedTask;
+            return;
         }
 
-        validator.Validate(registrations);
+        // AB#8969: loads (or waits for) a validation tenant's CK cache instead of treating it as empty
+        await validator.ValidateAsync(registrations, options.Value.CacheLoadTimeout, CancellationToken.None)
+            .ConfigureAwait(false);
         logger.LogInformation("{Count} CK method handler registration(s) validated against the CK cache",
             registrations.Handlers.Count);
-        return Task.CompletedTask;
     }
 }

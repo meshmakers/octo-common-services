@@ -7,6 +7,13 @@ entries are grouped by work item until a release assigns the version.
 
 ### Fixed
 
+- **AB#8969** — services with CK method handlers start reliably with several replicas. The startup validation of the method
+  registrations (bus and in-process, order 15) used to skip a validation tenant whose CK cache was not loaded and then failed with
+  "no such method" when a CK model import had unloaded the cache just before. It now loads the cache of every validation tenant itself
+  (through the service's tenant context), retries a failed load (e.g. another replica's import still running) and repeats the check when
+  the cache is unloaded again, all within the new option `Methods:CacheLoadTimeout` (default 2 min, `OCTO_Methods__CacheLoadTimeout`).
+  A method that really does not exist still fails with the existing error; a cache that does not load in time fails with a distinct
+  message naming the tenant and the cache load. No wire or CK model change.
 - **AB#8881** (security) — a tenant created again with the id of a deleted tenant no longer reads the deleted tenant's method
   operation records. The store registrations (`AddCkMethodMongoOperationStore`, `AddCkMethodInMemoryOperationStore`) wrap the store in
   `CkMethodTenantGenerationOperationStore`: `GetAsync` / `ListAsync` ignore every record accepted before the current tenant's creation

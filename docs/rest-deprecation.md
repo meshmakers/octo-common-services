@@ -71,6 +71,7 @@ Current waves:
 | Wave | Service | Endpoints | Work item |
 |------|---------|-----------|-----------|
 | `IdentityUsers1` | octo-identity-services | `PUT users/{userName}/roles`, `PUT` and `DELETE users/{userName}/roles/{roleName}`, `POST users/{userName}/merge` (since 2026-11-08, sunset to be announced) | AB#8415 |
+| `IdentityUsersPassword` | octo-identity-services | `POST users`, `POST users/ResetPassword` (since = delivery day of the release with AB#8418, set by Ops via `RestDeprecation:Waves:IdentityUsersPassword:Since`; sunset to be announced; identity PR #302) | AB#8860 |
 
 ### Startup validation
 

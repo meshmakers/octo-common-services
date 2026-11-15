@@ -837,6 +837,16 @@ and registry (F3.2/F3.3) and the pipeline handler (AB#6879) are other stories. D
   Tenant ids (the default `SystemTenantId` like `OctoSystem` and every `ValidationTenantIds` entry) are normalised (trimmed, lower-case) to the
   key the CK cache uses (`CkCacheMethodDefinitionSource.NormalizeTenantId`, AB#7912; tests `CkCacheMethodDefinitionSourceTests`), so a host with the
   default configuration starts; no `ValidationTenantIds` workaround is needed.
+  **The check loads the CK cache itself (AB#8969).** A CK model import at startup unloads the tenant's cache (own import, or the reload
+  after another replica imported, AB#8667) right before the check. `CkMethodRegistrationValidator.ValidateAsync` first calls
+  `ICkMethodDefinitionSource.EnsureLoadedAsync` (default interface member, no-op for test sources): `CkCacheMethodDefinitionSource` loads each
+  unloaded validation tenant through `ICkMethodValidationCacheLoader` (default `CkMethodValidationCacheLoader`: `ISystemContext` ->
+  `ITenantContext.LoadCacheForTenantAsync`), retrying failed loads (e.g. a CK import of another replica still running) every 500 ms until
+  `Methods:CacheLoadTimeout` (default 2 min, positive, validated by `CkMethodHandlerOptionsValidator`). `Find` stays synchronous and throws
+  `CkMethodDefinitionCacheNotLoadedException` for an unloaded tenant (also a `CkCacheException` from a concurrent unload) instead of
+  skipping it; the validator then loads again and repeats within the same deadline. Timeout = distinct start failure naming the tenant and
+  the cache load, never "no such method". Both validation services (bus and in-process, Order 15) use it. Service-specific reloads such as the
+  asset repository's `SystemTenantStreamDataModelImport` (AB#8722) are no longer needed for the check. Tests `CkMethodValidationCacheLoadTests`.
 - **Sensitive data**: the host never logs `ParametersJson` or the token (`CkMethodRequest.ToString()` redacts, the host logs ids
   only). `CkMethodRedactor` additionally masks the values of CK `sensitive: true` parameters and the caller token in the
   message, stack trace and `ToString()` of an exception a handler throws before the host logs it. Tests: `CkMethodHandlerInvokerTests`.
