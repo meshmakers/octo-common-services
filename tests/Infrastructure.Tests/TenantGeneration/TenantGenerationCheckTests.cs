@@ -407,6 +407,30 @@ public class TenantGenerationCheckTests
     }
 
     [Fact]
+    public async Task FailureBackOff_CountsFromTheFailure_NotFromTheStartOfASlowRead()
+    {
+        using var f = new GenerationFixture(TenantGenerationEnforcementMode.Enforce);
+        f.Lifecycle.Set(Tenant, VectorUtc);
+        f.Lifecycle.Failure = new TimeoutException();
+        f.Lifecycle.Gate = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        var slow = f.Check.CheckAsync(Request(VectorValue), Ct).AsTask();
+        await Task.Delay(50, Ct);
+        // the read hangs for 30 s (e.g. a server selection timeout), then fails
+        f.Time.Advance(TimeSpan.FromSeconds(30));
+        f.Lifecycle.Gate.SetResult();
+        Assert.Equal(TenantGenerationDecision.Unavailable, (await slow).Decision);
+
+        f.Lifecycle.Gate = null;
+        Assert.Equal(TenantGenerationDecision.Unavailable, (await f.Check.CheckAsync(Request(VectorValue), Ct)).Decision);
+        Assert.Equal(1, f.Lifecycle.Reads);
+
+        f.Time.Advance(TenantGenerationReader.FailureBackoff);
+        await f.Check.CheckAsync(Request(VectorValue), Ct);
+        Assert.Equal(2, f.Lifecycle.Reads);
+    }
+
+    [Fact]
     public async Task CacheDuration_AboveTheMaximum_IsClamped()
     {
         using var f = new GenerationFixture(cacheDuration: TimeSpan.FromMinutes(10));

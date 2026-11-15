@@ -115,7 +115,8 @@ public sealed class TenantGenerationReader : ITenantGenerationReader
         {
             if (!_cache.TryGetValue(key, out entry!) || !IsUsable(entry, now, ttl, refresh))
             {
-                entry = new CacheEntry(now, LoadAsync(key));
+                entry = new CacheEntry(now);
+                entry.Load = LoadAsync(key, entry);
                 if (ttl > TimeSpan.Zero)
                 {
                     if (_cache.Count >= MaxCacheEntries && !_cache.ContainsKey(key))
@@ -171,8 +172,9 @@ public sealed class TenantGenerationReader : ITenantGenerationReader
     {
         if (entry.Load.IsFaulted || entry.Load.IsCanceled)
         {
-            // a failed read is answered as failed for a short back-off, then read again
-            return now - entry.CreatedAt < FailureBackoff;
+            // a failed read is answered as failed for a short back-off counted from the failure (a slow read that
+            // times out still gets the full back-off), then read again
+            return entry.FailedAt is { } failedAt && now - failedAt < FailureBackoff;
         }
 
         if (!entry.Load.IsCompleted)
@@ -204,7 +206,7 @@ public sealed class TenantGenerationReader : ITenantGenerationReader
         }
     }
 
-    private async Task<string?> LoadAsync(string tenantId)
+    private async Task<string?> LoadAsync(string tenantId, CacheEntry entry)
     {
         // Yield first so the read never runs inside the cache lock.
         await Task.Yield();
@@ -216,6 +218,7 @@ public sealed class TenantGenerationReader : ITenantGenerationReader
         }
         catch (Exception ex)
         {
+            entry.FailedAt = _timeProvider.GetUtcNow();
             _logger.LogError(
                 "The generation of tenant '{TenantId}' could not be read ({ExceptionType}) (AB#8999)",
                 tenantId, ex.GetType().Name);
@@ -225,5 +228,14 @@ public sealed class TenantGenerationReader : ITenantGenerationReader
         return record is null ? null : TenantGenerationFormat.Format(record.CreatedUtc);
     }
 
-    private sealed record CacheEntry(DateTimeOffset CreatedAt, Task<string?> Load);
+    private sealed class CacheEntry(DateTimeOffset createdAt)
+    {
+        public DateTimeOffset CreatedAt { get; } = createdAt;
+
+        /// <summary>Set once, inside the cache lock, right after the entry is created.</summary>
+        public Task<string?> Load { get; set; } = null!;
+
+        /// <summary>When the read failed; written before the task completes, so a reader that sees the fault sees it.</summary>
+        public DateTimeOffset? FailedAt { get; set; }
+    }
 }

@@ -77,14 +77,18 @@ The switch to `Enforce` per environment and the later code default flip follow A
 including the "no record" result:
 
 - at most one lifecycle read per tenant per TTL window per instance; concurrent misses for one tenant share one read;
-- a failed read is answered as failed for 2 s (`TenantGenerationReader.FailureBackoff`), then read again, so a MongoDB outage
-  costs one read per tenant per back-off, not one per request;
+- a failed read is answered as failed for 2 s (`TenantGenerationReader.FailureBackoff`, counted from the moment the read
+  failed, so a slow read that times out gets the full back-off), then read again; a MongoDB outage costs one read per
+  tenant per back-off, not one per request;
 - the tenant events drop the entry where the host receives them: `PosCreateTenant`, `PosUpdateTenant`
   (`PosCreatePosUpdateTenantConsumer`), `PreUpdateTenant`, `PreDeleteTenant` (`PreUpdatePreDeleteTenantConsumer`);
 - on a `mismatch` whose token generation is **newer** than the cached one, and on a token with a claim for a tenant
-  cached as "no generation", the record is read once more before deciding (the tenant was created after the value was
-  cached). A forced read is skipped when the cached value is younger than one second, so it never becomes a read per
-  request;
+  cached as "no generation", the record is read once more before deciding (the tenant may have been created after the
+  value was cached); the decision then uses the fresh value: still no generation → `not_checked` (allowed), still older
+  → `mismatch`. The one-second rule only throttles these forced reads (a forced read is skipped while the cached value is
+  younger than one second, so a stream of such tokens costs at most one read per tenant per second); it does not bound
+  how long a "no generation" result is kept, which is the TTL;
+- a host without `ITenantLifecycleStore` never reads: every tenant is `not_checked`, with one warning at the first check;
 - 🔴 **the TTL must stay below the delete tombstone time** (about 90 s, the settle sweep of `ReconcileDeletingTenantsAsync`).
   A deleted tenant id can only be created again after the tombstone is gone, so with a TTL below that no cached generation
   of the deleted tenant survives into the recreated tenant, even on an instance that missed the events;
