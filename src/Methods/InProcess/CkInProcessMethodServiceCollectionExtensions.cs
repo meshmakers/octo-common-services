@@ -73,6 +73,8 @@ public static class CkInProcessMethodServiceCollectionExtensions
         // AB#8711: the caller-tenant check of every in-process call; always on, independent of the HTTP tenant gate's mode
         services.AddOptions<TenantAuthorizationOptions>().BindConfiguration(TenantAuthorizationOptions.SectionName);
         services.TryAddEnumerable(ServiceDescriptor.Singleton<ICkMethodInvocationFilter, CkMethodCallerTenantFilter>());
+        // AB#8999: the tenant generation step of the caller-tenant rule (shared singletons with the HTTP middleware).
+        services.AddOctoTenantGenerationCheck();
         services.AddOptions<CkMethodAuthorizationOptions>().BindConfiguration(CkMethodAuthorizationOptions.SectionName);
         services.TryAddSingleton<ICkMethodAuthorizationEvaluator, CkMethodAuthorizationEvaluator>();
         services.TryAddSingleton<CkInProcessMethodTransport>();

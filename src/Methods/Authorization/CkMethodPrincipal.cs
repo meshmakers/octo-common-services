@@ -1,4 +1,5 @@
 using System.Security.Claims;
+using Meshmakers.Octo.Services.Infrastructure.TenantGeneration;
 
 namespace Meshmakers.Octo.Services.Methods.Authorization;
 
@@ -50,6 +51,13 @@ public sealed record CkMethodPrincipal(
     public string? TokenTenantId { get; init; }
 
     /// <summary>
+    ///     The <c>tenant_gen</c> claim of the access token (AB#8999): the generation of the tenant in
+    ///     <see cref="TokenTenantId" /> the token was issued for; <c>null</c> when the token has none or the principal was not
+    ///     mapped from a token. Compared by the tenant generation check of the method transports; the value is never logged.
+    /// </summary>
+    public TenantGenerationClaim? TokenTenantGeneration { get; init; }
+
+    /// <summary>
     ///     Who the caller is: the <c>sub</c> of a user, or the <c>client_id</c> of a service token (client credentials,
     ///     no <c>sub</c>). <c>null</c> when neither is known.
     /// </summary>
@@ -78,7 +86,8 @@ public sealed record CkMethodPrincipal(
     ///     <c>scope</c> claim may hold one space-separated string or several values. The <c>client_id</c> claim is mapped
     ///     to <see cref="ClientId" /> only when the token has no subject (client credentials, AB#8078); a user token keeps
     ///     <see cref="ClientId" /> <c>null</c>, so its <see cref="Subject" /> is always its <c>sub</c>. The <c>tenant_id</c> claim
-    ///     goes to <see cref="TokenTenantId" /> and <see cref="IsFromAccessToken" /> is set (AB#8711).
+    ///     goes to <see cref="TokenTenantId" /> and <see cref="IsFromAccessToken" /> is set (AB#8711), the <c>tenant_gen</c> claim to
+    ///     <see cref="TokenTenantGeneration" /> (AB#8999).
     /// </summary>
     /// <param name="principal">An authenticated principal. The method does not validate tokens.</param>
     public static CkMethodPrincipal FromClaimsPrincipal(ClaimsPrincipal principal)
@@ -98,7 +107,8 @@ public sealed record CkMethodPrincipal(
             string.IsNullOrWhiteSpace(clientId) ? null : clientId)
         {
             IsFromAccessToken = true,
-            TokenTenantId = string.IsNullOrWhiteSpace(tokenTenantId) ? null : tokenTenantId
+            TokenTenantId = string.IsNullOrWhiteSpace(tokenTenantId) ? null : tokenTenantId,
+            TokenTenantGeneration = TenantGenerationClaim.FromPrincipal(principal)
         };
     }
 }

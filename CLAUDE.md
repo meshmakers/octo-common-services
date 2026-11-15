@@ -388,6 +388,37 @@ deleted, re-create it first") without telling an unrelated caller which of the t
 mentions that a tenant created moments ago may take up to one TTL of the hierarchy cache (60 s) to
 be recognized. The body is written best-effort (`Response.HasStarted` guard).
 
+## Tenant generation check: tokens of an earlier tenant with the same id (AB#8999)
+
+Security item AB#8970. Identity stamps every access token with `tenant_gen` (AB#8997: `TenantLifecycleRecord.CreatedUtc`
+of the token's `tenant_id` as Unix ms, decimal string). `ITenantGenerationCheck` (`src/Infrastructure/TenantGeneration/`,
+public, registered by `AddOctoServiceInfrastructure()` and the CK method registrations through
+`AddOctoTenantGenerationCheck()`) compares it with the current generation. Full reference: `docs/tenant-generation-check.md`.
+
+- **Callers:** `TenantAuthorizationMiddleware` after the tenant match (user and service path; resolved per request like
+  `ITenantHierarchyReader`, a host without the registration runs without it), the CK method bus host
+  (`CkMethodCallerTokenValidator`) and the in-process transport (`CkMethodCallerTenantFilter`), both through
+  `CkMethodCallerTenantRule.CheckGenerationAsync`. Identity reuses evaluator, option and metric for its grants (AB#9017).
+- **Token tenant rule:** always checked against the token's `tenant_id`, never the route/call tenant (also on the AB#5060
+  parent path). Allow-listed cross-tenant service clients on another tenant are not checked.
+- **Outcomes:** `match`, `missing`, `mismatch` (also a non-string or non-canonical claim), `not_checked` (no `tenant_id`,
+  the system tenant — never refused —, no lifecycle record / `CreatedUtc`, no lifecycle store), `lookup_failed`.
+- **Option** `TenantAuthorization:TenantGenerationEnforcement` = `Disabled` | `LogOnly` (**default**) | `Enforce`
+  (env `OCTO_TenantAuthorization__TenantGenerationEnforcement`). `LogOnly`: outcome unchanged, `missing`/`mismatch` logged
+  (rate-limited per client) and counted, a failed lookup counted. `Enforce`: `missing`/`mismatch` → 403 / `METHOD_FORBIDDEN`
+  (`tenant-not-allowed`); `lookup_failed` → 503 / `METHOD_HANDLER_FAILED`, never 200. The switch per environment is AB#9000.
+- **Cache:** `TenantGenerationReader`, per instance and tenant, also "no record"; one read per tenant per
+  `TenantGenerationCacheDuration` (default 30 s, 🔴 must stay below the ~90 s delete tombstone), concurrent misses share one read,
+  failures not cached, dropped by `PosCreateTenant` / `PosUpdateTenant` / `PreUpdateTenant` / `PreDeleteTenant`; a newer token
+  generation than the cached one forces one re-read (at most once a second).
+- **Metric:** `octo.tenant_auth.generation_checks`, meter `Meshmakers.Octo.TenantAuthorization`, labels `outcome`, `mode`,
+  `transport` (`http`, `method`, `grant`), `client_id` (bounded, `unknown`/`other`), `grant_type` only from identity. Never
+  tenant, user, `sub`, `tenant_gen` or token values (test asserts the label set).
+- **Format** = `TenantGenerationFormat.Format`, identical to identity's `FormatGeneration` (shared vector
+  `2026-11-15T13:46:21.540Z` → `"1794750381540"`).
+- Tests: `tests/Infrastructure.Tests/TenantGeneration/`, `Middleware/TenantAuthorizationMiddlewareGenerationTests.cs`,
+  `tests/Methods.Tests/Authorization/CkMethodCallerTenantGenerationTests.cs`.
+
 ## Tenant role policies: scope plus role in one place (AB#7319)
 
 `services.AddOctoTenantRoleAuthorization()` and `options.AddTenantRolePolicy(policyName, roleName)`
@@ -1287,6 +1318,7 @@ both reference it). Full reference: `docs/rest-deprecation.md`.
 | `SecretDiagnostics.MeterName` | engine | SECRET attribute access |
 | `Meshmakers.Octo.TenantSetup` | Infrastructure | tenant setup retry |
 | `Meshmakers.Octo.Methods` | Methods | CK method calls (see below) |
+| `Meshmakers.Octo.TenantAuthorization` | Infrastructure | `octo.tenant_auth.generation_checks` — tenant generation check (AB#8999); labels `outcome`, `mode`, `transport`, `client_id` (+ `grant_type` from identity); never tenant, user, `sub` or `tenant_gen` |
 | `Meshmakers.Octo.RestDeprecation` | RestDeprecation | `octo.rest.deprecated.calls` — labels `endpoint` (method + route **template**), `client_id` (validated token, `anonymous` otherwise, `octo-pipeline-sa-{adapterRtId|configurationRtId}` → `octo-pipeline-sa` (custom standalone ids outside the prefix: as themselves), budget 1000 → `other`), `status_class`; never tenant, user or `sub` |
 
 A meter that is not on this list is silently dropped (AB#5430); `tests/Observability.Tests/MeterRegistrationTests.cs`
