@@ -386,16 +386,49 @@ public class TenantGenerationCheckTests
     }
 
     [Fact]
-    public async Task FailedLookup_IsNotCached()
+    public async Task FailedLookup_IsRetriedAfterAShortBackOff_NotPerRequest()
     {
         using var f = new GenerationFixture(TenantGenerationEnforcementMode.Enforce);
         f.Lifecycle.Set(Tenant, VectorUtc);
         f.Lifecycle.Failure = new TimeoutException();
 
-        Assert.Equal(TenantGenerationDecision.Unavailable, (await f.Check.CheckAsync(Request(VectorValue), Ct)).Decision);
+        for (var i = 0; i < 100; i++)
+        {
+            Assert.Equal(TenantGenerationDecision.Unavailable,
+                (await f.Check.CheckAsync(Request(VectorValue), Ct)).Decision);
+        }
+
+        Assert.Equal(1, f.Lifecycle.Reads);
 
         f.Lifecycle.Failure = null;
+        f.Time.Advance(TenantGenerationReader.FailureBackoff);
         Assert.Equal(TenantGenerationDecision.Allow, (await f.Check.CheckAsync(Request(VectorValue), Ct)).Decision);
+        Assert.Equal(2, f.Lifecycle.Reads);
+    }
+
+    [Fact]
+    public async Task CacheDuration_AboveTheMaximum_IsClamped()
+    {
+        using var f = new GenerationFixture(cacheDuration: TimeSpan.FromMinutes(10));
+        f.Lifecycle.Set(Tenant, VectorUtc);
+
+        await f.Check.CheckAsync(Request(VectorValue), Ct);
+        f.Time.Advance(TenantGenerationReader.MaxCacheDuration);
+        await f.Check.CheckAsync(Request(VectorValue), Ct);
+
+        Assert.Equal(2, f.Lifecycle.Reads);
+    }
+
+    [Fact]
+    public async Task CacheDuration_Zero_ReadsEveryTime()
+    {
+        using var f = new GenerationFixture(cacheDuration: TimeSpan.Zero);
+        f.Lifecycle.Set(Tenant, VectorUtc);
+
+        await f.Check.CheckAsync(Request(VectorValue), Ct);
+        await f.Check.CheckAsync(Request(VectorValue), Ct);
+
+        Assert.Equal(2, f.Lifecycle.Reads);
     }
 
     [Fact]
@@ -497,6 +530,18 @@ public class TenantGenerationCheckTests
         var measurement = Assert.Single(listener.Measurements);
         Assert.Equal("refresh_token", measurement.Tags[TenantGenerationMetrics.GrantTypeTag]);
         Assert.Equal(5, measurement.Tags.Count);
+    }
+
+    [Fact]
+    public async Task Metric_GrantType_OutsideTheFixedSet_IsOther()
+    {
+        using var f = new GenerationFixture();
+        using var listener = new GenerationCheckListener(f.Metrics);
+
+        await f.Check.CheckAsync(new TenantGenerationCheckRequest(Tenant, null, TenantGenerationTransports.Grant,
+            "octo-cli", "urn:custom:anything"), Ct);
+
+        Assert.Equal("other", Assert.Single(listener.Measurements).Tags[TenantGenerationMetrics.GrantTypeTag]);
     }
 
     [Theory]

@@ -58,6 +58,13 @@ public sealed record CkMethodPrincipal(
     public TenantGenerationClaim? TokenTenantGeneration { get; init; }
 
     /// <summary>
+    ///     The <c>client_id</c> claim of the access token, also for a user token (<see cref="ClientId" /> stays <c>null</c>
+    ///     there, AB#8078). Used only as the bounded <c>client_id</c> label and log field of the tenant generation check
+    ///     (AB#8999); never an identity.
+    /// </summary>
+    public string? TokenClientId { get; init; }
+
+    /// <summary>
     ///     Who the caller is: the <c>sub</c> of a user, or the <c>client_id</c> of a service token (client credentials,
     ///     no <c>sub</c>). <c>null</c> when neither is known.
     /// </summary>
@@ -108,7 +115,10 @@ public sealed record CkMethodPrincipal(
         {
             IsFromAccessToken = true,
             TokenTenantId = string.IsNullOrWhiteSpace(tokenTenantId) ? null : tokenTenantId,
-            TokenTenantGeneration = TenantGenerationClaim.FromPrincipal(principal)
+            TokenTenantGeneration = TenantGenerationClaim.FromPrincipal(principal),
+            TokenClientId = principal.FindFirst(ClientIdClaimType)?.Value is { Length: > 0 } tokenClientId
+                ? tokenClientId
+                : null
         };
     }
 }

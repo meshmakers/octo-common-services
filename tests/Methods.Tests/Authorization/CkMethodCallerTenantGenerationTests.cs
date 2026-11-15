@@ -160,6 +160,19 @@ public class CkMethodCallerTenantGenerationTests
     }
 
     [Fact]
+    public void FromClaimsPrincipal_CarriesTenantGenerationAndTheRawClientId()
+    {
+        var principal = CkMethodPrincipal.FromClaimsPrincipal(Principal(Case.Match));
+        var withClient = CkMethodPrincipal.FromClaimsPrincipal(new ClaimsPrincipal(new ClaimsIdentity(
+            Principal(Case.Match).Claims.Append(new Claim("client_id", "studio")), "Bearer")));
+
+        Assert.Equal(TenantGenerationClaim.FromValue(Current), principal.TokenTenantGeneration);
+        Assert.Null(withClient.ClientId); // a user token keeps ClientId null (AB#8078)
+        Assert.Equal("studio", withClient.TokenClientId);
+        Assert.DoesNotContain(Current, principal.ToString());
+    }
+
+    [Fact]
     public async Task BusHost_JsonNumberClaim_IsMismatch_InEnforce()
     {
         var (check, _, options) = Build(Case.Match, TenantGenerationEnforcementMode.Enforce);

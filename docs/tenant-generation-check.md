@@ -77,7 +77,8 @@ The switch to `Enforce` per environment and the later code default flip follow A
 including the "no record" result:
 
 - at most one lifecycle read per tenant per TTL window per instance; concurrent misses for one tenant share one read;
-- a failed read is not cached;
+- a failed read is answered as failed for 2 s (`TenantGenerationReader.FailureBackoff`), then read again, so a MongoDB outage
+  costs one read per tenant per back-off, not one per request;
 - the tenant events drop the entry where the host receives them: `PosCreateTenant`, `PosUpdateTenant`
   (`PosCreatePosUpdateTenantConsumer`), `PreUpdateTenant`, `PreDeleteTenant` (`PreUpdatePreDeleteTenantConsumer`);
 - on a `mismatch` whose token generation is **newer** than the cached one, and on a token with a claim for a tenant
@@ -87,6 +88,8 @@ including the "no record" result:
 - 🔴 **the TTL must stay below the delete tombstone time** (about 90 s, the settle sweep of `ReconcileDeletingTenantsAsync`).
   A deleted tenant id can only be created again after the tombstone is gone, so with a TTL below that no cached generation
   of the deleted tenant survives into the recreated tenant, even on an instance that missed the events;
+- a configured TTL above 60 s (`TenantGenerationReader.MaxCacheDuration`) is clamped to 60 s with one warning; `00:00:00`
+  disables the cache;
 - capped at 1024 tenants.
 
 A restore of a tenant keeps `CreatedUtc`, so its tokens stay valid.
@@ -102,7 +105,7 @@ registered in `ObservabilityBuilder`). Labels:
 | `mode` | `log_only`, `enforce` |
 | `transport` | `http`, `method`, `grant` |
 | `client_id` | the token's `client_id` (a client registered at identity, the token is validated); `unknown` when absent or not printable ASCII / longer than 128 characters; `other` after 1000 distinct values per process |
-| `grant_type` | only when identity passes one (AB#9017): `token_exchange`, `on_behalf_of`, `refresh_token`, `authorization_code`, `device_code` |
+| `grant_type` | only when identity passes one (AB#9017), a fixed set (`TenantGenerationMetrics.GrantTypes`): `token_exchange`, `on_behalf_of`, `refresh_token`, `authorization_code`, `device_code`, `client_credentials`, `password`; anything else `other` |
 
 Never the tenant id, the user, `sub`, `tenant_gen` or a token value. A unit test asserts the exact label set.
 
@@ -130,7 +133,7 @@ Identity (AB#9017) builds a `TenantGenerationCheckRequest` with `Transport = Ten
 
 - `tests/Infrastructure.Tests/TenantGeneration/TenantGenerationCheckTests.cs`: format (shared vector, truncation, kinds),
   canonical form, evaluator, mode matrix, log rate limit, cache (1000 requests = one read, "no record" cached, TTL,
-  concurrent misses = one read, failure not cached, refresh on a newer generation), metric label set and bounds.
+  concurrent misses = one read, failure back-off, TTL clamp, refresh on a newer generation), metric label set and bounds.
 - `tests/Infrastructure.Tests/TenantGeneration/TenantGenerationInvalidationTests.cs`: event invalidation, registration.
 - `tests/Infrastructure.Tests/Middleware/TenantAuthorizationMiddlewareGenerationTests.cs`: HTTP matrix incl. the parent
   path, system tenant, client credentials, cross-tenant client, cookie principal, host without the check.

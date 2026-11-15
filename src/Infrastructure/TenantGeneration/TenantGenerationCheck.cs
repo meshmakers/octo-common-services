@@ -187,7 +187,8 @@ public sealed class TenantGenerationCheck : ITenantGenerationCheck
 
         return outcome switch
         {
-            // identity only stamps a claim for a tenant with a record: the record appeared after the value was cached
+            // identity only stamps a claim for a tenant with a record: the record may have appeared after the value
+            // was cached. The reader bounds the re-reads (at most one per tenant per second).
             TenantGenerationOutcome.NotChecked => current is null,
             TenantGenerationOutcome.Mismatch => TenantGenerationFormat.TryParse(current, out var cached) &&
                                                tokenGeneration > cached,

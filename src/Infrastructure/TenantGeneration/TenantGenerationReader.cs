@@ -39,8 +39,8 @@ public sealed class TenantGenerationLookupException(string tenantId, Exception i
 ///     <para>
 ///         <b>At most one read per tenant per TTL window per instance.</b> The value — also "no generation" — is cached for
 ///         <see cref="TenantAuthorizationOptions.TenantGenerationCacheDuration" /> (default 30 s). Concurrent misses for one
-///         tenant share one read. A failed read is not cached: the waiting callers see the failure, the next request reads
-///         again.
+///         tenant share one read. A failed read is answered as failed for <see cref="FailureBackoff" /> (2 s), then read
+///         again, so a MongoDB outage costs one read per tenant per back-off, not one per request.
 ///     </para>
 ///     <para>
 ///         <b>Why the TTL must stay below the delete tombstone time.</b> A deleted tenant keeps its lifecycle record as the
@@ -59,6 +59,18 @@ public sealed class TenantGenerationReader : ITenantGenerationReader
     private const int MaxCacheEntries = 1024;
     private static readonly TimeSpan MinRefreshInterval = TimeSpan.FromSeconds(1);
 
+    /// <summary>
+    ///     How long a failed read is answered from the cache before the store is asked again: during a MongoDB outage
+    ///     this keeps it at one read (and one error log) per tenant per interval instead of one per request.
+    /// </summary>
+    internal static readonly TimeSpan FailureBackoff = TimeSpan.FromSeconds(2);
+
+    /// <summary>
+    ///     Upper bound of <see cref="TenantAuthorizationOptions.TenantGenerationCacheDuration" />: it must stay below the
+    ///     delete tombstone time (about 90 s). A larger configured value is clamped, with one warning.
+    /// </summary>
+    public static readonly TimeSpan MaxCacheDuration = TimeSpan.FromSeconds(60);
+
     private readonly Dictionary<string, CacheEntry> _cache = new(StringComparer.Ordinal);
     private readonly Lock _gate = new();
     private readonly ITenantLifecycleStore? _lifecycleStore;
@@ -66,6 +78,7 @@ public sealed class TenantGenerationReader : ITenantGenerationReader
     private readonly IOptions<TenantAuthorizationOptions> _options;
     private readonly TimeProvider _timeProvider;
     private int _noStoreLogged;
+    private int _clampLogged;
 
     /// <summary>Creates the reader. Without a lifecycle store every tenant has no generation (not checked).</summary>
     public TenantGenerationReader(IOptions<TenantAuthorizationOptions> options, ILogger<TenantGenerationReader> logger,
@@ -95,7 +108,7 @@ public sealed class TenantGenerationReader : ITenantGenerationReader
         }
 
         var key = Normalize(tenantId);
-        var ttl = _options.Value.TenantGenerationCacheDuration;
+        var ttl = EffectiveTtl();
         var now = _timeProvider.GetUtcNow();
         CacheEntry entry;
         lock (_gate)
@@ -135,11 +148,31 @@ public sealed class TenantGenerationReader : ITenantGenerationReader
     /// <summary>The cache key, the same form as the lifecycle store and identity use (trimmed, lower case).</summary>
     internal static string Normalize(string tenantId) => tenantId.Trim().ToLowerInvariant();
 
+    private TimeSpan EffectiveTtl()
+    {
+        var ttl = _options.Value.TenantGenerationCacheDuration;
+        if (ttl <= MaxCacheDuration)
+        {
+            return ttl;
+        }
+
+        if (Interlocked.Exchange(ref _clampLogged, 1) == 0)
+        {
+            _logger.LogWarning(
+                "TenantAuthorization:TenantGenerationCacheDuration {Configured} is above {Max} and is clamped: the cache must " +
+                "stay below the delete tombstone time, or a recreated tenant could see the deleted tenant's generation (AB#8999)",
+                ttl, MaxCacheDuration);
+        }
+
+        return MaxCacheDuration;
+    }
+
     private static bool IsUsable(CacheEntry entry, DateTimeOffset now, TimeSpan ttl, bool refresh)
     {
         if (entry.Load.IsFaulted || entry.Load.IsCanceled)
         {
-            return false;
+            // a failed read is answered as failed for a short back-off, then read again
+            return now - entry.CreatedAt < FailureBackoff;
         }
 
         if (!entry.Load.IsCompleted)

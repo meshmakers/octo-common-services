@@ -11,7 +11,7 @@ namespace Meshmakers.Octo.Services.Infrastructure.TenantGeneration;
 ///         Labels: <c>outcome</c> (<c>match</c>, <c>missing</c>, <c>mismatch</c>, <c>not_checked</c>,
 ///         <c>lookup_failed</c>), <c>mode</c> (<c>log_only</c>, <c>enforce</c>), <c>transport</c> (<c>http</c>,
 ///         <c>method</c>, <c>grant</c>), <c>client_id</c>, and <c>grant_type</c> only when the caller passes one (identity,
-///         AB#9017). Never the tenant id, the user, <c>sub</c>, <c>tenant_gen</c> or a token value.
+///         AB#9017; a fixed set, see <see cref="GrantTypes" />). Never the tenant id, the user, <c>sub</c>, <c>tenant_gen</c> or a token value.
 ///     </para>
 ///     <para>
 ///         <c>client_id</c> comes from a validated token, i.e. it is a client registered at identity; a missing or
@@ -49,6 +49,13 @@ public sealed class TenantGenerationMetrics : IDisposable
     /// <summary>The value of <c>client_id</c> after the budget of distinct values is used up.</summary>
     public const string OtherClientId = "other";
 
+    /// <summary>The values <c>grant_type</c> may take; anything else is counted as <c>other</c>.</summary>
+    public static readonly IReadOnlySet<string> GrantTypes = new HashSet<string>(StringComparer.Ordinal)
+    {
+        "token_exchange", "on_behalf_of", "refresh_token", "authorization_code", "device_code", "client_credentials",
+        "password"
+    };
+
     internal const int MaxClientIds = 1000;
     private const int MaxLabelLength = 128;
 
@@ -84,7 +91,7 @@ public sealed class TenantGenerationMetrics : IDisposable
         };
         if (!string.IsNullOrWhiteSpace(grantType))
         {
-            tags.Add(GrantTypeTag, Bounded(grantType) ?? "other");
+            tags.Add(GrantTypeTag, GrantTypes.Contains(grantType) ? grantType : "other");
         }
 
         _checks.Add(1, tags);

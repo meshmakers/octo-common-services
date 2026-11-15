@@ -408,8 +408,8 @@ public, registered by `AddOctoServiceInfrastructure()` and the CK method registr
   (rate-limited per client) and counted, a failed lookup counted. `Enforce`: `missing`/`mismatch` → 403 / `METHOD_FORBIDDEN`
   (`tenant-not-allowed`); `lookup_failed` → 503 / `METHOD_HANDLER_FAILED`, never 200. The switch per environment is AB#9000.
 - **Cache:** `TenantGenerationReader`, per instance and tenant, also "no record"; one read per tenant per
-  `TenantGenerationCacheDuration` (default 30 s, 🔴 must stay below the ~90 s delete tombstone), concurrent misses share one read,
-  failures not cached, dropped by `PosCreateTenant` / `PosUpdateTenant` / `PreUpdateTenant` / `PreDeleteTenant`; a newer token
+  `TenantGenerationCacheDuration` (default 30 s, clamped to 60 s, 🔴 must stay below the ~90 s delete tombstone), concurrent misses
+  share one read, a failed read is answered as failed for 2 s, dropped by `PosCreateTenant` / `PosUpdateTenant` / `PreUpdateTenant` / `PreDeleteTenant`; a newer token
   generation than the cached one forces one re-read (at most once a second).
 - **Metric:** `octo.tenant_auth.generation_checks`, meter `Meshmakers.Octo.TenantAuthorization`, labels `outcome`, `mode`,
   `transport` (`http`, `method`, `grant`), `client_id` (bounded, `unknown`/`other`), `grant_type` only from identity. Never

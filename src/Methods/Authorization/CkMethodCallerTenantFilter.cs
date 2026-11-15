@@ -58,7 +58,8 @@ public sealed class CkMethodCallerTenantFilter(
             if (generationCheck is not null && principal is { IsFromAccessToken: true } caller)
             {
                 var decision = await CkMethodCallerTenantRule.CheckGenerationAsync(generationCheck, tenantOptions.Value,
-                    caller.SubjectId, caller.ClientId, caller.TokenTenantId, caller.TokenTenantGeneration, request.TenantId,
+                    caller.SubjectId, caller.TokenClientId ?? caller.ClientId, caller.TokenTenantId,
+                    caller.TokenTenantGeneration, request.TenantId,
                     context.CancellationToken).ConfigureAwait(false);
                 if (decision == TenantGenerationDecision.Deny)
                 {
