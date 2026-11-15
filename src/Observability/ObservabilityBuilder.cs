@@ -123,6 +123,9 @@ internal class ObservabilityBuilder(
             .AddMeter("Meshmakers.Octo.TenantSetup")
             // CK method audit failures (AB#6919) - ck.method.audit.failures from CkMethodAuditRecorder in Methods.
             .AddMeter("Meshmakers.Octo.Methods")
+            // Tenant generation check (AB#8999) - octo.tenant_auth.generation_checks from TenantGenerationMetrics in
+            // Infrastructure. A string like TenantSetup: TenantGenerationCheckTests pins the constant it must equal.
+            .AddMeter("Meshmakers.Octo.TenantAuthorization")
             // Deprecated REST operations (AB#8421) - octo.rest.deprecated.calls from RestDeprecationMetrics. A constant
             // reference: RestDeprecation is a dependency of this package, so a rename fails the build here.
             .AddMeter(RestDeprecationMetrics.MeterName)

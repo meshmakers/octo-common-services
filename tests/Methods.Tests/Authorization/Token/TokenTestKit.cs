@@ -182,7 +182,8 @@ internal static class TokenFactory
 /// <summary>The validator under test with a fake identity service and a log collector.</summary>
 internal sealed class ValidatorFixture : IDisposable
 {
-    public ValidatorFixture(CkMethodTokenOptions? options = null, TenantAuthorizationOptions? tenantOptions = null)
+    public ValidatorFixture(CkMethodTokenOptions? options = null, TenantAuthorizationOptions? tenantOptions = null,
+        Meshmakers.Octo.Services.Infrastructure.TenantGeneration.ITenantGenerationCheck? generationCheck = null)
     {
         Key = new TestKey("key-1");
         Identity = new FakeIdentityHandler(Key);
@@ -191,7 +192,7 @@ internal sealed class ValidatorFixture : IDisposable
         Logs = new FakeLogCollector();
         Validator = new CkMethodCallerTokenValidator(Microsoft.Extensions.Options.Options.Create(Options),
             Microsoft.Extensions.Options.Options.Create(tenantOptions ?? new TenantAuthorizationOptions()),
-            new FakeHttpClientFactory(Identity), new FakeLogger<CkMethodCallerTokenValidator>(Logs), Time);
+            new FakeHttpClientFactory(Identity), new FakeLogger<CkMethodCallerTokenValidator>(Logs), Time, generationCheck);
     }
 
     /// <summary>Drives the key cache only; the lifetime check of the tokens uses the system clock.</summary>

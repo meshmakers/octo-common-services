@@ -5,6 +5,23 @@ entries are grouped by work item until a release assigns the version.
 
 ## Unreleased
 
+### Added
+
+- **AB#8999** (security, AB#8970) — services check the access-token claim `tenant_gen` (issued by identity since AB#8997), so a
+  token of a deleted tenant is not accepted by a new tenant with the same id. `TenantAuthorizationMiddleware`, the CK method bus host
+  (`CkMethodCallerTokenValidator`) and the in-process transport (`CkMethodCallerTenantFilter`, via
+  `CkMethodCallerTenantRule.CheckGenerationAsync`) compare it with the current generation of the token's `tenant_id` (also on the
+  parent-tenant path; the system tenant and tenants without lifecycle record are never refused; allow-listed cross-tenant service
+  clients on another tenant are not checked). New option `TenantAuthorization:TenantGenerationEnforcement` = `Disabled` | `LogOnly` |
+  `Enforce`, **default `LogOnly`**: outcomes unchanged, `missing`/`mismatch` logged and counted. `Enforce` answers 403 /
+  `METHOD_FORBIDDEN` (`tenant-not-allowed`), a failed lookup 503 / `METHOD_HANDLER_FAILED`. The generation is cached per instance
+  (`TenantAuthorization:TenantGenerationCacheDuration`, default 30 s, below the delete tombstone time) and dropped by the tenant
+  events. Metric `octo.tenant_auth.generation_checks` (meter `Meshmakers.Octo.TenantAuthorization`, registered in
+  `ObservabilityBuilder`). Public for identity (AB#9017): `ITenantGenerationCheck`, `ITenantGenerationReader`,
+  `TenantGenerationClaim`, `TenantGenerationFormat`, `TenantGenerationMetrics`, `AddOctoTenantGenerationCheck()`. No interface
+  implemented in another repository changes; `CkMethodPrincipal` gets the init-only `TokenTenantGeneration`. Rollout: identity with the
+  claim first; the switch to `Enforce` per environment follows AB#9000. Docs: `docs/tenant-generation-check.md`.
+
 ### Fixed
 
 - **AB#8969** — services with CK method handlers start reliably with several replicas. The startup validation of the method

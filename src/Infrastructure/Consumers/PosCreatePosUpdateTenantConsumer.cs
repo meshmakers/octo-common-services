@@ -5,6 +5,7 @@ using Meshmakers.Octo.ConstructionKit.Contracts.Services;
 using Meshmakers.Octo.Runtime.Contracts.MongoDb;
 using Meshmakers.Octo.Services.Contracts.DistributionEventHub.Messages;
 using Meshmakers.Octo.Services.Infrastructure.Services;
+using Meshmakers.Octo.Services.Infrastructure.TenantGeneration;
 using Microsoft.Extensions.Logging;
 
 namespace Meshmakers.Octo.Services.Infrastructure.Consumers;
@@ -14,7 +15,8 @@ internal class PosCreatePosUpdateTenantConsumer(
     ILogger<PosCreatePosUpdateTenantConsumer> logger,
     ICkCacheService ckCacheService,
     ISystemContext systemContext,
-    IDefaultConfigurationCreatorService defaultConfigurationCreatorService)
+    IDefaultConfigurationCreatorService defaultConfigurationCreatorService,
+    ITenantGenerationReader? tenantGenerationReader = null)
     : IDistributedConsumer<PosCreateTenant>, IDistributedConsumer<PosUpdateTenant>
 {
     private static readonly ConcurrentDictionary<string, bool> TenantsInHandling = new();
@@ -30,6 +32,9 @@ internal class PosCreatePosUpdateTenantConsumer(
 
     public async Task ConsumeAsync(IDistributedContext<PosCreateTenant> context)
     {
+        // AB#8999: a new creation cycle has a new generation; never answer from the cached one.
+        tenantGenerationReader?.Invalidate(context.Message.TenantId);
+
         logger.LogInformation("Pos create tenant received: '{TenantId}'", context.Message.TenantId);
 
         if (!TenantsInHandling.TryAdd(context.Message.TenantId, true))
@@ -63,6 +68,9 @@ internal class PosCreatePosUpdateTenantConsumer(
 
     public async Task ConsumeAsync(IDistributedContext<PosUpdateTenant> context)
     {
+        // AB#8999: a new creation cycle has a new generation; never answer from the cached one.
+        tenantGenerationReader?.Invalidate(context.Message.TenantId);
+
         logger.LogInformation("Pos update tenant received: '{TenantId}'", context.Message.TenantId);
 
         if (!TenantsInHandling.TryAdd(context.Message.TenantId, true))
