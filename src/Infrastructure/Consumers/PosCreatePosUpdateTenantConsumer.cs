@@ -3,6 +3,7 @@ using Meshmakers.Common.Shared;
 using Meshmakers.Octo.Common.DistributionEventHub.Consumers;
 using Meshmakers.Octo.ConstructionKit.Contracts.Services;
 using Meshmakers.Octo.Runtime.Contracts.MongoDb;
+using Meshmakers.Octo.Runtime.Contracts.MongoDb.Services;
 using Meshmakers.Octo.Services.Contracts.DistributionEventHub.Messages;
 using Meshmakers.Octo.Services.Infrastructure.Services;
 using Meshmakers.Octo.Services.Infrastructure.TenantGeneration;
@@ -16,7 +17,8 @@ internal class PosCreatePosUpdateTenantConsumer(
     ICkCacheService ckCacheService,
     ISystemContext systemContext,
     IDefaultConfigurationCreatorService defaultConfigurationCreatorService,
-    ITenantGenerationReader? tenantGenerationReader = null)
+    ITenantGenerationReader? tenantGenerationReader = null,
+    IStreamDataRepositoryFactory? streamDataRepositoryFactory = null)
     : IDistributedConsumer<PosCreateTenant>, IDistributedConsumer<PosUpdateTenant>
 {
     private static readonly ConcurrentDictionary<string, bool> TenantsInHandling = new();
@@ -27,6 +29,38 @@ internal class PosCreatePosUpdateTenantConsumer(
         {
             logger.LogInformation("Pos update/create tenant unloading cache: '{TenantId}'", tenantId);
             ckCacheService.Unload(tenantId);
+        }
+    }
+
+    /// <summary>
+    ///     AB#6247 (CK v2 N2): a CK model import re-checks the tenant's archives against Hidden attributes only in the
+    ///     importing service, and that check needs a stream-data repository. Identity, the communication controller and
+    ///     platform services import System.Identity, System.Communication and System.UI without one, so a model of theirs
+    ///     that makes an archived attribute Hidden would keep being archived. Every import publishes PosUpdateTenant
+    ///     (scope Full); a service that owns stream data (a registered <see cref="IStreamDataRepositoryFactory" />) runs
+    ///     the re-check here. Services without stream data skip it before resolving the tenant context, so the registry-only
+    ///     probe above stays the only lookup there. Best-effort: a failure is logged and never fails the setup.
+    /// </summary>
+    private async Task RevalidateArchiveAccessAsync(string tenantId)
+    {
+        if (streamDataRepositoryFactory is null)
+        {
+            return;
+        }
+
+        try
+        {
+            var tenantContext = await systemContext.TryFindTenantContextAsync(tenantId).ConfigureAwait(false);
+            if (tenantContext is not null)
+            {
+                await tenantContext.RevalidateArchiveAccessAsync().ConfigureAwait(false);
+            }
+        }
+        catch (Exception ex)
+        {
+            logger.LogError(ex,
+                "Re-checking the archives of tenant '{TenantId}' against Hidden attributes failed after a tenant update",
+                tenantId);
         }
     }
 
@@ -124,6 +158,8 @@ internal class PosCreatePosUpdateTenantConsumer(
             // imports (FixAll): the event fired by batch step N disposed the client under batch
             // step N+1 — ObjectDisposedException('CoreServerSessionPool').
             await defaultConfigurationCreatorService.SetupAsync(context.Message.TenantId).ConfigureAwait(false);
+
+            await RevalidateArchiveAccessAsync(tenantId).ConfigureAwait(false);
         }
         finally
         {
