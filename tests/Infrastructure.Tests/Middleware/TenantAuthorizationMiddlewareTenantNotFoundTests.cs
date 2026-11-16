@@ -36,7 +36,8 @@ public class TenantAuthorizationMiddlewareTenantNotFoundTests
     }
 
     private HttpContext CreateContext(IEnumerable<Claim> claims, bool parentTenantAdministrationEndpoint = false,
-        ITenantHierarchyReader? hierarchyReader = null, bool withSystemContext = true)
+        ITenantHierarchyReader? hierarchyReader = null, bool withSystemContext = true, bool withBearer = true,
+        string authenticationType = "Bearer")
     {
         var services = new ServiceCollection();
         services.AddSingleton(new TenantAuthorizationMetrics());
@@ -55,7 +56,11 @@ public class TenantAuthorizationMiddlewareTenantNotFoundTests
             RequestServices = services.BuildServiceProvider()
         };
         context.Response.Body = new MemoryStream();
-        context.Request.Headers.Authorization = "Bearer dummy-token";
+        if (withBearer)
+        {
+            context.Request.Headers.Authorization = "Bearer dummy-token";
+        }
+
         context.Request.RouteValues = new RouteValueDictionary { { InfrastructureCommon.TenantIdRoute, RouteTenant } };
         if (parentTenantAdministrationEndpoint)
         {
@@ -64,7 +69,7 @@ public class TenantAuthorizationMiddlewareTenantNotFoundTests
                 "POST /{tenantId}/v1/tenants/backup (test endpoint)"));
         }
 
-        context.User = new ClaimsPrincipal(new ClaimsIdentity(claims, "Bearer"));
+        context.User = new ClaimsPrincipal(new ClaimsIdentity(claims, authenticationType));
         return context;
     }
 
@@ -221,5 +226,67 @@ public class TenantAuthorizationMiddlewareTenantNotFoundTests
         await Assert.ThrowsAsync<TenantException>(() =>
             InvokeAsync(context, TenantException.TenantIdNotAvailable(RouteTenant)));
         A.CallTo(() => _systemContext.IsTenantRegisteredAsync(A<string>._)).MustNotHaveHappened();
+    }
+    [Fact]
+    public async Task Request_without_a_bearer_token_gets_404()
+    {
+        var context = CreateContext([], withBearer: false, authenticationType: "Identity.Application");
+
+        await InvokeAsync(context, TenantException.TenantDoesNotExist(RouteTenant));
+
+        Assert.Equal(StatusCodes.Status404NotFound, context.Response.StatusCode);
+        Assert.Equal($"Tenant '{RouteTenant}' does not exist.", await ReadMessageAsync(context));
+    }
+
+    [Fact]
+    public async Task Cookie_principal_behind_an_injected_bearer_header_gets_404()
+    {
+        var context = CreateContext(UserToken(ForeignTenant), authenticationType: "Identity.Application");
+
+        await InvokeAsync(context, TenantException.TenantDoesNotExist(RouteTenant));
+
+        Assert.Equal(StatusCodes.Status404NotFound, context.Response.StatusCode);
+        await ReadMessageAsync(context);
+    }
+
+    [Fact]
+    public async Task Allow_listed_service_client_on_its_own_tenant_gets_404()
+    {
+        var context = CreateContext(ServiceToken("octo-platform-worker", RouteTenant));
+        var options = new TenantAuthorizationOptions { CrossTenantServiceClientIds = ["octo-platform-worker"] };
+
+        await InvokeAsync(context, TenantException.TenantDoesNotExist(RouteTenant), options);
+
+        Assert.Equal(StatusCodes.Status404NotFound, context.Response.StatusCode);
+    }
+
+    [Fact]
+    public async Task A_response_that_has_already_started_is_not_touched()
+    {
+        var context = CreateContext(UserToken(RouteTenant));
+        var responseFeature = new StartedResponseFeature();
+        context.Features.Set<Microsoft.AspNetCore.Http.Features.IHttpResponseFeature>(responseFeature);
+
+        await Assert.ThrowsAsync<TenantException>(() =>
+            InvokeAsync(context, TenantException.TenantDoesNotExist(RouteTenant)));
+        A.CallTo(() => _systemContext.IsTenantRegisteredAsync(A<string>._)).MustNotHaveHappened();
+    }
+
+    [Fact]
+    public async Task An_aborted_request_keeps_the_original_exception()
+    {
+        var context = CreateContext(UserToken(RouteTenant));
+        using var aborted = new CancellationTokenSource();
+        await aborted.CancelAsync();
+        context.RequestAborted = aborted.Token;
+
+        await Assert.ThrowsAsync<TenantException>(() =>
+            InvokeAsync(context, TenantException.TenantDoesNotExist(RouteTenant)));
+        A.CallTo(() => _systemContext.IsTenantRegisteredAsync(A<string>._)).MustNotHaveHappened();
+    }
+
+    private sealed class StartedResponseFeature : Microsoft.AspNetCore.Http.Features.HttpResponseFeature
+    {
+        public override bool HasStarted => true;
     }
 }

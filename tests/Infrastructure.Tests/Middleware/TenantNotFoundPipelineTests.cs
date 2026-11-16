@@ -21,7 +21,7 @@ namespace Infrastructure.Tests.Middleware;
 /// </summary>
 public class TenantNotFoundPipelineTests
 {
-    private const string DeletedTenant = "deletedchild";
+    private const string DeletedTenant = "deletedtenant";
     private const string ExistingTenant = "parenttenant";
 
     private readonly ISystemContext _systemContext = A.Fake<ISystemContext>();
@@ -102,7 +102,7 @@ public class TenantNotFoundPipelineTests
     [Theory]
     [InlineData("Development")]
     [InlineData("Production")]
-    public async Task Parent_token_on_a_deleted_child_gets_403_not_a_stack_trace(string environment)
+    public async Task Foreign_token_in_LogOnly_on_a_deleted_tenant_gets_403_not_a_stack_trace(string environment)
     {
         // LogOnly is how the asset repository runs the user path: the gate lets the request through.
         using var host = await StartAsync(environment, UserTokenTenantEnforcementMode.LogOnly);

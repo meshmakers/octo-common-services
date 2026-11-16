@@ -53,9 +53,10 @@ entries are grouped by work item until a release assigns the version.
   TTL; the endpoint then failed resolving the tenant (asset repository GraphQL: `TenantUserContextBuilder`).
   `TenantAuthorizationMiddleware` now catches `TenantException.IsTenantNotFound` from the rest of the pipeline when the route
   tenant is not registered (`ISystemContext.IsTenantRegisteredAsync`) and answers JSON `{"message": ...}`: `404` for a caller of
-  that tenant (or an allow-listed cross-tenant service client), `403` with the denial message of the token's path for any other
-  caller (no existence oracle). A missing tenant other than the route tenant, a host without `ISystemContext` and an unreadable
-  registry keep the old behaviour. Every host that calls `UseOctoTenantAuthorization()` gets it with the package; no host change.
+  that tenant (or an allow-listed cross-tenant service client, or a request without a bearer principal), `403` with the denial
+  message of the token's path for any other caller (no new existence oracle: under `Enforce` the same answer as for a refused
+  existing tenant). A missing tenant other than the route tenant, a host without `ISystemContext`, a registry probe that throws and
+  an aborted request keep the old behaviour. `LogOnly` therefore changes this one outcome (500 → 403). Every host that calls `UseOctoTenantAuthorization()` gets it with the package; no host change.
   Docs: `docs/tenant-authorization.md` ("A route tenant that does not exist").
 
 - **AB#8969** — services with CK method handlers start reliably with several replicas. The startup validation of the method

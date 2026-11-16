@@ -69,7 +69,7 @@ namespace Meshmakers.Octo.Services.Infrastructure.Middleware;
 ///         500, behind <c>UseDeveloperExceptionPage()</c> with the stack trace in the body. The gate therefore catches it
 ///         when the route tenant is really not registered and answers with the error contract of the gate instead: 404 for
 ///         a caller of that tenant (or an allow-listed cross-tenant service client), 403 with the denial message of the
-///         token's path for any other caller, so the answer does not tell a foreign caller whether the tenant exists.
+///         token's path for any other caller (under <c>Enforce</c> the same answer as for a refused existing tenant).
 ///     </para>
 ///     <para>
 ///         <b>Metric.</b> Every decision of the tenant check is counted in <c>octo.tenant_auth.decisions</c>
@@ -533,13 +533,13 @@ internal class TenantAuthorizationMiddleware(
     /// <summary>
     ///     Whether <paramref name="routeTenantId" /> is really not registered, so that a <see cref="TenantException" /> with
     ///     <see cref="TenantException.IsTenantNotFound" /> is about the route tenant and not about another tenant the endpoint
-    ///     resolved (e.g. a child of the route tenant). Without an <see cref="ISystemContext" />, or when the registry cannot
-    ///     be read, the answer is <c>false</c> and the exception keeps its way.
+    ///     resolved (e.g. a child of the route tenant). Without an <see cref="ISystemContext" />, on an aborted request, or when
+    ///     the registry probe throws, the answer is <c>false</c> and the exception keeps its way.
     /// </summary>
     private async Task<bool> IsRouteTenantMissingAsync(HttpContext context, string routeTenantId)
     {
         var systemContext = context.RequestServices?.GetService<ISystemContext>();
-        if (systemContext == null)
+        if (systemContext == null || context.RequestAborted.IsCancellationRequested)
         {
             return false;
         }
@@ -561,8 +561,8 @@ internal class TenantAuthorizationMiddleware(
     ///     Answers a request whose route tenant does not exist with the error contract of this gate instead of an unhandled
     ///     exception: <c>404</c> with <c>{"message": ...}</c> for a caller of that tenant (token tenant = route tenant, no
     ///     bearer token, or an allow-listed cross-tenant service client), <c>403</c> with the denial message of the token's
-    ///     path for any other caller, so a foreign caller cannot tell a missing tenant from a refused one. Never the exception
-    ///     text or stack trace.
+    ///     path for any other caller (under <c>Enforce</c> the same answer as for a refused existing tenant). Never the
+    ///     exception text or stack trace.
     /// </summary>
     private async Task WriteTenantNotFoundAsync(HttpContext context, string routeTenantId)
     {
