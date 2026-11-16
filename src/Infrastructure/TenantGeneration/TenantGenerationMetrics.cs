@@ -84,7 +84,7 @@ public sealed class TenantGenerationMetrics : IDisposable
         {
             { OutcomeTag, OutcomeLabel(outcome) },
             { ModeTag, ModeLabel(mode) },
-            { TransportTag, ClientIdLabelBudget.Bounded(transport) ?? "other" },
+            { TransportTag, MetricLabels.Bounded(transport) ?? "other" },
             { ClientIdTag, ClientIdLabel(clientId) }
         };
         if (!string.IsNullOrWhiteSpace(grantType))

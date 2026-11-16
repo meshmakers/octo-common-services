@@ -1,6 +1,7 @@
 using System.Diagnostics.Metrics;
 using System.Security.Claims;
 using FakeItEasy;
+using Infrastructure.Tests.TenantGeneration;
 using Meshmakers.Octo.Services.Infrastructure;
 using Meshmakers.Octo.Services.Infrastructure.Authorization;
 using Meshmakers.Octo.Services.Infrastructure.Configuration;
@@ -60,7 +61,7 @@ public sealed class TenantAuthorizationMiddlewareMetricsTests : IDisposable
         Assert.Equal("user", tags[TenantAuthorizationMetrics.TokenKindTag]);
         Assert.Equal(modeLabel, tags[TenantAuthorizationMetrics.ModeTag]);
         Assert.Equal("studio", tags[TenantAuthorizationMetrics.ClientIdTag]);
-        Assert.Equal("/" + RouteTemplate, tags[TenantAuthorizationMetrics.RouteTag]);
+        Assert.Equal(TenantAuthorizationMetrics.AnyRoute, tags[TenantAuthorizationMetrics.RouteTag]);
     }
 
     [Fact]
@@ -88,6 +89,7 @@ public sealed class TenantAuthorizationMiddlewareMetricsTests : IDisposable
         var tags = SingleDecision();
         Assert.Equal("would_deny", tags[TenantAuthorizationMetrics.OutcomeTag]);
         Assert.Equal("log_only", tags[TenantAuthorizationMetrics.ModeTag]);
+        Assert.Equal("/" + RouteTemplate, tags[TenantAuthorizationMetrics.RouteTag]);
     }
 
     [Fact]
@@ -100,6 +102,7 @@ public sealed class TenantAuthorizationMiddlewareMetricsTests : IDisposable
         var tags = SingleDecision();
         Assert.Equal("denied", tags[TenantAuthorizationMetrics.OutcomeTag]);
         Assert.Equal("enforce", tags[TenantAuthorizationMetrics.ModeTag]);
+        Assert.Equal("/" + RouteTemplate, tags[TenantAuthorizationMetrics.RouteTag]);
     }
 
     [Fact]
@@ -169,7 +172,22 @@ public sealed class TenantAuthorizationMiddlewareMetricsTests : IDisposable
         });
 
         Assert.True(nextCalled);
-        Assert.Equal("allowed_cross_tenant_client", SingleDecision()[TenantAuthorizationMetrics.OutcomeTag]);
+        var tags = SingleDecision();
+        Assert.Equal("allowed_cross_tenant_client", tags[TenantAuthorizationMetrics.OutcomeTag]);
+        Assert.Equal(TenantAuthorizationMetrics.AnyRoute, tags[TenantAuthorizationMetrics.RouteTag]);
+    }
+
+    [Fact]
+    public void ServiceToken_OfAllowListedClientOnItsOwnTenant_IsCountedAsMatch()
+    {
+        var (nextCalled, _) = Invoke(ServiceToken("ai-worker", Tenant), new TenantAuthorizationOptions
+        {
+            ServiceTokenEnforcement = ServiceTokenTenantEnforcementMode.Enforce,
+            CrossTenantServiceClientIds = ["ai-worker"]
+        });
+
+        Assert.True(nextCalled);
+        Assert.Equal("match", SingleDecision()[TenantAuthorizationMetrics.OutcomeTag]);
     }
 
     [Theory]
@@ -229,7 +247,7 @@ public sealed class TenantAuthorizationMiddlewareMetricsTests : IDisposable
     [Fact]
     public void Decision_WithoutClientIdOrRouteTemplate_UsesUnknown()
     {
-        var context = CreateContext(new[] { new Claim("sub", Subject), new Claim("tenant_id", Tenant) }, Tenant,
+        var context = CreateContext(new[] { new Claim("sub", Subject), new Claim("tenant_id", Tenant) }, Foreign,
             routeEndpoint: false);
 
         Run(context, new TenantAuthorizationOptions());
@@ -250,6 +268,14 @@ public sealed class TenantAuthorizationMiddlewareMetricsTests : IDisposable
     }
 
     [Fact]
+    public void OutcomeLabel_UnknownOutcome_IsOther_NotADenial()
+    {
+        Assert.Equal(TenantAuthorizationMetrics.OtherOutcome,
+            TenantAuthorizationMetrics.OutcomeLabel((TenantAuthorizationOutcome)999));
+        Assert.False(TenantAuthorizationMetrics.IsRefusal((TenantAuthorizationOutcome)999));
+    }
+
+    [Fact]
     public void Request_WithoutRouteTenant_IsNotCounted()
     {
         var context = CreateContext(UserToken(Tenant), routeTenant: null);
@@ -260,14 +286,25 @@ public sealed class TenantAuthorizationMiddlewareMetricsTests : IDisposable
     }
 
     [Fact]
-    public void Host_WithoutTheRegistration_RunsWithoutTheCounter()
+    public async Task Host_WithoutTheRegistration_RunsWithoutTheCounter_AndWarnsOnce()
+    {
+        var context = CreateContextWithoutMetrics();
+        var logger = new RecordingLogger<TenantAuthorizationMiddleware>();
+        var middleware = new TenantAuthorizationMiddleware(_ => Task.CompletedTask,
+            Options.Create(new TenantAuthorizationOptions()), logger);
+
+        await middleware.InvokeAsync(context);
+        await middleware.InvokeAsync(CreateContextWithoutMetrics());
+
+        Assert.Empty(_listener.Measurements);
+        Assert.Contains(TenantAuthorizationMetrics.CounterName, Assert.Single(logger.Warnings));
+    }
+
+    private HttpContext CreateContextWithoutMetrics()
     {
         var context = CreateContext(UserToken(Tenant), Tenant);
         context.RequestServices = new ServiceCollection().BuildServiceProvider();
-
-        Run(context, new TenantAuthorizationOptions());
-
-        Assert.Empty(_listener.Measurements);
+        return context;
     }
 
     [Fact]

@@ -10,7 +10,8 @@ entries are grouped by work item until a release assigns the version.
 - **AB#9033** (security) — `TenantAuthorizationMiddleware` counts every decision of its tenant check in the new counter
   `octo.tenant_auth.decisions` (meter `Meshmakers.Octo.TenantAuthorization`), labels `outcome` (`match`, `allowed_parent_admin`,
   `allowed_cross_tenant_client`, `not_checked`, `would_deny`, `would_deny_missing_tenant_id`, `denied`, `denied_missing_tenant_id`),
-  `token_kind` (`user`, `service`), `mode`, `client_id` and `route` (route template); never tenant, user, `sub` or token values.
+  `token_kind` (`user`, `service`), `mode`, `client_id` and `route` (route template, on refusals only); never tenant, user, `sub` or
+  token values.
   Registered by `AddOctoServiceInfrastructure()` and `AddOctoTenantAuthorization(...)`; request outcomes and log lines are unchanged.
   The operator plan uses it for gate (b) of the identity switch; observation window 1 day, chart values of the S2 switch filled in.
   Docs: `docs/tenant-authorization.md`, `docs/tenant-generation-enforce-plan.md`.

@@ -123,15 +123,15 @@ Counter `octo.tenant_auth.decisions` on the same meter (`TenantAuthorizationMetr
 counts every decision of the tenant check of `TenantAuthorizationMiddleware` that runs before this one (token tenant
 against route tenant, [tenant-authorization.md](tenant-authorization.md)), next to its log line. The `LogOnly` inventory
 of the user and the service path can so be read per service, client and endpoint without searching log text. Both
-counters share the `client_id` bounds (`ClientIdLabelBudget`).
+counters share the `client_id` bounds (`ClientIdLabelBudget`, `MetricLabels`).
 
 | Label | Values |
 |---|---|
-| `outcome` | `match` (token tenant = route tenant), `allowed_parent_admin` (parent-tenant rule), `allowed_cross_tenant_client` (service allow-list), `not_checked` (service path in `Disabled`), `would_deny` / `would_deny_missing_tenant_id` (`LogOnly`: `Enforce` would refuse it; the second when the token has no `tenant_id`), `denied` / `denied_missing_tenant_id` (`Enforce`: 403) |
+| `outcome` | `match` (token tenant = route tenant, also for an allow-listed client on its own tenant), `allowed_parent_admin` (parent-tenant rule), `allowed_cross_tenant_client` (service allow-list, another tenant), `not_checked` (service path in `Disabled`), `would_deny` / `would_deny_missing_tenant_id` (`LogOnly`: `Enforce` would refuse it; the second when the token has no `tenant_id`), `denied` / `denied_missing_tenant_id` (`Enforce`: 403) |
 | `token_kind` | `user` (token with `sub`), `service` (client credentials) |
 | `mode` | the mode of that token kind: `UserTokenEnforcement` (`log_only`, `enforce`) or `ServiceTokenEnforcement` (`disabled`, `log_only`, `enforce`) |
 | `client_id` | the token's `client_id`; `unknown` when absent or not printable ASCII / longer than 128 characters; `other` after 1000 distinct values per process (same bounds as `octo.tenant_auth.generation_checks`) |
-| `route` | the route **template** of the endpoint with a leading slash (e.g. `/{tenantId}/graphql`), never the request path; `unknown` without a route template, `other` when it is longer than 128 characters or not printable ASCII |
+| `route` | on `would_deny…` and `denied…` only: the route **template** of the endpoint with a leading slash (e.g. `/{tenantId}/graphql`), never the request path; `unknown` without a route template, `other` when it is longer than 128 characters or not printable ASCII. On every other outcome `any`: allowed requests are the bulk of the traffic, and client × route on them would multiply the series without serving any gate |
 
 Never the tenant id, the user, `sub` or a token value; a unit test asserts the exact label set. Requests the middleware
 does not judge are not counted: anonymous endpoints, requests without a bearer header, cookie principals,
@@ -139,7 +139,8 @@ unauthenticated requests and routes without a tenant. A request that passes the 
 generation check, which has its own counter (above).
 
 The counter is registered by `AddOctoServiceInfrastructure()` and by both `AddOctoTenantAuthorization(...)` overloads and
-resolved per request; a host without the registration runs without it.
+resolved per request. A host without the registration runs without it and logs one warning (`No TenantAuthorizationMetrics
+is registered …`), so a missing counter does not read as a clean inventory.
 
 Typical queries (PromQL):
 

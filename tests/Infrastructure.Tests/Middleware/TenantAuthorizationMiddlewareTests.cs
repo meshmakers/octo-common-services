@@ -755,8 +755,13 @@ public class TenantAuthorizationMiddlewareTests
     /// </summary>
     private sealed class SingleServiceProvider(ITenantHierarchyReader reader) : IServiceProvider
     {
+        // A host registers the decision counter too; without it the middleware warns once (not under test here).
+        private static readonly TenantAuthorizationMetrics Metrics = new();
+
         public object? GetService(Type serviceType) =>
-            serviceType == typeof(ITenantHierarchyReader) ? reader : null;
+            serviceType == typeof(ITenantHierarchyReader) ? reader
+            : serviceType == typeof(TenantAuthorizationMetrics) ? Metrics
+            : null;
     }
 
     /// <summary>

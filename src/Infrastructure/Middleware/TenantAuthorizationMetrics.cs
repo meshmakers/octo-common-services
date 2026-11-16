@@ -42,9 +42,14 @@ public enum TenantAuthorizationOutcome
 ///     <para>
 ///         Labels: <c>outcome</c> (see <see cref="OutcomeLabel" />), <c>token_kind</c> (<c>user</c>, <c>service</c>),
 ///         <c>mode</c> (the enforcement mode of that token kind: <c>disabled</c>, <c>log_only</c>, <c>enforce</c>),
-///         <c>client_id</c> (bounded like <c>octo.tenant_auth.generation_checks</c>) and <c>route</c> (the route
-///         <b>template</b> of the endpoint, never the request path; <c>unknown</c> without one, <c>other</c> when it is
-///         too long). Never the tenant id, the user, <c>sub</c> or a token value.
+///         <c>client_id</c> (bounded like <c>octo.tenant_auth.generation_checks</c>) and <c>route</c>. Never the tenant
+///         id, the user, <c>sub</c> or a token value.
+///     </para>
+///     <para>
+///         <c>route</c> is the route <b>template</b> of the endpoint (never the request path; <c>unknown</c> without one,
+///         <c>other</c> when it is not a usable label value) on the outcomes an operator has to act on —
+///         <c>would_deny…</c> and <c>denied…</c>. On every other outcome it is <see cref="AnyRoute" />: allowed requests
+///         are the bulk of the traffic, and client × route on them would multiply the series without serving any gate.
 ///     </para>
 ///     <para>
 ///         Requests the middleware does not judge (anonymous endpoints, no bearer header, cookie principals,
@@ -84,6 +89,12 @@ public sealed class TenantAuthorizationMetrics : IDisposable
     /// <summary>Value of <c>route</c> when the template is not a usable label value.</summary>
     public const string OtherRoute = "other";
 
+    /// <summary>Value of <c>route</c> on outcomes that are not refusals (<see cref="IsRefusal" />).</summary>
+    public const string AnyRoute = "any";
+
+    /// <summary>Value of <c>outcome</c> for an outcome without a label of its own.</summary>
+    public const string OtherOutcome = "other";
+
     private readonly ClientIdLabelBudget _clientIds = new(TenantGenerationMetrics.MaxClientIds);
     private readonly Counter<long> _decisions;
     private readonly Meter _meter;
@@ -122,8 +133,14 @@ public sealed class TenantAuthorizationMetrics : IDisposable
         TenantAuthorizationOutcome.WouldDeny => "would_deny",
         TenantAuthorizationOutcome.WouldDenyMissingTenantId => "would_deny_missing_tenant_id",
         TenantAuthorizationOutcome.Denied => "denied",
-        _ => "denied_missing_tenant_id"
+        TenantAuthorizationOutcome.DeniedMissingTenantId => "denied_missing_tenant_id",
+        _ => OtherOutcome
     };
+
+    /// <summary>Whether <paramref name="outcome" /> is a refusal, in <c>LogOnly</c> (would be) or in <c>Enforce</c>.</summary>
+    public static bool IsRefusal(TenantAuthorizationOutcome outcome) => outcome is TenantAuthorizationOutcome.WouldDeny
+        or TenantAuthorizationOutcome.WouldDenyMissingTenantId or TenantAuthorizationOutcome.Denied
+        or TenantAuthorizationOutcome.DeniedMissingTenantId;
 
     /// <summary>The label value of a user-token mode.</summary>
     public static string ModeLabel(UserTokenTenantEnforcementMode mode) =>
@@ -151,7 +168,7 @@ public sealed class TenantAuthorizationMetrics : IDisposable
             template = "/" + template;
         }
 
-        return ClientIdLabelBudget.Bounded(template) ?? OtherRoute;
+        return MetricLabels.Bounded(template) ?? OtherRoute;
     }
 
     internal string ClientIdLabel(string? clientId) => _clientIds.Label(clientId);
@@ -165,7 +182,7 @@ public sealed class TenantAuthorizationMetrics : IDisposable
             { TokenKindTag, tokenKind },
             { ModeTag, mode },
             { ClientIdTag, ClientIdLabel(clientId) },
-            { RouteTag, RouteLabel(endpoint) }
+            { RouteTag, IsRefusal(outcome) ? RouteLabel(endpoint) : AnyRoute }
         });
     }
 }
