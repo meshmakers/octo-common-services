@@ -72,7 +72,8 @@ the same section. One value per environment therefore switches HTTP, methods and
 
 `TenantAuthorization:TenantGenerationCacheDuration` (default `00:00:30`) is the cache TTL, below.
 
-The switch to `Enforce` per environment and the later flip of the code default are separate rollout steps.
+The switch to `Enforce` per environment and the later code default flip follow the operator plan
+[tenant-generation-enforce-plan.md](tenant-generation-enforce-plan.md).
 
 ## Cache: no MongoDB round-trip per request
 
@@ -116,8 +117,8 @@ registered in `ObservabilityBuilder`). Labels:
 
 Never the tenant id, the user, `sub`, `tenant_gen` or a token value. A unit test asserts the exact label set.
 
-Dash0 gate query for the switch: `missing` by `client_id` and `transport` must be zero for tokens issued after
-the identity rollout, e.g. `sum by (client_id, transport) (increase(octo_tenant_auth_generation_checks_total{outcome="missing"}[1h]))`.
+The gates, Dash0 queries and log lines for the switch to `Enforce` are in
+[tenant-generation-enforce-plan.md](tenant-generation-enforce-plan.md).
 
 ## Public API for other repositories
 
