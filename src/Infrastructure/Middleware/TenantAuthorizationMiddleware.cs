@@ -280,13 +280,14 @@ internal class TenantAuthorizationMiddleware(
             // not noise to be suppressed.
             logger.LogInformation(
                 "User token of subject '{Subject}' (client '{ClientId}') was issued for tenant '{TokenTenantId}' " +
-                "and administers its child tenant '{RouteTenantId}' on endpoint '{Endpoint}'; allowed by the " +
+                "and administers its child tenant '{RouteTenantId}' on endpoint '{Endpoint}' ({Basis}); allowed by the " +
                 "parent-tenant administration rule (AB#5060)",
                 context.User.FindFirstValue("sub") ?? context.User.FindFirstValue(ClaimTypes.NameIdentifier),
                 context.User.FindFirstValue(ClientIdClaimType) ?? "<none>",
                 tokenTenantId,
                 routeTenantId,
-                endpoint?.DisplayName ?? "<unnamed>");
+                endpoint?.DisplayName ?? "<unnamed>",
+                isParentAdministrationEndpoint ? "endpoint marker" : "request predicate");
             Count(context, UserToken, clientId, endpoint, TenantAuthorizationOutcome.AllowedParentAdmin);
             return true;
         }
@@ -303,8 +304,8 @@ internal class TenantAuthorizationMiddleware(
             var isParentAdministration = isParentAdministrationEndpoint || isParentAdministrationRequest;
             logger.LogWarning(
                 "Denied: user token of subject '{Subject}' (client '{ClientId}') was issued for tenant " +
-                "'{TokenTenantId}' but addresses tenant '{RouteTenantId}' (parent administration endpoint: " +
-                "{IsParentAdministrationEndpoint}) (AB#5054)",
+                "'{TokenTenantId}' but addresses tenant '{RouteTenantId}' (parent administration endpoint or request: " +
+                "{IsParentAdministration}) (AB#5054)",
                 context.User.FindFirstValue("sub") ?? context.User.FindFirstValue(ClaimTypes.NameIdentifier),
                 context.User.FindFirstValue(ClientIdClaimType) ?? "<none>",
                 string.IsNullOrEmpty(tokenTenantId) ? "<none>" : tokenTenantId,
@@ -353,16 +354,26 @@ internal class TenantAuthorizationMiddleware(
             return false;
         }
 
+        // The predicate may read the body; buffer it here and rewind afterwards, so the endpoint always gets the whole
+        // body (also after a predicate that did not rewind or failed half-way), independent of the predicate's contract.
+        context.Request.EnableBuffering();
         try
         {
             return await predicate.IsParentTenantAdministrationRequestAsync(context);
         }
-        catch (Exception e) when (e is not OperationCanceledException)
+        catch (Exception e) when (!context.RequestAborted.IsCancellationRequested)
         {
             logger.LogWarning(
                 "The parent-tenant administration request predicate of endpoint '{Endpoint}' failed ({ExceptionType}); the request is judged by the exact tenant match",
                 endpoint?.DisplayName ?? "<unnamed>", e.GetType().Name);
             return false;
+        }
+        finally
+        {
+            if (context.Request.Body.CanSeek)
+            {
+                context.Request.Body.Position = 0;
+            }
         }
     }
 

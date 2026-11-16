@@ -65,19 +65,32 @@ public sealed class TenantAuthorizationMiddlewareRequestPredicateTests : IDispos
         _metrics.Dispose();
     }
 
-    private sealed class Predicate(bool answer, bool throws = false) : IAllowParentTenantAdministrationRequest
+    private sealed class Predicate(bool answer, bool throws = false, bool cancels = false, bool readsBody = false)
+        : IAllowParentTenantAdministrationRequest
     {
         public int Calls { get; private set; }
 
-        public ValueTask<bool> IsParentTenantAdministrationRequestAsync(HttpContext context)
+        public async ValueTask<bool> IsParentTenantAdministrationRequestAsync(HttpContext context)
         {
             Calls++;
+            if (readsBody)
+            {
+                // reads the body and does not rewind it, then fails half-way if asked to
+                using var reader = new StreamReader(context.Request.Body, Encoding.UTF8, leaveOpen: true);
+                await reader.ReadToEndAsync();
+            }
+
+            if (cancels)
+            {
+                throw new TaskCanceledException("predicate timeout");
+            }
+
             if (throws)
             {
                 throw new InvalidOperationException("broken predicate");
             }
 
-            return ValueTask.FromResult(answer);
+            return answer;
         }
     }
 
@@ -103,24 +116,30 @@ public sealed class TenantAuthorizationMiddlewareRequestPredicateTests : IDispos
 
     private static IEnumerable<Claim> Service(string tenant) => [new("client_id", "parent-client"), new("tenant_id", tenant)];
 
+    private const string RequestBody = "{\"query\":\"mutation { dump }\"}";
+
     private async Task<(bool NextCalled, HttpContext Context)> InvokeAsync(IEnumerable<Claim> claims, string routeTenant,
         object? metadata, ITenantHierarchyReader? hierarchy = null,
-        UserTokenTenantEnforcementMode mode = UserTokenTenantEnforcementMode.Enforce)
+        UserTokenTenantEnforcementMode mode = UserTokenTenantEnforcementMode.Enforce, object? secondMetadata = null)
     {
         var context = new DefaultHttpContext();
+        context.Request.Body = new MemoryStream(Encoding.UTF8.GetBytes(RequestBody));
         context.Request.Headers.Authorization = "Bearer dummy-token";
         context.Request.RouteValues = new RouteValueDictionary { { InfrastructureCommon.TenantIdRoute, routeTenant } };
         context.SetEndpoint(new RouteEndpoint(_ => Task.CompletedTask, RoutePatternFactory.Parse(RouteTemplate), 0,
-            metadata == null ? EndpointMetadataCollection.Empty : new EndpointMetadataCollection(metadata), "graphql (test)"));
+            new EndpointMetadataCollection(new[] { metadata, secondMetadata }.Where(m => m != null).Cast<object>()),
+            "graphql (test)"));
         context.RequestServices = new Services(_metrics, hierarchy ?? Hierarchy());
         context.Response.Body = new MemoryStream();
         context.User = new ClaimsPrincipal(new ClaimsIdentity(claims, "Bearer"));
 
         var nextCalled = false;
-        var middleware = new TenantAuthorizationMiddleware(_ =>
+        var middleware = new TenantAuthorizationMiddleware(async next =>
             {
                 nextCalled = true;
-                return Task.CompletedTask;
+                // the endpoint must always get the whole body, whatever the predicate did with it
+                using var reader = new StreamReader(next.Request.Body, Encoding.UTF8, leaveOpen: true);
+                BodySeenByEndpoint = await reader.ReadToEndAsync();
             }, Options.Create(new TenantAuthorizationOptions
             {
                 UserTokenEnforcement = mode,
@@ -129,6 +148,8 @@ public sealed class TenantAuthorizationMiddlewareRequestPredicateTests : IDispos
         await middleware.InvokeAsync(context);
         return (nextCalled, context);
     }
+
+    private string? BodySeenByEndpoint { get; set; }
 
     private static string Body(HttpContext context)
     {
@@ -220,6 +241,73 @@ public sealed class TenantAuthorizationMiddlewareRequestPredicateTests : IDispos
         var (nextCalled, _) = await InvokeAsync(User(Parent), Child, new Predicate(true), hierarchy);
 
         Assert.False(nextCalled);
+    }
+
+    [Fact]
+    public async Task APredicateThatReadsTheBody_LeavesItWholeForTheEndpoint()
+    {
+        var (nextCalled, _) = await InvokeAsync(User(Parent), Child, new Predicate(true, readsBody: true));
+
+        Assert.True(nextCalled);
+        Assert.Equal(RequestBody, BodySeenByEndpoint);
+    }
+
+    [Fact]
+    public async Task InLogOnly_AFailingPredicate_LeavesTheBodyWhole_AndIsWouldDeny()
+    {
+        var (nextCalled, _) = await InvokeAsync(User(Parent), Child, new Predicate(true, throws: true, readsBody: true),
+            mode: UserTokenTenantEnforcementMode.LogOnly);
+
+        Assert.True(nextCalled);
+        Assert.Equal(RequestBody, BodySeenByEndpoint);
+        Assert.Equal(["would_deny"], _outcomes);
+    }
+
+    [Fact]
+    public async Task InLogOnly_AnAdministrationRequestOnANonChild_IsWouldDeny()
+    {
+        var (nextCalled, _) = await InvokeAsync(User(Parent), Foreign, new Predicate(true),
+            mode: UserTokenTenantEnforcementMode.LogOnly);
+
+        Assert.True(nextCalled);
+        Assert.Equal(["would_deny"], _outcomes);
+    }
+
+    [Fact]
+    public async Task ACancellationInsideThePredicate_FailsClosed()
+    {
+        var (nextCalled, context) = await InvokeAsync(User(Parent), Child, new Predicate(true, cancels: true));
+
+        Assert.False(nextCalled);
+        Assert.Equal(StatusCodes.Status403Forbidden, context.Response.StatusCode);
+        Assert.Equal(["denied"], _outcomes);
+    }
+
+    [Fact]
+    public async Task AnEndpointWithTheMarker_NeverAsksThePredicate()
+    {
+        var predicate = new Predicate(false);
+
+        var (nextCalled, _) = await InvokeAsync(User(Parent), Child, new AllowParentTenantAdministrationAttribute(),
+            secondMetadata: predicate);
+
+        Assert.True(nextCalled);
+        Assert.Equal(0, predicate.Calls);
+        Assert.Equal(["allowed_parent_admin"], _outcomes);
+    }
+
+    [Fact]
+    public async Task AUserTokenWithoutTenantId_NeverAsksThePredicate()
+    {
+        var predicate = new Predicate(true);
+
+        var (nextCalled, context) = await InvokeAsync(
+            [new Claim("sub", "6600000000000000000000ff"), new Claim("client_id", "studio")], Child, predicate);
+
+        Assert.False(nextCalled);
+        Assert.Equal(0, predicate.Calls);
+        Assert.Contains("Sign in to tenant", Body(context));
+        Assert.Equal(["denied_missing_tenant_id"], _outcomes);
     }
 
     [Fact]

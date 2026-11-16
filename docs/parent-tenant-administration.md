@@ -45,7 +45,11 @@ when the endpoint has no marker, the predicate answers `true` **and** `ITenantHi
 same hierarchy lookup, cache, reach and grant log as above, counted as `allowed_parent_admin`. A request the predicate
 does not classify keeps the exact match (and gets the ordinary denial message); a classified request on a tenant that is
 not a child gets the combined "not an existing child" message. The predicate is asked only after the equality check and
-only for user tokens with a `tenant_id`; service tokens never reach it. A predicate that throws counts as `false`.
+only for user tokens with a `tenant_id`; service tokens never reach it. A predicate that throws (also a cancellation
+the client did not cause) counts as `false`. The middleware buffers the body before it asks the predicate and rewinds it
+afterwards, so the endpoint always gets the whole body. The grant log names the basis (`endpoint marker` or
+`request predicate`). The predicate is asked before the hierarchy lookup on purpose: an administration request on a tenant
+that is not a child gets the combined "not an existing child" message, like the REST rule.
 
 The predicate must fail closed: `true` only when **every** operation of the request is an administration operation,
 `false` for anything it cannot classify (batches, fragments, unknown fields, unreadable bodies). The operations behind it
