@@ -23,7 +23,9 @@ next.
 
 Preconditions on every environment:
 
-- **P1** identity with AB#9017 (#305) runs there (the release that carries it reached the cluster; record the date).
+- **P1** identity with AB#9017 (#305) runs there. The P1 date is when the **last** identity instance older than #305
+  stopped (end of the rollout, not its start: during a rolling update an old instance still issues grants without a
+  generation); record it.
 - **P2** for S2 only: the cluster values can set `TenantGenerationEnforcement` on every service (follow-up F1).
 
 ## Gates (decided by Gerald, 2026-11-15)
@@ -31,7 +33,7 @@ Preconditions on every environment:
 An environment is switched only when **both** hold, written down in the gate check comment (step 1 below):
 
 **(a) Time.** The longest refresh-token lifetime of the environment (or the longest access-token lifetime, if larger,
-see below) has passed since identity with #305 reached it.
+see below) has passed since the P1 date.
 Refresh tokens, authorization codes and device codes issued before #305 carry no stored generation (`missing`); in
 `LogOnly` a refresh stores the current generation on the rotated refresh token, so active sessions migrate by
 themselves, and an unused old refresh token expires at the latest one lifetime after #305 arrived. Accepted residual
@@ -109,7 +111,9 @@ Metric (PromQL) on `octo.tenant_auth.generation_checks` (meter `Meshmakers.Octo.
 
 ```promql
 # (b)1 + (b)2 + (b)3: everything that is not a match, per service, client and path.
-# Run the first two as range queries over the whole observation window with step 1d; an instant query shows only the last day.
+# Run the first two as range queries over the whole observation window with step 1d, ending at the gate check; for a
+# window that is not a whole number of days use an instant query with the window as lookback (e.g. [7d12h]).
+# A [1d] instant query shows only the last day.
 sum by (service_name, outcome, transport, grant_type, client_id) (
   increase({otel_metric_name="octo.tenant_auth.generation_checks", outcome=~"missing|mismatch|lookup_failed"}[1d])
 )
@@ -206,7 +210,7 @@ default for identity is `Enforce`.
 
 Dates of the switches are decided by Gerald; the empty cells are filled at the gate check and the switch.
 
-| Cluster | P1: identity #305 since | Longest refresh- / access-token lifetime | (a) met on / re-login statement | (b) gate check comment (AB#8970) | Gerald's go | S1 identity `Enforce` | S2 tenant_gen `Enforce` (needs F1) | 24 h watch recorded |
+| Cluster | P1: last pre-#305 identity stopped | Longest refresh- / access-token lifetime | (a) met on / re-login statement | (b) gate check comment (AB#8970) | Gerald's go | S1 identity `Enforce` | S2 tenant_gen `Enforce` (needs F1) | 24 h watch recorded |
 |---|---|---|---|---|---|---|---|---|
 | test-2 | 2026-11-15 (rolling CD of `main`) | | | | | set by octo-mesh-deployment #834 (2026-11-15) | | |
 | staging-1 | (release with #305; identity renders `LogOnly`) | | | | decided by Gerald | | | |
