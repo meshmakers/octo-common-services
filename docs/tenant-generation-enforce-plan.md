@@ -1,7 +1,12 @@
-# Switching the tenant generation check to `Enforce` per environment (AB#9000)
+---
+description: Operator plan for switching the tenant generation check and identity's tenant authorization to Enforce per environment.
+background: true
+---
 
-Security item AB#8970. This is the operator plan for the step after AB#8999 (this repository, check in `LogOnly`) and
-AB#9017 (octo-identity-services #305, identity refuses old grants and runs the tenant check on its own API). The check
+# Switching the tenant generation check to `Enforce` per environment
+
+This is the operator plan for the step after the check in `LogOnly` (this repository) and
+the identity release (octo-identity-services #305, identity refuses old grants and runs the tenant check on its own API). The check
 itself is described in [tenant-generation-check.md](tenant-generation-check.md).
 
 The plan covers **two switches** per environment. Both are gated by the same conditions and are usually done in the same
@@ -12,7 +17,7 @@ run, but they are separate values and can be rolled back separately:
 | **S1: identity tenant authorization** — `TenantAuthorization:UserTokenEnforcement` and `TenantAuthorization:ServiceTokenEnforcement` on **identity only** | identity's own tenant API answers 403 to a user or service token issued for another tenant (new for identity with #305; the other services enforce this already) | code default `Enforce`; the octo-mesh chart renders `LogOnly` unless the cluster values say otherwise |
 | **S2: tenant generation check** — `TenantAuthorization:TenantGenerationEnforcement` on **every service that runs the check** (identity included) | tokens and grants of an earlier tenant with the same id, or without `tenant_gen`, are refused (403 / `METHOD_FORBIDDEN` / `invalid_grant`); a failed lookup is 503 / `METHOD_HANDLER_FAILED` / `server_error` | code default `LogOnly`; **no chart can set it yet** (follow-up F1) |
 
-Nothing in this document changes an environment. Every switch is an environment write: Odysseus (`dev-ops`) executes
+Nothing in this document changes an environment. Every switch is an environment write: the ops agent executes
 it per cluster with Gerald's go for that cluster in his own words; staging-1, prod-1 and prod-2 never without it.
 
 ## Order
@@ -23,7 +28,7 @@ next.
 
 Preconditions on every environment:
 
-- **P1** identity with AB#9017 (#305) runs there. The P1 date is when the **last** identity instance older than #305
+- **P1** identity with #305 runs there. The P1 date is when the **last** identity instance older than #305
   stopped (end of the rollout, not its start: during a rolling update an old instance still issues grants without a
   generation); record it.
 - **P2** for S2 only: the cluster values can set `TenantGenerationEnforcement` on every service (follow-up F1).
@@ -46,9 +51,10 @@ risk (Gerald, 2026-11-15): in `LogOnly` such a grant takes the current generatio
   maximum above the 30-day default.
 - Read the largest `AccessTokenLifetime` (default `3600`) the same way. Identity does not bound it by the refresh-token
   lifetime, so the wait is the **larger** of the two maxima: an access token issued before the `tenant_gen` claim
-  (AB#8997) stays valid for its own lifetime.
-- **Alternative** (AC1 of AB#9000): instead of waiting, the gate check states that users with older refresh tokens must
-  sign in again on this environment. One of the two, per environment, written down.
+  stays valid for its own lifetime.
+- **Alternative:** instead of waiting, the gate check states that users with older refresh tokens must
+  sign in again on this environment, and the largest `AccessTokenLifetime` is waited out before `Enforce` is set,
+  so no access token issued before the `tenant_gen` claim is still valid. One of the two, per environment, written down.
 
 **(b) No legitimate "would be denied".** Over the observation window before the gate check (proposal: the last 7 days;
 the window is Gerald's call) the logs and the metric show no refusal `Enforce` would make for a legitimate caller:
@@ -160,7 +166,7 @@ of the CK method registrations:
 | MCP service | octo-mesh-mcp (octo-helm-pro) |
 | AI services, where installed with that chart | octo-mesh-ai (octo-helm-pro) |
 
-Platform services runs no tenant gate (AB#5051) and needs no value. Re-check the list with
+Platform services runs no tenant gate and needs no value. Re-check the list with
 `git grep -n -E "UseOctoTenantAuthorization\(|AddCkMethodHandlers\(|AddCkInProcessMethodHandlers\(|AddCkMethodCallerTokenValidation\("`
 over the service repositories before F1.
 
@@ -175,19 +181,19 @@ protection is only complete when every service enforces.
 
 ## Switch, per environment
 
-1. **Gate check** recorded as an `[Odysseus]` or `[Ariadne]` comment on AB#8970: P1 date, longest
+1. **Gate check** recorded as a comment on the security work item: P1 date, longest
    `AbsoluteRefreshTokenLifetime` and `AccessTokenLifetime`, the date (a) is met (or the forced re-login statement), the query results of (b)
    with time range, every client that still produces `missing`, `mismatch`, `lookup_failed` or an S1 "would be denied"
    line, with its explanation.
 2. **Gerald's go** for this cluster, in his own words.
-3. **Change** (Odysseus): PR in `octo-mesh-deployment` with the S1 values and, once F1 is there, the S2 value, plus the
+3. **Change** (ops): PR in `octo-mesh-deployment` with the S1 values and, once F1 is there, the S2 value, plus the
    pre-write impact list (`helm diff`: only these environment variables change).
 4. **Roll out** with the cluster's octo-mesh CD run (and the reporting, MCP and AI CD runs for S2).
 5. **Smoke test** right after the rollout: fresh interactive sign-in (identity UI and Refinery Studio), a GraphQL query,
    a CK method call, a token refresh (Studio session older than one access-token lifetime), octo-cli `AuthStatus` and a
    client-credentials call with `acr_values=tenant:<id>`.
 6. **24 h watch**: the metric shows no unexpected `mismatch`, `missing` or `lookup_failed`, and the `Denied: …` lines
-   name no legitimate caller. Record the result on AB#8970. Then the next environment may start.
+   name no legitimate caller. Record the result on the security work item. Then the next environment may start.
 
 ## Rollback
 
@@ -200,7 +206,7 @@ emergency exit and go back to `LogOnly` afterwards.
 ## Last step: code default
 
 Once all four environments have run `Enforce` for one release train, the code default of `TenantGenerationEnforcement`
-flips to `Enforce` in this repository (separate small PR, CHANGELOG entry; AB#9000 AC4). The S2 value of F1 stays in the
+flips to `Enforce` in this repository (separate small PR, CHANGELOG entry). The S2 value of F1 stays in the
 cluster values until **every** service of that cluster runs a release built with the new default (each consumer picks it
 up only with its next package update and deployment); removing it earlier turns that service back to `LogOnly`. The
 explicit S1 identity values stay as long as the chart renders `LogOnly` for missing keys; they can only go once the chart
@@ -210,7 +216,7 @@ default for identity is `Enforce`.
 
 Dates of the switches are decided by Gerald; the empty cells are filled at the gate check and the switch.
 
-| Cluster | P1: last pre-#305 identity stopped | Longest refresh- / access-token lifetime | (a) met on / re-login statement | (b) gate check comment (AB#8970) | Gerald's go | S1 identity `Enforce` | S2 tenant_gen `Enforce` (needs F1) | 24 h watch recorded |
+| Cluster | P1: last pre-#305 identity stopped | Longest refresh- / access-token lifetime | (a) met on / re-login statement | (b) gate check comment | Gerald's go | S1 identity `Enforce` | S2 tenant_gen `Enforce` (needs F1) | 24 h watch recorded |
 |---|---|---|---|---|---|---|---|---|
 | test-2 | 2026-11-15 (rolling CD of `main`) | | | | | set by octo-mesh-deployment #834 (2026-11-15) | | |
 | staging-1 | (release with #305; identity renders `LogOnly`) | | | | decided by Gerald | | | |

@@ -1,16 +1,20 @@
-# Tenant generation check (`tenant_gen`, AB#8999)
+---
+description: Tenant generation check: tenant_gen claim against the tenant's creation time, outcomes, enforcement option, cache, metric and public API.
+applies_to: src/Infrastructure/TenantGeneration/**, tests/Infrastructure.Tests/TenantGeneration/**, src/Methods/Authorization/CkMethodCallerTenantCheck.cs
+---
 
-Security item AB#8970: when a tenant is deleted and a new tenant with the same id is created, an access token that was
+# Tenant generation check (`tenant_gen`)
+
+When a tenant is deleted and a new tenant with the same id is created, an access token that was
 issued for the deleted tenant and has not expired yet must not be accepted by the new tenant. Access tokens are
 self-contained JWTs validated offline, so dropping the tenant database does not affect them.
 
-Since AB#8997 (octo-identity-services #304) identity stamps every **access token** with `tenant_gen`: the
+Identity stamps every **access token** with `tenant_gen`: the
 `TenantLifecycleRecord.CreatedUtc` of the token's `tenant_id` as Unix milliseconds, written as a decimal string. A new
 creation cycle of a tenant id sets a new value; a restore over the existing tenant keeps it. This package compares the
 claim with the current generation of the tenant.
 
-Rollout order: identity with the claim (AB#8997) → this check in `LogOnly` (AB#8999) → identity refuses old grants
-(AB#9017) → `Enforce` per environment from the plan of AB#9000.
+Rollout order: identity with the claim → this check in `LogOnly` → identity refuses old grants → `Enforce` per environment.
 
 ## Where it runs
 
@@ -19,32 +23,31 @@ Rollout order: identity with the claim (AB#8997) → this check in `LogOnly` (AB
 | `TenantAuthorizationMiddleware` (every host of `UseOctoTenantAuthorization()`) | `http` | `403` with `{"message": ...}` | `503` with `{"message": ...}` |
 | CK method bus host (`CkMethodCallerTokenValidator`, `AddCkMethodCallerTokenValidation`) | `method` | `METHOD_FORBIDDEN`, reason `tenant-not-allowed` | `METHOD_HANDLER_FAILED` (`CkMethodTenantGenerationUnavailableException`) |
 | CK method in-process transport (`CkMethodCallerTenantFilter`) | `method` | `METHOD_FORBIDDEN`, reason `tenant-not-allowed` | `METHOD_HANDLER_FAILED` + `correlationId` |
-| identity grants (AB#9017, octo-identity-services) | `grant` (+ `grant_type`) | `invalid_grant` | `server_error` |
+| identity grants (octo-identity-services) | `grant` (+ `grant_type`) | `invalid_grant` | `server_error` |
 
-Both method transports run the same step, `CkMethodCallerTenantRule.CheckGenerationAsync`, after the tenant rule of
-AB#8711 allowed the call.
+Both method transports run the same step, `CkMethodCallerTenantRule.CheckGenerationAsync`, after the tenant rule allowed the call.
 
 ## The rule
 
 - **Compared against the token tenant.** The generation is always looked up for the token's `tenant_id`, never for the
-  route or call tenant. That covers the REST parent path (`[AllowParentTenantAdministration]`, AB#5060): a parent token
+  route or call tenant. That covers the REST parent path (`[AllowParentTenantAdministration]`): a parent token
   on a child route is checked against the parent's generation. A later rule that admits parent administrators on child
-  tenants via methods (AB#8986) calls the same check unchanged.
+  tenants via methods calls the same check unchanged.
 - **Exact comparison.** The current generation is formatted like `OctoTenantGenerationClaimHandler.FormatGeneration`
-  (identity a27681eb): `CreatedUtc` normalised to UTC (`Utc` as is, `Local` converted, `Unspecified` taken as UTC), Unix
+ : `CreatedUtc` normalised to UTC (`Utc` as is, `Local` converted, `Unspecified` taken as UTC), Unix
   milliseconds by integer truncation, invariant decimal string (`TenantGenerationFormat.Format`). The claim is compared
   ordinally. No tolerance window, no clock comparison. Shared test vector: `2026-11-15T13:46:21.540Z` → `"1794750381540"`.
 - **Not well formed = mismatch.** A claim that is not a JSON string, appears more than once, or is not canonical (sign,
   leading zero, whitespace, decimal point, exponent, non-ASCII digits, more than 19 digits) is `mismatch`.
 - **Access tokens only.** The claim is read from the bearer access-token principal. ID tokens and userinfo carry no
-  `tenant_gen` (AB#8997); cookie principals, which the middleware already skips, are not checked.
+  `tenant_gen`; cookie principals, which the middleware already skips, are not checked.
 
 ### Outcomes
 
 | Outcome | When | `LogOnly` | `Enforce` |
 |---|---|---|---|
 | `match` | `tenant_gen` equals the current generation | allowed | allowed |
-| `missing` | the tenant has a generation, the token carries no `tenant_gen` (tokens issued before AB#8997) | allowed, logged, counted | refused |
+| `missing` | the tenant has a generation, the token carries no `tenant_gen` (tokens issued before identity stamped the claim) | allowed, logged, counted | refused |
 | `mismatch` | different or not well formed (a token of an earlier tenant with the same id) | allowed, logged, counted | refused |
 | `not_checked` | no `tenant_id`; the **system tenant** (`OctoSystemConfiguration.SystemTenantId`, never refused, with or without a record and whatever its tokens carry — its `tenant_gen` may differ after the system database was recreated); a tenant without lifecycle record or `CreatedUtc` (legacy); a host without `ITenantLifecycleStore` | allowed | allowed |
 | `lookup_failed` | the lifecycle record could not be read | allowed, counted (LogOnly must not add an outage) | `503` / method error, never `200` |
@@ -70,7 +73,7 @@ the same section. One value per environment therefore switches HTTP, methods and
 `TenantAuthorization:TenantGenerationCacheDuration` (default `00:00:30`) is the cache TTL, below.
 
 The switch to `Enforce` per environment and the later code default flip follow the operator plan
-[tenant-generation-enforce-plan.md](tenant-generation-enforce-plan.md) (AB#9000).
+[tenant-generation-enforce-plan.md](tenant-generation-enforce-plan.md).
 
 ## Cache: no MongoDB round-trip per request
 
@@ -110,12 +113,12 @@ registered in `ObservabilityBuilder`). Labels:
 | `mode` | `log_only`, `enforce` |
 | `transport` | `http`, `method`, `grant` |
 | `client_id` | the token's `client_id` (a client registered at identity, the token is validated); `unknown` when absent or not printable ASCII / longer than 128 characters; `other` after 1000 distinct values per process |
-| `grant_type` | only when identity passes one (AB#9017), a fixed set (`TenantGenerationMetrics.GrantTypes`): `token_exchange`, `on_behalf_of`, `refresh_token`, `authorization_code`, `device_code`, `client_credentials`, `password`; anything else `other` |
+| `grant_type` | only when identity passes one, a fixed set (`TenantGenerationMetrics.GrantTypes`): `token_exchange`, `on_behalf_of`, `refresh_token`, `authorization_code`, `device_code`, `client_credentials`, `password`; anything else `other` |
 
 Never the tenant id, the user, `sub`, `tenant_gen` or a token value. A unit test asserts the exact label set.
 
 The gates, Dash0 queries and log lines for the switch to `Enforce` are in
-[tenant-generation-enforce-plan.md](tenant-generation-enforce-plan.md) (AB#9000).
+[tenant-generation-enforce-plan.md](tenant-generation-enforce-plan.md).
 
 ## Public API for other repositories
 
@@ -131,7 +134,7 @@ already referenced by identity:
 - `services.AddOctoTenantGenerationCheck()`: registers all of them (idempotent). `AddOctoServiceInfrastructure()` and the
   CK method registrations call it.
 
-Identity (AB#9017) builds a `TenantGenerationCheckRequest` with `Transport = TenantGenerationTransports.Grant` and a
+Identity builds a `TenantGenerationCheckRequest` with `Transport = TenantGenerationTransports.Grant` and a
 `GrantType`, and maps `Deny` to `invalid_grant` and `Unavailable` to `server_error`.
 
 ## Tests

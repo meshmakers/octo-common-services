@@ -1,4 +1,9 @@
-# CK method audit (AB#6919, F3.5)
+---
+description: CK method audit: one event per invocation, what the record holds and deliberately leaves out.
+applies_to: src/Methods/Audit/**
+---
+
+# CK method audit
 
 An auditor answers "who called which method on which entity with what outcome" from the event repository: **exactly one
 event per invocation id**, for every transport and every outcome. This page describes the record, who writes it and what it
@@ -9,8 +14,8 @@ deliberately does not contain.
 | Writer | Calls that it records | Where |
 |--------|-----------------------|-------|
 | `CkMethodAuditFilter`, band 100 (`CkMethodInvocationFilterOrder.Audit`), outermost filter of the pipeline | everything that enters the pipeline: success, declared business error, `METHOD_HANDLER_FAILED`, `METHOD_TIMEOUT`, `METHOD_HANDLER_NOT_AVAILABLE`, `METHOD_OUTCOME_UNKNOWN`, a refusal by authorization (band 200, `METHOD_FORBIDDEN`), an answer of the idempotency filter (band 300) including `METHOD_REQUEST_IN_PROGRESS` and a parameters-changed refusal | this repository, `src/Methods/Audit` |
-| the gateway (asset-repo, AB#7826) | the calls it refuses **before** the pipeline: forbidden, unknown or invisible target, oversized or invalid parameters; a fault of its own steps (`METHOD_HANDLER_FAILED`, the exception surfaces); a cancellation by the caller before the dispatch (`CALLER_CANCELLED`) | uses `ICkMethodAuditRecorder` directly |
-| `CkMethodDispatcher`, last line (AB#7930) | a call that fails in the dispatcher **before the filters** of the pipeline ran: a fault of the resolver or the DI container, an exception that escapes the pipeline before its filters, a cancellation that surfaces before the pipeline | uses `ICkMethodAuditRecorder` when `AddCkMethodAudit()` is registered |
+| the gateway (asset-repo) | the calls it refuses **before** the pipeline: forbidden, unknown or invisible target, oversized or invalid parameters; a fault of its own steps (`METHOD_HANDLER_FAILED`, the exception surfaces); a cancellation by the caller before the dispatch (`CALLER_CANCELLED`) | uses `ICkMethodAuditRecorder` directly |
+| `CkMethodDispatcher`, last line | a call that fails in the dispatcher **before the filters** of the pipeline ran: a fault of the resolver or the DI container, an exception that escapes the pipeline before its filters, a cancellation that surfaces before the pipeline | uses `ICkMethodAuditRecorder` when `AddCkMethodAudit()` is registered |
 
 Both go through the public `ICkMethodAuditRecorder` so that the event looks the same wherever it was written:
 
@@ -77,8 +82,8 @@ outcome and duration.
 ## What it never contains
 
 No parameter (redacted or not), no `resultJson`, no error parameters, no access token, no idempotency key, no parameter
-fingerprint, no exception text. The record type has no place for them; the filter sees only the redacted request view of
-AB#6914 and reads only ids, the response's error code and the handler instance id. Tests: `CkMethodAuditTests.Canary_*` and the
+fingerprint, no exception text. The record type has no place for them; the filter sees only the redacted request view
+and reads only ids, the response's error code and the handler instance id. Tests: `CkMethodAuditTests.Canary_*` and the
 canary scan of `CkMethodRedactionBusTests` (the event written to the sink is one of the scanned outputs, bus and in-process).
 
 ## Replays
@@ -90,7 +95,7 @@ first invocation (never the key or the fingerprint). `METHOD_REQUEST_IN_PROGRESS
 ## Exceptions and cancellation
 
 * An inner filter throws: one event with `METHOD_HANDLER_FAILED`, the exception propagates and the pipeline answers with the same
-  code. An unacknowledged write (MongoDB write-concern error, unknown commit result; AB#8020, rule R3) is recorded and answered as
+  code. An unacknowledged write (MongoDB write-concern error, unknown commit result; rule R3) is recorded and answered as
   `METHOD_OUTCOME_UNKNOWN` instead; a handler that throws it inside the host is answered `METHOD_OUTCOME_UNKNOWN` by the host and recorded
   like any other answer.
 * The caller cancels (`OperationCanceledException` of the caller's token): one event with `CALLER_CANCELLED`, the exception

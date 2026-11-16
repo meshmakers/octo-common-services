@@ -1,7 +1,12 @@
+---
+description: CK method wire contract: messages, platform error codes, versioning, idempotency store and filter, golden tests.
+applies_to: src/Contracts/DistributionEventHub/Methods/**, tests/Contracts.Tests/Methods/**, src/Methods/Idempotency/**
+---
+
 # CK method wire contract (v1)
 
-Owner: AB#6874 (F3.1). Consumers: the handler SDK (AB#6875), the in-process transport (AB#6876), the pipeline handler
-(AB#6879), the dispatcher and queues (F3.3, AB#5691), the registry (F3.2, AB#5690), authorization and audit (F3.4/F3.5)
+Consumers: the handler SDK, the in-process transport, the pipeline handler,
+the dispatcher and queues, the registry, authorization and audit (F3.4/F3.5)
 and operations (F3.6).
 
 Namespace `Meshmakers.Octo.Services.Contracts.DistributionEventHub.Methods`
@@ -49,7 +54,7 @@ members above marked sensitive must never reach a log, an exception message or a
 | `invocationId` | Guid | The request's invocation id. |
 | `success` | bool | True for a result or for acceptance of an asynchronous method. |
 | `error` | `CkMethodError`? | Set when `success` is false. |
-| `resultJson` | string? | camelCase JSON result of a synchronous method that declares a result: the **bare** JSON value of the declared result type (String `"abc"`, Int `42`, Boolean `true`, Enum `"MemberName"`, Record `{"name":...}`, arrays `[...]`), never the `{"value": ...}` wrapper of the generated `{Type}{Method}Result` record (AB#8079). Null when the method has no result or the result value is null. |
+| `resultJson` | string? | camelCase JSON result of a synchronous method that declares a result: the **bare** JSON value of the declared result type (String `"abc"`, Int `42`, Boolean `true`, Enum `"MemberName"`, Record `{"name":...}`, arrays `[...]`), never the `{"value": ...}` wrapper of the generated `{Type}{Method}Result` record. Null when the method has no result or the result value is null. |
 | `operation` | `CkMethodOperationHandle`? | Set when an asynchronous method was accepted. |
 | `handlerInstanceId` | string | Instance that answered; empty for platform outcomes (no handler answered). |
 
@@ -64,8 +69,8 @@ Exactly one of three shapes:
 Construct them with `CkMethodResponse.Succeeded`, `.Failed` and `.Accepted`; `IsAccepted` is a convenience that is not
 serialized.
 
-**Result form (AB#8079).** A handler returns the generated `{Type}{Method}Result { Value }`; the host (`CkMethodResultShape`,
-used by the bus and the in-process transport) writes only `Value` into `resultJson`. Before AB#8079 the host serialized the
+**Result form.** A handler returns the generated `{Type}{Method}Result { Value }`; the host (`CkMethodResultShape`,
+used by the bus and the in-process transport) writes only `Value` into `resultJson`. Before this was fixed, the host serialized the
 whole wrapper (`{"value":"..."}`), and the gateway passed that object text to the client as a String result. Idempotency records
 stored before the fix replay the old shape until their TTL expires (`Methods:Idempotency:Ttl`, default 24 h, at most 7 d); there is
 no migration. A pipeline-implemented method (communication controller) still writes the wrapper until its result mapper emits the
@@ -94,7 +99,7 @@ fails when this table lacks a code or a well-known parameter.
 | `METHOD_VALIDATION_FAILED` | no | `methodId`, `field`, `reason` | A parameter is missing or invalid. Fix `field` and call again. |
 | `METHOD_TARGET_NOT_FOUND` | no | `methodId` | Target does not exist or is not visible. |
 | `METHOD_HANDLER_FAILED` | yes, failed | `methodId`, `correlationId` | Unexpected handler failure; details only in the handler log under `correlationId`. No stack trace on the wire. |
-| `METHOD_OUTCOME_UNKNOWN` | unknown | `methodId`, `correlationId` (unacknowledged write only) | Possible duplicate delivery, not executed again; or the handler's writes were not acknowledged by the database in time (write-concern error such as the 30 s `wtimeout` of `w:majority`, unknown transaction commit result; rule R3, AB#8020), so they may still have taken effect - details in the handler log under `correlationId`; or the audit event of an executed call could not be written with `Methods:Audit:FailCallOnAuditFailure` on (`method-audit.md`). Only the unacknowledged write carries `correlationId`. Check state before calling again. |
+| `METHOD_OUTCOME_UNKNOWN` | unknown | `methodId`, `correlationId` (unacknowledged write only) | Possible duplicate delivery, not executed again; or the handler's writes were not acknowledged by the database in time (write-concern error such as the 30 s `wtimeout` of `w:majority`, unknown transaction commit result; rule R3), so they may still have taken effect - details in the handler log under `correlationId`; or the audit event of an executed call could not be written with `Methods:Audit:FailCallOnAuditFailure` on (`method-audit.md`). Only the unacknowledged write carries `correlationId`. Check state before calling again. |
 | `METHOD_NOT_SUPPORTED_BY_HANDLER_VERSION` | no | `methodId`, `supportedVersion` | Reserved: handler does not support the method version. |
 | `METHOD_CONTRACT_VERSION_UNSUPPORTED` | no | `requestedVersion`, `supportedVersion` | Message uses a newer wire contract version than the receiver understands. Wait for the rolling update. |
 | `METHOD_PARAMETERS_TOO_LARGE` | no | `methodId`, `maxBytes`, `actualBytes` | The UTF-8 byte length of `ParametersJson` is above the limit of the service (`Methods:MaxParametersBytes`, default 1 MiB = 1048576; exactly the limit passes). The gateway refuses before it validates the parameters, the host re-checks before it deserializes them. Do not retry unchanged. |
@@ -135,7 +140,7 @@ Handlers consume the method queue as a shared (competing-consumer) endpoint. A r
 `GetCommandResponseAsync(CkMethodQueueNames.For(id), request, new CommandSendOptions { Mandatory = true, Timeout, TimeToLive }, ct)`.
 `Mandatory` turns "no consumer" into a `CommandNotRoutableException` within milliseconds (`METHOD_HANDLER_NOT_AVAILABLE` in
 the dispatcher), and a handler is announced only after its endpoint accepts messages, so an announced handler is routable.
-Since AB#8634 the dispatcher sends only when its handler registry knows a live handler for the method; otherwise it answers
+The dispatcher sends only when its handler registry knows a live handler for the method; otherwise it answers
 `METHOD_HANDLER_NOT_AVAILABLE` / `no-live-handler` without sending, so the request (parameters, caller token) never reaches the broker
 for a method nobody serves. The mandatory flag remains the safety net for a handler that crashed inside its TTL.
 The plain `GetCommandResponseAsync` overload addresses a different (temporary, exclusive) exchange and does not reach a handler.
@@ -145,3 +150,44 @@ The plain `GetCommandResponseAsync` overload addresses a different (temporary, e
 The bus is internal and not authenticated per message: `caller` is informational and a forged value must have no effect;
 authorization re-validates `callerAccessToken` (F3.4). Sensitive members are `parametersJson` and `callerAccessToken`, and `resultJson` of a response whose CK result is marked `sensitive`. The
 redacted view of the response exists only inside the calling process (the invocation filters); the envelope on the bus is unchanged.
+
+## CK method wire contract (CK v2 Phase 3)
+
+Namespace `Meshmakers.Octo.Services.Contracts.DistributionEventHub.Methods` (`src/Contracts/DistributionEventHub/Methods/`),
+shared by the dispatcher (asset-repo), the handler SDK (`Meshmakers.Octo.Services.Methods`) and handlers
+(identity, communication controller, ...). Full reference with field tables, platform error codes and the rules of
+evolution: `docs/method-wire-contract.md`.
+
+- `CkMethodRequest` (sealed, redacting `ToString()`; `ParametersJson` and `CallerAccessToken` are **sensitive**),
+  `CkMethodResponse` (response envelope with `Success`, `Error`, `ResultJson`, `Operation`), `CkMethodError` (stable `Code` +
+  string `Parameters`, no message text on the wire), `CkMethodOperationHandle` (async handle, F3.6),
+  `CkMethodHandlerAnnounced` / `Withdrawn` / `DiscoveryRequested`, `CkMethodQueueNames`, `CkMethodErrorCodes`
+  (constants + `Catalog`, single source; `METHOD_` is reserved for the platform), `CkMethodErrorParameters`.
+- **Parameter size limit** (F-2): `METHOD_PARAMETERS_TOO_LARGE` (parameters `methodId`, `maxBytes`, `actualBytes`); limit = UTF-8 byte length of `ParametersJson`, option `Methods:MaxParametersBytes` (`CkMethodLimitsOptions`, default 1 MiB, one name for gateway and host, bound by `AddCkMethodDispatcher`, `AddCkMethodHandlers`, `AddCkInProcessMethodHandlers`). `CkMethodParameterLimit.Exceeds/TooLarge` is the one check: the gateway (asset-repo) calls it before validation, `CkMethodHandlerInvoker` before the token is validated and before deserialization. Tests: `CkMethodHandlerInvokerTests`, adversarial C12.
+- **Idempotency store contract** (decided in OD-4; `src/Methods/Idempotency/`, tests `tests/Methods.Tests/Idempotency/IdempotencyStoreTests.cs`): `ICkMethodIdempotencyStore`
+  (`ClaimAsync` atomic, expired record taken over by a conditional replace; `CompleteAsync(Completed|Unknown)`; `ReleaseAsync`; owner-only, only while `InProgress`; fails closed by
+  throwing `CkMethodIdempotencyStoreException`), `CkMethodIdempotencyKey` (tenant + method + caller scope from the principal provider + key; scope = `ScopeOf(principal)`: user `sub`, client-credentials caller `client:<client_id>`, so user and client never share a scope; a `sub` starting with `client:` gets no scope; audit keeps the plain subject; stored `Id` = SHA-256 hex, raw key not at rest, max 128 chars),
+  `CkMethodIdempotencyRecord` (reference equality for the conditional replace; `ToString` prints no fingerprint or response), `CkMethodInMemoryIdempotencyStore` (tests and single-replica hosts; the Mongo store lives in
+  asset-repo). Row 4: only not-executed codes `ReleaseAsync`; an unknown outcome and `METHOD_HANDLER_FAILED` burn the key. Option `Methods:Idempotency:Ttl` (`CkMethodIdempotencyOptions`,
+  `CkMethodIdempotencyLifetime`): default 24 h, max 7 d (clamped + one warning), zero/negative fails start. New platform code `METHOD_REQUEST_IN_PROGRESS` (`NotExecuted`, parameter `methodId`; additive, wire contract version unchanged).
+  Registration `AddCkMethodIdempotencyOptions()` / `AddCkMethodInMemoryIdempotencyStore()`. The fingerprint keys are `CkMethodFingerprintOptions` (see the invocation pipeline).
+- **Idempotency filter** (OD-4; `src/Methods/Idempotency/CkMethodIdempotencyFilter.cs`, registration `AddCkMethodIdempotency()`, tests `IdempotencyFilterTests`): band 300, unkeyed calls pass through with zero cost.
+  **Declared idempotent:** a keyed call to a method with `execution.idempotent: true` (read through `ICkMethodSensitivityResolver.IsIdempotent`, default member `false`; the
+  resolver reads the same definition source as authorization; unknown method, absent flag or a source fault = `false`, the store stays in charge) skips the store: the key is accepted and ignored
+  (no format or length check, no scope, no subject needed, no fingerprint, no result-sensitivity refusal), the call runs as an unkeyed one every time, `Facts.ReplayOf` stays empty. The pipeline
+  does not compute a fingerprint for it either, so the `fingerprint-key-missing` refusal does not apply. Audit and `ck.method.calls` are untouched (still one event and one count per call); the
+  filter logs one Debug line. It does not change the duplicate-delivery refusal of the bus consumer (OD-3), which still treats every method as non-idempotent. Tests: `IdempotencyFilterTests`
+  (store spy), `CkMethodAuditTests`, `CkMethodMetricsTests`.
+  Keyed call order (a method not declared idempotent): sensitive/unknown result -> `METHOD_VALIDATION_FAILED` `result-sensitive` (G2=A, nothing stored); neither `sub` nor `client_id` on the principal from `ICkMethodPrincipalProvider` -> `caller-unknown`; key > 128 -> `key-too-long`; no fingerprint on the
+  facts -> `fingerprint-unavailable`; store throws -> `METHOD_HANDLER_NOT_AVAILABLE` `idempotency-store-unavailable` (fail closed). Existing record: `MatchesStoredFingerprint` false (also an unconfigured key id or an empty fingerprint) ->
+  `parameters-changed` (before the state); in flight (until deadline + `ResponseGrace`) -> `METHOD_REQUEST_IN_PROGRESS`; `Unknown`/lapsed -> `METHOD_OUTCOME_UNKNOWN`; completed -> stored envelope with this call's `invocationId`,
+  `Facts.ReplayOf` = first invocation id. After the run: success/accepted/declared code/`METHOD_HANDLER_FAILED` -> `Completed` (replayed); not-executed platform code (via `CkMethodErrorCodes.Catalog`) -> `ReleaseAsync`;
+  timeout/outcome unknown/unknown platform code/exception/cancellation -> `Unknown` (burned). A store failure after the run never changes the caller's answer (logged, record burns when its lease lapses).
+- **Deadline clamp** (L-4): the invoker clamps `DeadlineUtc` to now + `Methods:Dispatcher:MaxTimeout` (`CkMethodDeadline.Clamp/MaxOf`, the dispatcher's helper) and logs the clamp once at Information.
+- **Versioning**: `CkMethodContract.CurrentVersion` (int, major) on request, response and announcement; additive changes never
+  bump it, unknown members are ignored, a missing version reads as 1; a newer message is answered with
+  `METHOD_CONTRACT_VERSION_UNSUPPORTED`.
+- **Tests** (`tests/Contracts.Tests/Methods`): golden JSON files (`Golden/*.json`) pin the serialized form under the hub
+  serializer options; unknown members, missing version, redaction, error-code catalog and the contract document are
+  tested. After an additive change refresh the goldens with `OCTO_UPDATE_GOLDEN=1 dotnet test tests/Contracts.Tests` and
+  review the diff. Adding a platform code needs a constant, a `Catalog` entry and a row in `docs/method-wire-contract.md`.

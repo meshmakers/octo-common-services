@@ -1,6 +1,11 @@
-# Deprecating a REST operation (AB#8421, waves AB#8415)
+---
+description: REST deprecation: the attribute, headers, waves, OpenAPI flag, startup validation, counter and the meters registered by AddObservability.
+applies_to: src/RestDeprecation/**, src/Swagger/Transformers/**, tests/RestDeprecation.Tests/**
+---
 
-When an operation moves from REST to a CK method (CK v2 Phase 5, Feature F5.7 AB#5705), its REST endpoint stays for
+# Deprecating a REST operation
+
+When an operation moves from REST to a CK method (CK v2 Phase 5, Feature F5.7), its REST endpoint stays for
 a compatibility window. During that window every caller must see that the endpoint is deprecated and when it goes away,
 and the platform must know who still calls it. One attribute does all of that.
 
@@ -36,7 +41,7 @@ public async Task<IActionResult> ResetPassword(string userName) { … }
   `services.AddOctoRestDeprecation()` itself (package `Meshmakers.Octo.Services.RestDeprecation`).
 - Endpoints without the attribute are unchanged: no header, no measurement, the same OpenAPI operation.
 
-## Dates from configuration: waves (AB#8415)
+## Dates from configuration: waves
 
 ```csharp
 [HttpPut("{userName}/roles")]
@@ -61,17 +66,17 @@ With `Wave`, `Since` and `Sunset` stay empty in the attribute and come from the 
 - The values are read once at startup; a change takes effect with the restart that a Helm value change triggers.
 - Wave names are letters and digits and start with a letter (they are part of an environment variable name).
 - Rollout of a wave (Gerald's rule above): when the release with the wave is delivered, set `since` to the delivery day
-  in the values of every cluster and leave `sunset` empty. Once Gerald has decided the sunset date (after the migration
+  in the values of every cluster and leave `sunset` empty. Once the sunset date is decided (after the migration
   functions are implemented), set `sunset` on every cluster and enter it on the deprecated-endpoints page
-  (octo-documentation, `developerGuide/solutionArchitecture/deprecatedRestEndpoints.md`); until then that page says
+  (octo-documentation, solution architecture, deprecated REST endpoints); until then that page says
   "to be announced".
 
 Current waves:
 
-| Wave | Service | Endpoints | Work item |
-|------|---------|-----------|-----------|
-| `IdentityUsers1` | octo-identity-services | `PUT users/{userName}/roles`, `PUT` and `DELETE users/{userName}/roles/{roleName}`, `POST users/{userName}/merge` (since 2026-11-08, sunset to be announced) | AB#8415 |
-| `IdentityUsersPassword` | octo-identity-services | `POST users`, `POST users/ResetPassword` (since = delivery day of the release with AB#8418, set by Ops via `RestDeprecation:Waves:IdentityUsersPassword:Since`; sunset to be announced; identity PR #302) | AB#8860 |
+| Wave | Service | Endpoints |
+|------|---------|-----------|
+| `IdentityUsers1` | octo-identity-services | `PUT users/{userName}/roles`, `PUT` and `DELETE users/{userName}/roles/{roleName}`, `POST users/{userName}/merge` (since 2026-11-08, sunset to be announced) |
+| `IdentityUsersPassword` | octo-identity-services | `POST users`, `POST users/ResetPassword` (since = delivery day of the release that replaces them, set by Ops via `RestDeprecation:Waves:IdentityUsersPassword:Since`; sunset to be announced) |
 
 ### Startup validation
 
@@ -185,3 +190,49 @@ An endpoint can be removed (F6.2) when the query shows no first-party client and
 
 `tests/Observability.Tests/MeterRegistrationTests.RestDeprecationMeter_IsRegistered_AndStartupFilterInstalled` pins the
 meter registration and the startup filter in `AddObservability()`.
+
+## Agent notes: one attribute per action (F5.7)
+
+`[OctoRestDeprecated(Since = "yyyy-MM-dd", Sunset = "yyyy-MM-dd", Link = "<absolute doc url>")]` on an action (or
+controller) is all a service adds when a REST operation is replaced by a CK method. Package
+`Meshmakers.Octo.Services.RestDeprecation` (`src/RestDeprecation`, no package dependencies — Swagger and Observability
+both reference it). Full reference: `docs/rest-deprecation.md`.
+
+- **Headers** on every response of a marked endpoint, also 400/401/403/500: `Deprecation: @<unix seconds>` (RFC 9745),
+  `Sunset: <IMF-fixdate>` (RFC 8594), `Link: <url>; rel="deprecation"; type="text/html"`, plus
+  `Link: <url>; rel="successor-version"` (RFC 5829) when the optional `Successor` is set. `RestDeprecationStartupFilter`
+  (registered by `AddObservability()`, or `AddOctoRestDeprecation()`) puts `RestDeprecationMiddleware` first; it only
+  registers `Response.OnStarting` and resolves the endpoint when the response starts (`IExceptionHandlerFeature.Endpoint`
+  after an exception — the handler clears the endpoint). Do not move this into an MVC filter: the authorization
+  middleware answers 401/403 before MVC runs.
+- **OpenAPI**: `RestDeprecationOperationTransformer` (`src/Swagger/Transformers`) sets `deprecated: true` and appends
+  "Sunset <date>, use <link>." (and " Successor version: <url>.") to the description.
+- **Startup validation**: the startup filter validates every endpoint's attribute after the app mapped its endpoints and
+  throws one `InvalidOperationException` naming every offending action (sunset not after since, relative or non-ASCII
+  link/successor, bad date).
+- **Unmarked endpoints are byte-identical** in headers, OpenAPI and metrics (tests, incl. an OpenAPI snapshot).
+- **Waves**: `[OctoRestDeprecated(Wave = "IdentityUsers1", Link = …)]` takes `Since`/`Sunset` from
+  `RestDeprecation:Waves:<wave>` (`RestDeprecationOptions`; env `OCTO_RestDeprecation__Waves__<wave>__Since|Sunset`,
+  Helm `restDeprecation.waves` in octo-helm-core), because the dates are only known at rollout (Gerald 2026-11-11:
+  deprecated from delivery of the release; no fixed compatibility window, the sunset date is to be announced and
+  decided once the migration functions are implemented, until then no `Sunset` is configured). A date that is not
+  configured leaves its header out; Link, OpenAPI flag and counter always apply. `RestDeprecationResolver` (singleton)
+  turns attribute + options into header values, cached per attribute instance; middleware, startup filter and the
+  OpenAPI transformer (via `InternalsVisibleTo`) all use it. Never put an invented date into code for a wave.
+
+### Meters registered by `AddObservability()`
+
+| Meter | Emitted by | Notes |
+|-------|-----------|-------|
+| `Meshmakers.Octo.MongoDb` | engine-mongodb | command durations, slow queries |
+| `Meshmakers.Octo.Communication` | communication-controller | workload lifecycle |
+| `Meshmakers.Octo.AssetRepository` | asset-repo | CK model health |
+| `Meshmakers.Octo.StreamData`, `.StreamData.Crate` | engine, engine-mongodb | archive lifecycle, CrateDB data plane |
+| `SecretDiagnostics.MeterName` | engine | SECRET attribute access |
+| `Meshmakers.Octo.TenantSetup` | Infrastructure | tenant setup retry |
+| `Meshmakers.Octo.Methods` | Methods | CK method calls (see below) |
+| `Meshmakers.Octo.TenantAuthorization` | Infrastructure | `octo.tenant_auth.generation_checks` — tenant generation check (`docs/tenant-generation-check.md`); labels `outcome`, `mode`, `transport`, `client_id` (+ `grant_type` from identity); never tenant, user, `sub` or `tenant_gen` |
+| `Meshmakers.Octo.RestDeprecation` | RestDeprecation | `octo.rest.deprecated.calls` — labels `endpoint` (method + route **template**), `client_id` (validated token, `anonymous` otherwise, `octo-pipeline-sa-{adapterRtId|configurationRtId}` → `octo-pipeline-sa` (custom standalone ids outside the prefix: as themselves), budget 1000 → `other`), `status_class`; never tenant, user or `sub` |
+
+A meter that is not on this list is silently dropped; `tests/Observability.Tests/MeterRegistrationTests.cs`
+pins every entry.
