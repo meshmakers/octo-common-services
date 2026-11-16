@@ -287,6 +287,13 @@ public sealed record CkMethodOperationQuery
     /// <summary>Only operations of this method.</summary>
     public string? MethodId { get; init; }
 
+    /// <summary>
+    ///     Only operations of one of these methods (exact, ordinal match); <c>null</c> = no restriction. Combined with
+    ///     <see cref="MethodId" /> both must hold. An empty set matches nothing. Used to restrict a reader to a closed method
+    ///     list (the parent-tenant administration rule).
+    /// </summary>
+    public IReadOnlyCollection<string>? MethodIds { get; init; }
+
     /// <summary>Only operations in this state.</summary>
     public CkMethodOperationState? State { get; init; }
 

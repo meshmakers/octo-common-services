@@ -218,6 +218,7 @@ public sealed class CkMethodInMemoryOperationStore(TimeProvider timeProvider)
         }
 
         return (query.MethodId is null || string.Equals(record.MethodId, query.MethodId, StringComparison.Ordinal)) &&
+               (query.MethodIds is null || query.MethodIds.Contains(record.MethodId, StringComparer.Ordinal)) &&
                (query.State is null || record.State == query.State) &&
                (query.SinceUtc is null || record.AcceptedAtUtc >= query.SinceUtc);
     }

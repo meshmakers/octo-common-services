@@ -1,5 +1,6 @@
 using Meshmakers.Octo.Services.Contracts.DistributionEventHub.Methods;
 using Meshmakers.Octo.Services.Infrastructure.Configuration;
+using Meshmakers.Octo.Services.Infrastructure.Services;
 using Meshmakers.Octo.Services.Infrastructure.TenantGeneration;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
@@ -11,7 +12,9 @@ namespace Meshmakers.Octo.Services.Methods.Authorization;
 ///     (AB#8711): <c>METHOD_FORBIDDEN</c> with the reason <see cref="CkMethodTokenReasons.TenantNotAllowed" />, before the
 ///     declared authorization, the idempotency store and the handler. It applies the same rule as the bus host
 ///     (<see cref="ICkMethodCallerTokenValidator" />, <see cref="CkMethodCallerTenantRule" />): the <c>tenant_id</c> claim must
-///     name the call's tenant; a service token (no <c>sub</c>) may also be on <c>TenantAuthorization:CrossTenantServiceClientIds</c>.
+///     name the call's tenant; a service token (no <c>sub</c>) may also be on <c>TenantAuthorization:CrossTenantServiceClientIds</c>;
+///     a user token of a parent tenant may call a method of <see cref="CkParentTenantAdministrationMethods" /> on a registered
+///     child tenant (resolved through <see cref="ITenantHierarchyReader" /> when the host registers one; without it the rule is off).
 /// </summary>
 /// <remarks>
 ///     <para>
@@ -33,7 +36,8 @@ public sealed class CkMethodCallerTenantFilter(
     IOptions<TenantAuthorizationOptions> tenantOptions,
     ILogger<CkMethodCallerTenantFilter> logger,
     ICkMethodPrincipalProvider? principalProvider = null,
-    ITenantGenerationCheck? generationCheck = null) : ICkMethodInvocationFilter
+    ITenantGenerationCheck? generationCheck = null,
+    ITenantHierarchyReader? hierarchyReader = null) : ICkMethodInvocationFilter
 {
     /// <inheritdoc />
     public int Order => CkMethodInvocationFilterOrder.CallerTenant;
@@ -51,8 +55,9 @@ public sealed class CkMethodCallerTenantFilter(
         }
 
         var principal = (principalProvider ?? CkMethodPrincipalScope.Instance).GetPrincipal(context);
-        if (!CkMethodCallerTenantCheck.IsRefused(principal, request.TenantId, request.MethodId, tenantOptions.Value,
-                out var error, out var verdict))
+        var check = await CkMethodCallerTenantCheck.CheckAsync(principal, request.TenantId, request.MethodId,
+            tenantOptions.Value, hierarchyReader, logger, context.Transport).ConfigureAwait(false);
+        if (!check.IsRefused)
         {
             // AB#8999: the tenant generation of the caller token, same step and mode as the bus host.
             if (generationCheck is not null && principal is { IsFromAccessToken: true } caller)
@@ -91,8 +96,8 @@ public sealed class CkMethodCallerTenantFilter(
 
         logger.LogWarning(
             "CK method {MethodId} invocation {InvocationId} refused in tenant {TenantId} (transport {Transport}): caller token {Reason} ({Verdict})",
-            request.MethodId, request.InvocationId, request.TenantId, context.Transport, error.Parameters[CkMethodErrorParameters.Reason],
-            verdict);
-        return CkMethodResponse.Failed(request.InvocationId, string.Empty, error);
+            request.MethodId, request.InvocationId, request.TenantId, context.Transport,
+            check.Error.Parameters[CkMethodErrorParameters.Reason], check.Verdict);
+        return CkMethodResponse.Failed(request.InvocationId, string.Empty, check.Error);
     }
 }
