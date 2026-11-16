@@ -1,5 +1,6 @@
 using System.Security.Claims;
 using Meshmakers.Octo.Services.Infrastructure.Configuration;
+using Meshmakers.Octo.Services.Infrastructure.Services;
 using Meshmakers.Octo.Services.Infrastructure.TenantGeneration;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
@@ -22,7 +23,9 @@ namespace Meshmakers.Octo.Services.Methods.Authorization;
 ///         A token without <c>sub</c> is a service token (client credentials): it needs <c>client_id</c>, and is
 ///         accepted for the request tenant or when the client is listed in
 ///         <c>TenantAuthorization:CrossTenantServiceClientIds</c>. The <c>LogOnly</c> and <c>Disabled</c> modes of the HTTP
-///         side are never applied, and there is no parent-tenant rule.
+///         side are never applied. <see cref="ValidateForMethodAsync" /> (the path of the handler host) adds the parent-tenant
+///         administration rule for the closed method list <see cref="CkParentTenantAdministrationMethods" /> when the host
+///         registers an <see cref="ITenantHierarchyReader" />; <see cref="ValidateAsync" /> without a method never has it.
 ///     </para>
 ///     <para>
 ///         <b>Sensitive data.</b> The token and its claims never reach a log line, an exception message or the failure: the
@@ -49,6 +52,7 @@ internal sealed class CkMethodCallerTokenValidator : ICkMethodCallerTokenValidat
     private readonly TenantAuthorizationOptions _tenantOptions;
     private readonly JsonWebTokenHandler _handler = new();
     private readonly ITenantGenerationCheck? _generationCheck;
+    private readonly ITenantHierarchyReader? _hierarchyReader;
 
     public CkMethodCallerTokenValidator(
         IOptions<CkMethodTokenOptions> options,
@@ -56,9 +60,11 @@ internal sealed class CkMethodCallerTokenValidator : ICkMethodCallerTokenValidat
         IHttpClientFactory httpClientFactory,
         ILogger<CkMethodCallerTokenValidator> logger,
         TimeProvider? timeProvider = null,
-        ITenantGenerationCheck? generationCheck = null)
+        ITenantGenerationCheck? generationCheck = null,
+        ITenantHierarchyReader? hierarchyReader = null)
     {
         _generationCheck = generationCheck;
+        _hierarchyReader = hierarchyReader;
         _timeProvider = timeProvider ?? TimeProvider.System;
         _options = options.Value;
         _tenantOptions = tenantOptions.Value;
@@ -66,8 +72,16 @@ internal sealed class CkMethodCallerTokenValidator : ICkMethodCallerTokenValidat
         _logger = logger;
     }
 
-    public async ValueTask<CkMethodTokenValidationResult> ValidateAsync(string? accessToken, string expectedTenantId,
-        CancellationToken cancellationToken = default)
+    public ValueTask<CkMethodTokenValidationResult> ValidateAsync(string? accessToken, string expectedTenantId,
+        CancellationToken cancellationToken = default) =>
+        ValidateCoreAsync(accessToken, expectedTenantId, null, cancellationToken);
+
+    public ValueTask<CkMethodTokenValidationResult> ValidateForMethodAsync(string? accessToken, string expectedTenantId,
+        string? methodId, CancellationToken cancellationToken = default) =>
+        ValidateCoreAsync(accessToken, expectedTenantId, methodId, cancellationToken);
+
+    private async ValueTask<CkMethodTokenValidationResult> ValidateCoreAsync(string? accessToken, string expectedTenantId,
+        string? methodId, CancellationToken cancellationToken)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(expectedTenantId);
 
@@ -126,7 +140,8 @@ internal sealed class CkMethodCallerTokenValidator : ICkMethodCallerTokenValidat
             }
         }
 
-        var claimsFailure = CheckClaims(principal, expectedTenantId, out var category);
+        var (claimsFailure, category) = await CheckClaimsAsync(principal, expectedTenantId, methodId)
+            .ConfigureAwait(false);
         if (claimsFailure is not null)
         {
             return Refuse(expectedTenantId, claimsFailure, category);
@@ -146,38 +161,33 @@ internal sealed class CkMethodCallerTokenValidator : ICkMethodCallerTokenValidat
         return CkMethodTokenValidationResult.Valid(BuildPrincipal(principal, expectedTenantId));
     }
 
-    private string? CheckClaims(ClaimsPrincipal principal, string expectedTenantId, out Category category)
+    private async ValueTask<(string? Failure, Category Category)> CheckClaimsAsync(ClaimsPrincipal principal,
+        string expectedTenantId, string? methodId)
     {
-        category = Category.None;
 
         if (!string.IsNullOrWhiteSpace(_options.RequiredScope) && !principal
                 .FindAll(Infrastructure.InfrastructureCommon.ClaimScope)
                 .SelectMany(c => c.Value.Split(' ', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
                 .Contains(_options.RequiredScope, StringComparer.Ordinal))
         {
-            category = Category.ScopeMissing;
-            return CkMethodTokenReasons.TokenInvalid;
+            return (CkMethodTokenReasons.TokenInvalid, Category.ScopeMissing);
         }
 
-        // the one caller-tenant rule, shared with the in-process transport (AB#8711)
-        var verdict = CkMethodCallerTenantRule.Evaluate(principal.FindFirstValue(SubClaimType),
+        // the one caller-tenant rule, shared with the in-process transport (AB#8711); with a method id it includes the
+        // parent-tenant administration rule for the closed method list
+        var verdict = await CkMethodCallerTenantRule.EvaluateAsync(principal.FindFirstValue(SubClaimType),
             principal.FindFirstValue(ClientIdClaimType), principal.FindFirstValue(TenantIdClaimType), expectedTenantId,
-            _tenantOptions);
-        switch (verdict)
+            methodId, _tenantOptions, methodId is null ? null : _hierarchyReader, _logger, "bus").ConfigureAwait(false);
+        return verdict switch
         {
-            case CkMethodCallerTenantVerdict.Allowed:
-                return null;
-            case CkMethodCallerTenantVerdict.UserTenantMismatch:
-                category = Category.UserTenant;
-                return CkMethodTokenReasons.TenantNotAllowed;
-            case CkMethodCallerTenantVerdict.ServiceTenantMismatch:
-                category = Category.ServiceTenant;
-                return CkMethodTokenReasons.TenantNotAllowed;
-            default:
-                // no sub and no client_id: the token cannot be attributed to a caller
-                category = Category.NoIdentity;
-                return CkMethodTokenReasons.TokenInvalid;
-        }
+            CkMethodCallerTenantVerdict.Allowed or CkMethodCallerTenantVerdict.AllowedAsParentTenantAdministrator =>
+                (null, Category.None),
+            CkMethodCallerTenantVerdict.UserTenantMismatch => (CkMethodTokenReasons.TenantNotAllowed, Category.UserTenant),
+            CkMethodCallerTenantVerdict.ServiceTenantMismatch =>
+                (CkMethodTokenReasons.TenantNotAllowed, Category.ServiceTenant),
+            // no sub and no client_id: the token cannot be attributed to a caller
+            _ => (CkMethodTokenReasons.TokenInvalid, Category.NoIdentity)
+        };
     }
 
     /// <summary>

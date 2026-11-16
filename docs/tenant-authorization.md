@@ -223,7 +223,7 @@ unmarked endpoint behaves exactly as before**, which is why shipping this widens
 
 | Should carry it later | Must never carry it |
 |---|---|
-| Tenant backup / restore / clone (asset-repo `TenantController`, when those move from `system/…` to `{tenantId}/…`) | Any GraphQL endpoint (`/{tenantId}/graphql`) |
+| Tenant backup / restore / clone (asset-repo `TenantController`, when those move from `system/…` to `{tenantId}/…`) | Any GraphQL endpoint (`/{tenantId}/graphql`) as a whole — use the per-request predicate below |
 | Archive data export / import | Entity / query / stream-data read and write routes |
 | Operator fixup and reconcile routes that act *on* a tenant | `…/enable` / `…/disable` and other capability toggles — they change what the child *is*, and the child's own admin owns that |
 | Tenant delete / detach — only if the product ever wants a parent to do it | Identity routes of the child (users, roles, clients): membership is the child's own directory |
@@ -281,6 +281,12 @@ tenant denied, service token never allowed by the rule, equality never resolves,
 closed) and `tests/Infrastructure.Tests/Services/TenantHierarchyReaderTests.cs` (registry probe not
 context materialisation, positive and negative caching, TTL of zero, self is not a child, unreadable
 hierarchy fails closed).
+
+### Per-request opt-in on a shared endpoint
+
+A GraphQL endpoint never carries the marker; it carries the per-request predicate `IAllowParentTenantAdministrationRequest`,
+and the CK methods behind it apply the same rule for a closed method list. Both are described in
+`docs/parent-tenant-administration.md`.
 
 ## Denials name their reason
 

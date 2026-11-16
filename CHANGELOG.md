@@ -7,6 +7,21 @@ entries are grouped by work item until a release assigns the version.
 
 ### Added
 
+- **AB#8986** (security) — parent-tenant administration of CK methods, the method counterpart of the REST rule of
+  `[AllowParentTenantAdministration]`. A **user** token issued for tenant P may call a method of the closed list
+  `CkParentTenantAdministrationMethods` (`System.Bot/TenantRepository.Dump-1`, `Restore-1`, `ExportArchiveData-1`,
+  `ImportArchiveData-1`) on tenant C when `ITenantHierarchyReader.IsChildTenantAsync(P, C)` is true (one level; the system tenant
+  reaches the estate; fail-closed); every other method and every service token keeps the exact match. Always enforcing; the tenant
+  generation is checked against P; every grant is logged at Information. New: `CkMethodCallerTenantCheck.CheckAsync` (async check
+  with the rule; the synchronous `IsRefused` is unchanged), `ICkMethodCallerTokenValidator.ValidateForMethodAsync` (additive
+  default interface member without the rule; the `ValidateAsync(CkMethodRequest)` extension now calls it), optional
+  `ITenantHierarchyReader` in `CkMethodCallerTenantFilter` and `CkMethodCallerTokenValidator`,
+  `CkMethodOperationQuery.MethodIds` (restricts a store query to a method set; empty set matches nothing; in-memory and MongoDB
+  stores), and the endpoint metadata `IAllowParentTenantAdministrationRequest` (per-request predicate for an endpoint that also
+  serves tenant content), which `TenantAuthorizationMiddleware` asks for a user token of another tenant and grants only with
+  a registered child (counted as `allowed_parent_admin`). No member of an interface implemented in another repository changes
+  without a default. Docs: `docs/parent-tenant-administration.md`.
+
 - **AB#9033** (security) — `TenantAuthorizationMiddleware` counts every decision of its tenant check in the new counter
   `octo.tenant_auth.decisions` (meter `Meshmakers.Octo.TenantAuthorization`), labels `outcome` (`match`, `allowed_parent_admin`,
   `allowed_cross_tenant_client`, `not_checked`, `would_deny`, `would_deny_missing_tenant_id`, `denied`, `denied_missing_tenant_id`),

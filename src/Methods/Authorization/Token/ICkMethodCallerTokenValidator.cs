@@ -80,17 +80,35 @@ public interface ICkMethodCallerTokenValidator
     /// <param name="cancellationToken">Cancels the loading of the signing keys.</param>
     ValueTask<CkMethodTokenValidationResult> ValidateAsync(string? accessToken, string expectedTenantId,
         CancellationToken cancellationToken = default);
+
+    /// <summary>
+    ///     Validates <paramref name="accessToken" /> for the tenant <paramref name="expectedTenantId" /> and the method
+    ///     <paramref name="methodId" />: as <see cref="ValidateAsync(string?, string, CancellationToken)" />, plus the
+    ///     parent-tenant administration rule for the methods of <see cref="CkParentTenantAdministrationMethods" /> (a user token
+    ///     of a parent tenant on a registered child tenant). The default implementation has no parent-tenant rule.
+    /// </summary>
+    /// <param name="accessToken">The raw JWT; <c>null</c> or empty gives <see cref="CkMethodTokenReasons.TokenMissing" />.</param>
+    /// <param name="expectedTenantId">The tenant of the request (<c>CkMethodRequest.TenantId</c>).</param>
+    /// <param name="methodId">The method id of the request (<c>CkMethodRequest.MethodId</c>).</param>
+    /// <param name="cancellationToken">Cancels the loading of the signing keys.</param>
+    ValueTask<CkMethodTokenValidationResult> ValidateForMethodAsync(string? accessToken, string expectedTenantId,
+        string? methodId, CancellationToken cancellationToken = default) =>
+        ValidateAsync(accessToken, expectedTenantId, cancellationToken);
 }
 
 /// <summary>Convenience overloads of <see cref="ICkMethodCallerTokenValidator" />.</summary>
 public static class CkMethodCallerTokenValidatorExtensions
 {
-    /// <summary>Validates the forwarded token of <paramref name="request" /> for the tenant of the request.</summary>
+    /// <summary>
+    ///     Validates the forwarded token of <paramref name="request" /> for the tenant and the method of the request
+    ///     (<see cref="ICkMethodCallerTokenValidator.ValidateForMethodAsync" />).
+    /// </summary>
     public static ValueTask<CkMethodTokenValidationResult> ValidateAsync(this ICkMethodCallerTokenValidator validator,
         CkMethodRequest request, CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(validator);
         ArgumentNullException.ThrowIfNull(request);
-        return validator.ValidateAsync(request.CallerAccessToken, request.TenantId, cancellationToken);
+        return validator.ValidateForMethodAsync(request.CallerAccessToken, request.TenantId, request.MethodId,
+            cancellationToken);
     }
 }

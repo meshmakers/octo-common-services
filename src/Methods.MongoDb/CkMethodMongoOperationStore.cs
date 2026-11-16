@@ -159,6 +159,11 @@ public sealed class CkMethodMongoOperationStore : ICkMethodOperationStore, ICkMe
             filter &= f.Eq("methodId", query.MethodId);
         }
 
+        if (query.MethodIds is not null)
+        {
+            filter &= f.In("methodId", query.MethodIds);
+        }
+
         if (query.State is { } state)
         {
             filter &= f.Eq("state", (int)state);

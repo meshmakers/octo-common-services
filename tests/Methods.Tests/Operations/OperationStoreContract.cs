@@ -268,6 +268,33 @@ public abstract class OperationStoreContract
     }
 
     [Fact]
+    public async Task List_FiltersByAMethodSet_AndEmptySetMatchesNothing()
+    {
+        var store = await CreateStoreAsync();
+        var ct = TestContext.Current.CancellationToken;
+        var one = NewRecord(acceptedAt: Now);
+        var two = NewRecord(methodId: MethodTwo, acceptedAt: Now.AddMinutes(1));
+        var third = NewRecord(methodId: "Sample.Other/Thing.Run-1", acceptedAt: Now.AddMinutes(2));
+        foreach (var r in new[] { one, two, third })
+        {
+            await store.CreateAsync(r, ct);
+        }
+
+        async Task<IReadOnlyList<string>> Ids(CkMethodOperationQuery query) =>
+            (await store.ListAsync(query, ct)).Items.Select(i => i.OperationId).ToList();
+
+        Assert.Equal([two.OperationId, one.OperationId],
+            await Ids(new CkMethodOperationQuery { TenantId = TenantA, MethodIds = [MethodOne, MethodTwo] }));
+        Assert.Equal([two.OperationId],
+            await Ids(new CkMethodOperationQuery { TenantId = TenantA, MethodIds = [MethodOne, MethodTwo], MethodId = MethodTwo }));
+        Assert.Empty(await Ids(new CkMethodOperationQuery
+            { TenantId = TenantA, MethodIds = [MethodOne], MethodId = "Sample.Other/Thing.Run-1" }));
+        Assert.Empty(await Ids(new CkMethodOperationQuery { TenantId = TenantA, MethodIds = [] }));
+        var page = await store.ListAsync(new CkMethodOperationQuery { TenantId = TenantA, MethodIds = [MethodTwo] }, ct);
+        Assert.Equal(1, page.TotalCount);
+    }
+
+    [Fact]
     public async Task List_RejectsInvalidPaging()
     {
         var store = await CreateStoreAsync();

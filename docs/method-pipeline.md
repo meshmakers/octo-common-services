@@ -73,7 +73,7 @@ tests `tests/Methods.Tests/InProcess/`. Guide: `docs/method-handler-sdk-in-proce
   asymmetric algorithms only (HS* and `none` can never be configured in). Tenant rule = `TenantAuthorizationMiddleware`, always enforcing:
   `tenant_id` must equal the request tenant (case-insensitive); `allowed_tenants` is never consulted (it is a selection hint); no `sub` =
   service token, needs `client_id`, accepted for the request tenant or when listed in `TenantAuthorization:CrossTenantServiceClientIds`
-  (shared options; the `LogOnly`/`Disabled` modes of the HTTP side are never applied); no parent-tenant rule. `token-expired` is only
+  (shared options; the `LogOnly`/`Disabled` modes of the HTTP side are never applied); parent rule: `parent-tenant-administration.md`. `token-expired` is only
   reported for a token that is genuine otherwise (re-validated without the lifetime/audience check; expired + forged = `token-invalid`;
   expired + foreign tenant = `tenant-not-allowed`). Keys: own cache (`TimeProvider`), scheduled refresh `KeyAutomaticRefreshInterval` (12 h)
   keeps the cached keys when the identity service is down, an unknown `kid` forces one refresh throttled by `KeyRefreshInterval` (5 min,
@@ -92,8 +92,8 @@ tests `tests/Methods.Tests/InProcess/`. Guide: `docs/method-handler-sdk-in-proce
   the idempotency store and the handler run. The HTTP `TenantAuthorizationMiddleware` alone may only log (`UserTokenEnforcement=LogOnly`, the local
   default); the filter never reads those modes. Rule = `CkMethodCallerTenantRule`, also called by the bus host's
   `CkMethodCallerTokenValidator` (no copy): user token (`sub`) -> `tenant_id` must equal the call's tenant (case-insensitive); service
-  token (no `sub`) -> needs `client_id`, and `tenant_id` equals the tenant or the client is on `TenantAuthorization:CrossTenantServiceClientIds`;
-  neither `sub` nor `client_id` -> `token-invalid`; no parent-tenant rule, `allowed_tenants` never consulted. Input: `CkMethodPrincipal.TokenTenantId`
+  token (no `sub`) -> needs `client_id`, and `tenant_id` equals the tenant or the client is on `CrossTenantServiceClientIds`;
+  neither `sub` nor `client_id` -> `token-invalid`; parent rule: `parent-tenant-administration.md`; no `allowed_tenants`. Input: `CkMethodPrincipal.TokenTenantId`
   (the `tenant_id` claim) and `IsFromAccessToken`, both set by `CkMethodPrincipal.FromClaimsPrincipal` (init-only properties, binary compatible). A
   principal a service builds itself (a job, `new CkMethodPrincipal(...)`) is not from a token and is not judged; no principal is left to the
   authorization (refused there). Band `CkMethodInvocationFilterOrder.CallerTenant` = 150: inside audit (audited once), outside

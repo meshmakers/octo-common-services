@@ -235,7 +235,10 @@ internal class TenantAuthorizationMiddleware(
     ///         <b>Parent-tenant rule (AB#5060), opt-in per endpoint.</b> On an endpoint marked
     ///         <see cref="IAllowParentTenantAdministration" /> a user token may also address a tenant
     ///         <i>below</i> its own, because administering a child tenant (backup, restore, archive
-    ///         export) is a parent administrator's job. On every other endpoint nothing changes —
+    ///         export) is a parent administrator's job. An endpoint that also serves tenant content (a
+    ///         GraphQL endpoint) instead carries <see cref="IAllowParentTenantAdministrationRequest" />
+    ///         (AB#8986): the rule then applies only to a request the predicate classifies as exclusively
+    ///         administration; every other request on that endpoint keeps the exact match. On every other endpoint nothing changes —
     ///         the parent explicitly does <b>not</b> get the child's data routes, which is why this
     ///         is a marker at the operation and not a mode of the gate.
     ///     </para>
@@ -259,8 +262,16 @@ internal class TenantAuthorizationMiddleware(
             return true;
         }
 
+        // The endpoint-wide marker, or the per-request predicate of an endpoint that also serves tenant content (a GraphQL
+        // endpoint): the predicate is asked only for a user token of another tenant, and only when the endpoint carries no
+        // marker. It fails closed (false, also when it throws).
+        var isParentAdministrationEndpoint =
+            endpoint?.Metadata.GetMetadata<IAllowParentTenantAdministration>() != null;
+        var isParentAdministrationRequest = !isParentAdministrationEndpoint &&
+                                            !string.IsNullOrEmpty(tokenTenantId) &&
+                                            await IsParentAdministrationRequestAsync(context, endpoint);
         if (!string.IsNullOrEmpty(tokenTenantId) &&
-            endpoint?.Metadata.GetMetadata<IAllowParentTenantAdministration>() != null &&
+            (isParentAdministrationEndpoint || isParentAdministrationRequest) &&
             await IsChildTenantAsync(context, tokenTenantId, routeTenantId))
         {
             // Logged on every grant, at Information: this rule widens access, so the only thing an
@@ -269,13 +280,14 @@ internal class TenantAuthorizationMiddleware(
             // not noise to be suppressed.
             logger.LogInformation(
                 "User token of subject '{Subject}' (client '{ClientId}') was issued for tenant '{TokenTenantId}' " +
-                "and administers its child tenant '{RouteTenantId}' on endpoint '{Endpoint}'; allowed by the " +
+                "and administers its child tenant '{RouteTenantId}' on endpoint '{Endpoint}' ({Basis}); allowed by the " +
                 "parent-tenant administration rule (AB#5060)",
                 context.User.FindFirstValue("sub") ?? context.User.FindFirstValue(ClaimTypes.NameIdentifier),
                 context.User.FindFirstValue(ClientIdClaimType) ?? "<none>",
                 tokenTenantId,
                 routeTenantId,
-                endpoint.DisplayName ?? "<unnamed>");
+                endpoint?.DisplayName ?? "<unnamed>",
+                isParentAdministrationEndpoint ? "endpoint marker" : "request predicate");
             Count(context, UserToken, clientId, endpoint, TenantAuthorizationOutcome.AllowedParentAdmin);
             return true;
         }
@@ -288,21 +300,21 @@ internal class TenantAuthorizationMiddleware(
             // EXISTING child, so restoring into a deleted tenant fails on this exact branch. One
             // combined message covers "not a child" and "does not exist" without telling a caller who
             // is neither which of the two it was.
-            var isParentAdministrationEndpoint =
-                endpoint?.Metadata.GetMetadata<IAllowParentTenantAdministration>() != null;
+            // the combined "not an existing child" message also for an administration request of a request predicate
+            var isParentAdministration = isParentAdministrationEndpoint || isParentAdministrationRequest;
             logger.LogWarning(
                 "Denied: user token of subject '{Subject}' (client '{ClientId}') was issued for tenant " +
-                "'{TokenTenantId}' but addresses tenant '{RouteTenantId}' (parent administration endpoint: " +
-                "{IsParentAdministrationEndpoint}) (AB#5054)",
+                "'{TokenTenantId}' but addresses tenant '{RouteTenantId}' (parent administration endpoint or request: " +
+                "{IsParentAdministration}) (AB#5054)",
                 context.User.FindFirstValue("sub") ?? context.User.FindFirstValue(ClaimTypes.NameIdentifier),
                 context.User.FindFirstValue(ClientIdClaimType) ?? "<none>",
                 string.IsNullOrEmpty(tokenTenantId) ? "<none>" : tokenTenantId,
                 routeTenantId,
-                isParentAdministrationEndpoint);
+                isParentAdministration);
             Count(context, UserToken, clientId, endpoint, string.IsNullOrEmpty(tokenTenantId)
                 ? TenantAuthorizationOutcome.DeniedMissingTenantId
                 : TenantAuthorizationOutcome.Denied);
-            var message = isParentAdministrationEndpoint
+            var message = isParentAdministration
                 ? $"Access to tenant '{routeTenantId}' is denied: the token was issued for tenant " +
                   $"'{tokenTenantId}', and '{routeTenantId}' is not an existing child tenant of it. " +
                   "If the tenant was deleted, re-create it first; a tenant created moments ago may " +
@@ -328,6 +340,41 @@ internal class TenantAuthorizationMiddleware(
             ? TenantAuthorizationOutcome.WouldDenyMissingTenantId
             : TenantAuthorizationOutcome.WouldDeny);
         return true;
+    }
+
+    /// <summary>
+    ///     Asks the endpoint's <see cref="IAllowParentTenantAdministrationRequest" />, if any, whether the request consists
+    ///     exclusively of parent-tenant administration operations. No predicate, or one that throws, is <c>false</c>.
+    /// </summary>
+    private async Task<bool> IsParentAdministrationRequestAsync(HttpContext context, Endpoint? endpoint)
+    {
+        var predicate = endpoint?.Metadata.GetMetadata<IAllowParentTenantAdministrationRequest>();
+        if (predicate == null)
+        {
+            return false;
+        }
+
+        // The predicate may read the body; buffer it here and rewind afterwards, so the endpoint always gets the whole
+        // body (also after a predicate that did not rewind or failed half-way), independent of the predicate's contract.
+        context.Request.EnableBuffering();
+        try
+        {
+            return await predicate.IsParentTenantAdministrationRequestAsync(context);
+        }
+        catch (Exception e) when (!context.RequestAborted.IsCancellationRequested)
+        {
+            logger.LogWarning(
+                "The parent-tenant administration request predicate of endpoint '{Endpoint}' failed ({ExceptionType}); the request is judged by the exact tenant match",
+                endpoint?.DisplayName ?? "<unnamed>", e.GetType().Name);
+            return false;
+        }
+        finally
+        {
+            if (context.Request.Body.CanSeek)
+            {
+                context.Request.Body.Position = 0;
+            }
+        }
     }
 
     /// <summary>

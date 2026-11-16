@@ -1,6 +1,8 @@
 using System.Diagnostics.CodeAnalysis;
 using Meshmakers.Octo.Services.Contracts.DistributionEventHub.Methods;
 using Meshmakers.Octo.Services.Infrastructure.Configuration;
+using Meshmakers.Octo.Services.Infrastructure.Services;
+using Microsoft.Extensions.Logging;
 
 namespace Meshmakers.Octo.Services.Methods.Authorization;
 
@@ -13,6 +15,41 @@ namespace Meshmakers.Octo.Services.Methods.Authorization;
 /// </summary>
 public static class CkMethodCallerTenantCheck
 {
+    /// <summary>
+    ///     The check with the parent-tenant administration rule (<see cref="CkParentTenantAdministrationMethods" />): like
+    ///     <see cref="IsRefused" />, but a user token issued for a parent tenant may call a method of the closed list on a
+    ///     registered child tenant (<see cref="ITenantHierarchyReader.IsChildTenantAsync" />, fail-closed). Hosts that know the
+    ///     method id of the call use this one; without <paramref name="hierarchyReader" /> it decides exactly like
+    ///     <see cref="IsRefused" />.
+    /// </summary>
+    /// <param name="principal">The caller.</param>
+    /// <param name="callTenantId">The tenant of the call (route tenant).</param>
+    /// <param name="methodId">The method id, named in the refusal and matched against the closed list.</param>
+    /// <param name="tenantOptions">The cross-tenant allow-list of service clients.</param>
+    /// <param name="hierarchyReader">The cached tenant hierarchy; <c>null</c> = no parent-tenant rule.</param>
+    /// <param name="logger">Logs a parent-tenant grant at Information; <c>null</c> = not logged.</param>
+    /// <param name="transport">Names the place of the check in the grant log.</param>
+    public static async ValueTask<CkMethodCallerTenantCheckResult> CheckAsync(CkMethodPrincipal? principal,
+        string callTenantId, string methodId, TenantAuthorizationOptions tenantOptions,
+        ITenantHierarchyReader? hierarchyReader, ILogger? logger, string transport)
+    {
+        ArgumentNullException.ThrowIfNull(tenantOptions);
+        if (principal is not { IsFromAccessToken: true })
+        {
+            return CkMethodCallerTenantCheckResult.Allow(nameof(CkMethodCallerTenantVerdict.Allowed), false);
+        }
+
+        // the client of a user token sits in TokenClientId (ClientId stays null for users); the rule only logs it for users
+        var result = await CkMethodCallerTenantRule.EvaluateAsync(principal.SubjectId,
+            principal.TokenClientId ?? principal.ClientId, principal.TokenTenantId, callTenantId, methodId, tenantOptions,
+            hierarchyReader, logger, transport)
+            .ConfigureAwait(false);
+        return result.IsAllowed()
+            ? CkMethodCallerTenantCheckResult.Allow(result.ToString(),
+                result == CkMethodCallerTenantVerdict.AllowedAsParentTenantAdministrator)
+            : CkMethodCallerTenantCheckResult.Refuse(Refusal(result, methodId), result.ToString());
+    }
+
     /// <summary>
     ///     <c>true</c> when the caller token may not act in <paramref name="callTenantId" />; <paramref name="error" /> is then the
     ///     refusal (<c>METHOD_FORBIDDEN</c>, parameters <c>methodId</c> and <c>reason</c> = <c>tenant-not-allowed</c>, or
@@ -45,12 +82,47 @@ public static class CkMethodCallerTenantCheck
             return false;
         }
 
-        var reason = result == CkMethodCallerTenantVerdict.NoIdentity
-            ? CkMethodTokenReasons.TokenInvalid
-            : CkMethodTokenReasons.TenantNotAllowed;
-        error = CkMethodError.Create(CkMethodErrorCodes.MethodForbidden,
-            (CkMethodErrorParameters.MethodId, methodId),
-            (CkMethodErrorParameters.Reason, reason));
+        error = Refusal(result, methodId);
         return true;
     }
+
+    private static CkMethodError Refusal(CkMethodCallerTenantVerdict verdict, string methodId)
+    {
+        var reason = verdict == CkMethodCallerTenantVerdict.NoIdentity
+            ? CkMethodTokenReasons.TokenInvalid
+            : CkMethodTokenReasons.TenantNotAllowed;
+        return CkMethodError.Create(CkMethodErrorCodes.MethodForbidden,
+            (CkMethodErrorParameters.MethodId, methodId),
+            (CkMethodErrorParameters.Reason, reason));
+    }
+}
+
+/// <summary>The outcome of <see cref="CkMethodCallerTenantCheck.CheckAsync" />.</summary>
+public sealed class CkMethodCallerTenantCheckResult
+{
+    private CkMethodCallerTenantCheckResult(CkMethodError? error, string verdict, bool isParentTenantAdministration)
+    {
+        Error = error;
+        Verdict = verdict;
+        IsParentTenantAdministration = isParentTenantAdministration;
+    }
+
+    /// <summary><c>true</c> when the caller may not act in the tenant of the call; <see cref="Error" /> is then set.</summary>
+    [MemberNotNullWhen(true, nameof(Error))]
+    public bool IsRefused => Error is not null;
+
+    /// <summary>The refusal (<c>METHOD_FORBIDDEN</c> with <c>methodId</c> and <c>reason</c>), or <c>null</c>.</summary>
+    public CkMethodError? Error { get; }
+
+    /// <summary>The rule that decided, for the log; never a claim value.</summary>
+    public string Verdict { get; }
+
+    /// <summary><c>true</c> when the call is allowed by the parent-tenant administration rule.</summary>
+    public bool IsParentTenantAdministration { get; }
+
+    internal static CkMethodCallerTenantCheckResult Allow(string verdict, bool isParentTenantAdministration) =>
+        new(null, verdict, isParentTenantAdministration);
+
+    internal static CkMethodCallerTenantCheckResult Refuse(CkMethodError error, string verdict) =>
+        new(error, verdict, false);
 }

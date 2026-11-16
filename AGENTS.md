@@ -29,7 +29,9 @@ for the published package list. Targets .NET 10, DebugL for local development.
 | `src/Infrastructure/Services/**`, `src/Infrastructure/Consumers/**`, `src/Infrastructure/Initialization/**`, `src/Contracts/DistributionEventHub/Commands/**` | `docs/tenant-setup.md` |
 <!-- <<< end generated: routing -->
 
-Background, not path-triggered: `docs/method-handler-sdk.md` (developer guide with a working sample),
+Background, not path-triggered: `docs/parent-tenant-administration.md` (parent-tenant rule of CK methods and of shared
+endpoints such as GraphQL; read it before changing `CkParentTenantAdministrationMethods` or the request predicate),
+`docs/method-handler-sdk.md` (developer guide with a working sample),
 `docs/method-performance.md` (replica sharing, dispatch overhead and redelivery measurements, with the
 repeat commands), `docs/method-adversarial-suite.md` (attack cases, results, findings) and
 `docs/concepts/tenant-provisioning-lifecycle.md` (concept of durable tenant provisioning).
