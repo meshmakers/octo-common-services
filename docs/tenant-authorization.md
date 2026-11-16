@@ -30,7 +30,7 @@ Two halves close it, and they must ship in this order:
 | Mode | Behaviour |
 |---|---|
 | `Disabled` | Behaviour before the narrowing: service tokens are never checked, nothing is logged. |
-| `LogOnly` | Request outcomes identical to before, but every access an enforcing run would refuse is logged as a warning naming the **client id, the token tenant and the route tenant**. This log is the consumer inventory. Was the default before `Enforce`. |
+| `LogOnly` | Request outcomes identical to before (except a route tenant that does not exist, see [below](#a-route-tenant-that-does-not-exist)), but every access an enforcing run would refuse is logged as a warning naming the **client id, the token tenant and the route tenant**. This log is the consumer inventory. Was the default before `Enforce`. |
 | `Enforce` (**default**) | A service token may address only its own `tenant_id`, or a tenant it is allow-listed for. Everything else → **403**, including a token with no `tenant_id` at all (fail closed). |
 
 Bind it with `services.AddOctoTenantAuthorization(configuration)` (section `TenantAuthorization`, i.e.
@@ -132,7 +132,7 @@ adds it, with the **opposite default**:
 | Mode | Behaviour |
 |---|---|
 | `Enforce` (**default**, and the enum's zero value) | A user token may address only its own `tenant_id`. Everything else → **403**, including a user token with no `tenant_id` at all (fail closed). |
-| `LogOnly` | Request outcomes identical to a host whose gate never ran, but every access an enforcing run would refuse is logged as a warning naming the **subject, the client id and both tenants**. |
+| `LogOnly` | Request outcomes identical to a host whose gate never ran (except a route tenant that does not exist, see [below](#a-route-tenant-that-does-not-exist)), but every access an enforcing run would refuse is logged as a warning naming the **subject, the client id and both tenants**. |
 
 The default is deliberately the strict one: `Enforce` means the option cannot weaken a host where the
 check is genuinely live (mcp, ai-services), and a host that forgets to opt down arrives closed. There
@@ -305,6 +305,39 @@ covers both causes in one sentence ("not an existing child tenant of it — if t
 deleted, re-create it first") without telling an unrelated caller which of the two applies, and
 mentions that a tenant created moments ago may take up to one TTL of the hierarchy cache (60 s) to
 be recognized. The body is written best-effort (`Response.HasStarted` guard).
+
+## A route tenant that does not exist
+
+The gate does not read the tenant registry, so it lets requests to a tenant that does not exist through in several cases:
+an own-tenant token of a tenant that was deleted, the `LogOnly` modes (the asset repository runs the user path in `LogOnly`),
+and a child that was deleted within one TTL of the hierarchy cache. The endpoint then fails resolving the tenant with
+`TenantException` (`IsTenantNotFound`, e.g. `ISystemContext.FindTenantContextAsync` in the asset repository's GraphQL user
+context builder). Unhandled, that was an HTTP 500 — in production with an empty body, on the local stack behind
+`UseDeveloperExceptionPage()` as `text/plain` with the exception and its stack trace.
+
+The middleware therefore catches that exception from the rest of the pipeline and, when the **route** tenant is really not
+registered (`ISystemContext.IsTenantRegisteredAsync`), answers with the gate's error contract (`{"message": ...}`, JSON):
+
+| Caller | Status | Message |
+|--------|--------|---------|
+| token of the route tenant, allow-listed cross-tenant service client, request without a bearer principal (cookie or anonymous; accepted: `TenantMiddleware` answers every caller of an unknown tenant with 404 too) | `404` | `Tenant '<id>' does not exist.` |
+| user token of another tenant | `403` | the denial message of the `Enforce` path: the combined "not an existing child" message for a parent-administration endpoint or request, otherwise "Sign in to tenant ..." |
+| service token of another tenant (not allow-listed) | `403` | the service-token denial message ("Request the token with acr_values=tenant:...") |
+
+The mapping adds no new existence oracle. Under `Enforce` a foreign caller gets exactly the answer it gets for a refused
+existing tenant. Under `LogOnly` (or `Disabled`) a foreign token reaches an existing tenant's endpoint, so a missing tenant
+was already distinguishable (it was a 500) and stays so (now a 403); hosts that run `TenantMiddleware` (`UseOctoTenants()`)
+answer an unknown tenant with 404 to every caller anyway.
+
+The exception keeps its way (old behaviour) when the missing tenant is not the route tenant (the route tenant is registered),
+when the host has no `ISystemContext`, when the registry probe throws, or when the request was aborted; a response that has
+already started (e.g. a WebSocket after the upgrade) is not touched. A tenant re-created between the endpoint's failure and
+the probe also keeps the exception — a race of milliseconds, accepted. Each mapping is logged at `Information` with the
+route tenant, the status and the client id.
+
+Tests: `tests/Infrastructure.Tests/Middleware/TenantAuthorizationMiddlewareTenantNotFoundTests.cs` (every caller kind,
+the cases that keep the exception) and `TenantNotFoundPipelineTests.cs` (TestServer pipeline in `Development` behind
+`UseDeveloperExceptionPage()` and in `Production`; asserts that no body carries the exception type or a stack frame).
 
 ## Metric of the decisions
 
