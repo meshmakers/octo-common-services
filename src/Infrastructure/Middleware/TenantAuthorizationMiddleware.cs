@@ -1,4 +1,5 @@
 using System.Security.Claims;
+using Meshmakers.Octo.Runtime.Contracts.MongoDb;
 using Meshmakers.Octo.Services.Infrastructure.Authorization;
 using Meshmakers.Octo.Services.Infrastructure.Configuration;
 using Meshmakers.Octo.Services.Infrastructure.Services;
@@ -61,6 +62,16 @@ namespace Meshmakers.Octo.Services.Infrastructure.Middleware;
 ///         own allow-list.
 ///     </para>
 ///     <para>
+///         <b>A route tenant that does not exist.</b> The gate does not read the tenant registry itself, so a request it
+///         lets through (an own-tenant token, the <c>LogOnly</c> modes, a deleted child within the hierarchy cache TTL) can
+///         reach an endpoint that resolves the tenant and fails with <see cref="TenantException" />
+///         (<see cref="TenantException.IsTenantNotFound" />). That exception used to leave the pipeline unhandled: an HTTP
+///         500, behind <c>UseDeveloperExceptionPage()</c> with the stack trace in the body. The gate therefore catches it
+///         when the route tenant is really not registered and answers with the error contract of the gate instead: 404 for
+///         a caller of that tenant (or an allow-listed cross-tenant service client), 403 with the denial message of the
+///         token's path for any other caller, so the answer does not tell a foreign caller whether the tenant exists.
+///     </para>
+///     <para>
 ///         <b>Metric.</b> Every decision of the tenant check is counted in <c>octo.tenant_auth.decisions</c>
 ///         (<see cref="TenantAuthorizationMetrics" />) next to its log line, so the inventory of the <c>LogOnly</c>
 ///         modes can be read per service, client and route without searching log text.
@@ -78,7 +89,28 @@ internal class TenantAuthorizationMiddleware(
 
     private int _missingMetricsLogged;
 
+    /// <summary>Marks a request the gate judged as parent-tenant administration (endpoint marker or request predicate).</summary>
+    private static readonly object ParentAdministrationItemKey = new();
+
     public async Task InvokeAsync(HttpContext context)
+    {
+        try
+        {
+            await InvokeCoreAsync(context);
+        }
+        catch (TenantException e) when (e.IsTenantNotFound && !context.Response.HasStarted &&
+                                        !string.IsNullOrEmpty(context.GetTenantId()))
+        {
+            if (!await IsRouteTenantMissingAsync(context, context.GetTenantId()!))
+            {
+                throw;
+            }
+
+            await WriteTenantNotFoundAsync(context, context.GetTenantId()!);
+        }
+    }
+
+    private async Task InvokeCoreAsync(HttpContext context)
     {
         // Skip endpoints marked with [AllowAnonymous] — they don't require tenant validation.
         // This is important because CookieBasedAuthenticationMiddleware may inject a Bearer header
@@ -270,6 +302,11 @@ internal class TenantAuthorizationMiddleware(
         var isParentAdministrationRequest = !isParentAdministrationEndpoint &&
                                             !string.IsNullOrEmpty(tokenTenantId) &&
                                             await IsParentAdministrationRequestAsync(context, endpoint);
+        if (isParentAdministrationEndpoint || isParentAdministrationRequest)
+        {
+            context.Items[ParentAdministrationItemKey] = true;
+        }
+
         if (!string.IsNullOrEmpty(tokenTenantId) &&
             (isParentAdministrationEndpoint || isParentAdministrationRequest) &&
             await IsChildTenantAsync(context, tokenTenantId, routeTenantId))
@@ -314,14 +351,7 @@ internal class TenantAuthorizationMiddleware(
             Count(context, UserToken, clientId, endpoint, string.IsNullOrEmpty(tokenTenantId)
                 ? TenantAuthorizationOutcome.DeniedMissingTenantId
                 : TenantAuthorizationOutcome.Denied);
-            var message = isParentAdministration
-                ? $"Access to tenant '{routeTenantId}' is denied: the token was issued for tenant " +
-                  $"'{tokenTenantId}', and '{routeTenantId}' is not an existing child tenant of it. " +
-                  "If the tenant was deleted, re-create it first; a tenant created moments ago may " +
-                  "take up to a minute to be recognized."
-                : $"Access to tenant '{routeTenantId}' is denied: the token was issued for tenant " +
-                  $"'{tokenTenantId}'. Sign in to tenant '{routeTenantId}' to access it.";
-            await WriteForbiddenAsync(context, message);
+            await WriteForbiddenAsync(context, UserTokenDenialMessage(routeTenantId, tokenTenantId, isParentAdministration));
             return false;
         }
 
@@ -446,9 +476,7 @@ internal class TenantAuthorizationMiddleware(
                     "Denied: service token of client '{ClientId}' carries no tenant_id claim but addresses tenant '{RouteTenantId}' (AB#5032)",
                     clientId, routeTenantId);
                 Count(context, ServiceToken, clientId, endpoint, TenantAuthorizationOutcome.DeniedMissingTenantId);
-                await WriteForbiddenAsync(context,
-                    $"Access to tenant '{routeTenantId}' is denied: the service token carries no tenant. " +
-                    $"Request the token with acr_values=tenant:{routeTenantId}.");
+                await WriteForbiddenAsync(context, ServiceTokenDenialMessage(routeTenantId, null));
                 return false;
             }
 
@@ -472,9 +500,7 @@ internal class TenantAuthorizationMiddleware(
                 "Denied: service token of client '{ClientId}' was issued for tenant '{TokenTenantId}' but addresses tenant '{RouteTenantId}' (AB#5032)",
                 clientId, tokenTenantId, routeTenantId);
             Count(context, ServiceToken, clientId, endpoint, TenantAuthorizationOutcome.Denied);
-            await WriteForbiddenAsync(context,
-                $"Access to tenant '{routeTenantId}' is denied: the service token was issued for tenant " +
-                $"'{tokenTenantId}'. Request the token with acr_values=tenant:{routeTenantId}.");
+            await WriteForbiddenAsync(context, ServiceTokenDenialMessage(routeTenantId, tokenTenantId));
             return false;
         }
 
@@ -484,6 +510,99 @@ internal class TenantAuthorizationMiddleware(
             clientId, tokenTenantId, routeTenantId);
         Count(context, ServiceToken, clientId, endpoint, TenantAuthorizationOutcome.WouldDeny);
         return true;
+    }
+
+    /// <summary>The 403 message of a user token of another tenant (AB#5227: one combined message for "not a child" and "does not exist").</summary>
+    private static string UserTokenDenialMessage(string routeTenantId, string? tokenTenantId, bool isParentAdministration) =>
+        isParentAdministration
+            ? $"Access to tenant '{routeTenantId}' is denied: the token was issued for tenant " +
+              $"'{tokenTenantId}', and '{routeTenantId}' is not an existing child tenant of it. " +
+              "If the tenant was deleted, re-create it first; a tenant created moments ago may " +
+              "take up to a minute to be recognized."
+            : $"Access to tenant '{routeTenantId}' is denied: the token was issued for tenant " +
+              $"'{tokenTenantId}'. Sign in to tenant '{routeTenantId}' to access it.";
+
+    /// <summary>The 403 message of a service token of another tenant, or of one without a tenant.</summary>
+    private static string ServiceTokenDenialMessage(string routeTenantId, string? tokenTenantId) =>
+        string.IsNullOrEmpty(tokenTenantId)
+            ? $"Access to tenant '{routeTenantId}' is denied: the service token carries no tenant. " +
+              $"Request the token with acr_values=tenant:{routeTenantId}."
+            : $"Access to tenant '{routeTenantId}' is denied: the service token was issued for tenant " +
+              $"'{tokenTenantId}'. Request the token with acr_values=tenant:{routeTenantId}.";
+
+    /// <summary>
+    ///     Whether <paramref name="routeTenantId" /> is really not registered, so that a <see cref="TenantException" /> with
+    ///     <see cref="TenantException.IsTenantNotFound" /> is about the route tenant and not about another tenant the endpoint
+    ///     resolved (e.g. a child of the route tenant). Without an <see cref="ISystemContext" />, or when the registry cannot
+    ///     be read, the answer is <c>false</c> and the exception keeps its way.
+    /// </summary>
+    private async Task<bool> IsRouteTenantMissingAsync(HttpContext context, string routeTenantId)
+    {
+        var systemContext = context.RequestServices?.GetService<ISystemContext>();
+        if (systemContext == null)
+        {
+            return false;
+        }
+
+        try
+        {
+            return !await systemContext.IsTenantRegisteredAsync(routeTenantId);
+        }
+        catch (Exception e) when (!context.RequestAborted.IsCancellationRequested)
+        {
+            logger.LogWarning(
+                "The tenant registry could not be read to classify a missing tenant on route tenant '{RouteTenantId}' ({ExceptionType})",
+                routeTenantId, e.GetType().Name);
+            return false;
+        }
+    }
+
+    /// <summary>
+    ///     Answers a request whose route tenant does not exist with the error contract of this gate instead of an unhandled
+    ///     exception: <c>404</c> with <c>{"message": ...}</c> for a caller of that tenant (token tenant = route tenant, no
+    ///     bearer token, or an allow-listed cross-tenant service client), <c>403</c> with the denial message of the token's
+    ///     path for any other caller, so a foreign caller cannot tell a missing tenant from a refused one. Never the exception
+    ///     text or stack trace.
+    /// </summary>
+    private async Task WriteTenantNotFoundAsync(HttpContext context, string routeTenantId)
+    {
+        var tokenTenantId = context.User.FindFirstValue(TenantIdClaimType);
+        var clientId = context.User.FindFirstValue(ClientIdClaimType);
+        var isBearer = context.Request.Headers.Authorization.ToString()
+                           .StartsWith("Bearer ", StringComparison.OrdinalIgnoreCase) &&
+                       context.User.Identity is { IsAuthenticated: true, AuthenticationType: { } authType } &&
+                       authType.Equals("Bearer", StringComparison.OrdinalIgnoreCase);
+        var isServiceToken = !context.User.HasClaim(c => c.Type == "sub" || c.Type == ClaimTypes.NameIdentifier);
+        var ownTenant = string.Equals(tokenTenantId, routeTenantId, StringComparison.OrdinalIgnoreCase);
+
+        string? denial = null;
+        if (isBearer && !ownTenant)
+        {
+            if (!isServiceToken)
+            {
+                denial = UserTokenDenialMessage(routeTenantId, tokenTenantId,
+                    context.Items.ContainsKey(ParentAdministrationItemKey));
+            }
+            else if (!options.Value.IsCrossTenantServiceClient(clientId))
+            {
+                denial = ServiceTokenDenialMessage(routeTenantId, tokenTenantId);
+            }
+        }
+
+        logger.LogInformation(
+            "Request to tenant '{RouteTenantId}', which does not exist, answered with {StatusCode} (client '{ClientId}')",
+            routeTenantId, denial == null ? StatusCodes.Status404NotFound : StatusCodes.Status403Forbidden,
+            clientId ?? "<none>");
+
+        context.Response.Clear();
+        if (denial != null)
+        {
+            await WriteForbiddenAsync(context, denial);
+            return;
+        }
+
+        context.Response.StatusCode = StatusCodes.Status404NotFound;
+        await context.Response.WriteAsJsonAsync(new { message = $"Tenant '{routeTenantId}' does not exist." });
     }
 
     /// <summary>

@@ -306,6 +306,33 @@ deleted, re-create it first") without telling an unrelated caller which of the t
 mentions that a tenant created moments ago may take up to one TTL of the hierarchy cache (60 s) to
 be recognized. The body is written best-effort (`Response.HasStarted` guard).
 
+## A route tenant that does not exist
+
+The gate does not read the tenant registry, so it lets requests to a tenant that does not exist through in several cases:
+an own-tenant token of a tenant that was deleted, the `LogOnly` modes (the asset repository runs the user path in `LogOnly`),
+and a child that was deleted within one TTL of the hierarchy cache. The endpoint then fails resolving the tenant with
+`TenantException` (`IsTenantNotFound`, e.g. `ISystemContext.FindTenantContextAsync` in the asset repository's GraphQL user
+context builder). Unhandled, that was an HTTP 500 — in production with an empty body, on the local stack behind
+`UseDeveloperExceptionPage()` as `text/plain` with the exception and its stack trace.
+
+The middleware therefore catches that exception from the rest of the pipeline and, when the **route** tenant is really not
+registered (`ISystemContext.IsTenantRegisteredAsync`), answers with the gate's error contract (`{"message": ...}`, JSON):
+
+| Caller | Status | Message |
+|--------|--------|---------|
+| token of the route tenant, request without bearer token, allow-listed cross-tenant service client | `404` | `Tenant '<id>' does not exist.` (the same status `TenantMiddleware` gives an unknown tenant) |
+| user token of another tenant | `403` | the denial message of the `Enforce` path: the combined "not an existing child" message for a parent-administration endpoint or request, otherwise "Sign in to tenant ..." |
+| service token of another tenant (not allow-listed) | `403` | the service-token denial message ("Request the token with acr_values=tenant:...") |
+
+A foreign caller gets the same answer as for a refused existing tenant, so the mapping is no oracle for which tenants exist.
+The exception keeps its way (old behaviour) when the missing tenant is not the route tenant (the route tenant is registered),
+when the host has no `ISystemContext`, or when the registry cannot be read; a response that has already started is not
+touched. Each mapping is logged at `Information` with the route tenant, the status and the client id.
+
+Tests: `tests/Infrastructure.Tests/Middleware/TenantAuthorizationMiddlewareTenantNotFoundTests.cs` (every caller kind,
+the cases that keep the exception) and `TenantNotFoundPipelineTests.cs` (TestServer pipeline in `Development` behind
+`UseDeveloperExceptionPage()` and in `Production`; asserts that no body carries the exception type or a stack frame).
+
 ## Metric of the decisions
 
 Every decision of the tenant check is counted next to its log line in `octo.tenant_auth.decisions` (meter

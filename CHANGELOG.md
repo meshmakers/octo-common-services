@@ -47,6 +47,17 @@ entries are grouped by work item until a release assigns the version.
 
 ### Fixed
 
+- **AB#9117** (security) — a request to a route tenant that does not exist (deleted, or never created) no longer ends in an
+  unhandled `TenantException` (HTTP 500; on the local stack, behind `UseDeveloperExceptionPage()`, `text/plain` with the stack
+  trace). The gate passes such a request in `LogOnly`, for an own-tenant token and for a child deleted within the hierarchy cache
+  TTL; the endpoint then failed resolving the tenant (asset repository GraphQL: `TenantUserContextBuilder`).
+  `TenantAuthorizationMiddleware` now catches `TenantException.IsTenantNotFound` from the rest of the pipeline when the route
+  tenant is not registered (`ISystemContext.IsTenantRegisteredAsync`) and answers JSON `{"message": ...}`: `404` for a caller of
+  that tenant (or an allow-listed cross-tenant service client), `403` with the denial message of the token's path for any other
+  caller (no existence oracle). A missing tenant other than the route tenant, a host without `ISystemContext` and an unreadable
+  registry keep the old behaviour. Every host that calls `UseOctoTenantAuthorization()` gets it with the package; no host change.
+  Docs: `docs/tenant-authorization.md` ("A route tenant that does not exist").
+
 - **AB#8969** — services with CK method handlers start reliably with several replicas. The startup validation of the method
   registrations (bus and in-process, order 15) used to skip a validation tenant whose CK cache was not loaded and then failed with
   "no such method" when a CK model import had unloaded the cache just before. It now loads the cache of every validation tenant itself
