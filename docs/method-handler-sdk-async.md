@@ -45,9 +45,10 @@ public sealed class BackupDumpHandler(IDumpService dumps)
 
 `CkMethodOutcome.Accepted(work)` is the same for a method without a result. Rules:
 
-* The work runs **at most once**, after the answer has left, in a detached flow (no ambient state of the caller), in the handler's DI scope,
+* The work runs **at most once**, in a detached flow (no ambient state of the caller), in the handler's DI scope,
   which stays open until the work ends. Its token is cancelled when the host stops; the operation then ends as
-  `METHOD_OUTCOME_UNKNOWN` (`reason` `handler-lost`). There is no resume and no retry.
+  `METHOD_OUTCOME_UNKNOWN` (`reason` `handler-lost`). There is no resume and no retry. The work may start before the accepted answer reaches the caller; no order between
+  the two is guaranteed (only the record is written before the answer).
 * The work answers success (result) or a declared error. An undeclared code is `METHOD_HANDLER_FAILED`, an exception is
   `METHOD_HANDLER_FAILED` with `correlationId` (logged, secrets masked), an unacknowledged write is `METHOD_OUTCOME_UNKNOWN` - the same
   mapping as a synchronous call. The work cannot accept again.
@@ -155,7 +156,9 @@ An invalid value stops the service at start; the message names the setting and i
 
 A keyed call to an async method behaves like any keyed call ([idempotency filter](method-handler-sdk-idempotency.md#idempotency-filter-at-band-300)): the first call stores the accepted
 envelope, a repeat with the same key and parameters gets the same envelope (same `operationId`) with its own `invocationId`, and the
-handler is not called again, so only one operation exists. Test: `tests/Methods.Tests/Operations/AsyncIdempotencyTests.cs`.
+handler is not called again, so only one operation exists while the record is live. The guarantee does not hold for a method
+declared `execution.idempotent: true`, which ignores the key, or after the record expires (`Methods:Idempotency:Ttl`, default 24 h): each such
+call can create its own operation. Test: `tests/Methods.Tests/Operations/AsyncIdempotencyTests.cs`.
 
 ### Metrics
 

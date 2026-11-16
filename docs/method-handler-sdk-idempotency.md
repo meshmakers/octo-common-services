@@ -55,8 +55,9 @@ A filter verifies a stored fingerprint with `context.Facts.MatchesStoredFingerpr
 As environment variables: `OCTO_Methods__Idempotency__Fingerprint__Current__Id` and `...__Secret`, `...__Previous__...`.
 A malformed or half-set key fails the start of the service; the message names the setting, never the value.
 
-**Rotation:** set the new key as `Current` (new id), move the old one to `Previous`, roll all replicas; remove `Previous` after the longest
-idempotency TTL (7 days at most).
+**Rotation** in two complete rollouts, so no replica meets a fingerprint of a key it does not know: first keep the old key as `Current` and add
+the new key (new id) as `Previous`, roll all replicas (every replica can now verify the new key); then set the new key as `Current` and the old
+one as `Previous`, roll all replicas; remove `Previous` after the longest idempotency TTL (7 days at most).
 
 **No key configured (fail closed):** a call with an idempotency key to a method that has sensitive parameters, or to an unknown method, is refused
 before the idempotency filter and the handler run: `METHOD_VALIDATION_FAILED`, `field` `idempotencyKey`, `reason` `fingerprint-key-missing`. A method

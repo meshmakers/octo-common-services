@@ -24,7 +24,9 @@ called. A valid token reaches the handler as `context.CallerPrincipal` (`Subject
 
 ```csharp
 var caller = context.CallerPrincipal!;          // never null on a host that enabled the validation
-if (!caller.Roles.Contains("AccountManagement", StringComparer.OrdinalIgnoreCase) && caller.Subject != context.TargetRtId)
+var isOwner = OctoObjectId.TryParse(caller.SubjectId, out var subject) &&       // parsed, so hex case does not matter
+              OctoObjectId.TryParse(context.TargetRtId, out var target) && subject.Equals(target);
+if (!caller.Roles.Contains("AccountManagement", StringComparer.OrdinalIgnoreCase) && !isOwner)
 {
     return CkMethodOutcome<AccountChangePasswordResult>.Forbidden("not-owner");
 }
