@@ -159,7 +159,9 @@ A keyed call to an async method behaves like any keyed call ([idempotency filter
 envelope, a repeat with the same key and parameters gets the same envelope (same `operationId`) with its own `invocationId`, and the
 handler is not called again, so only one operation exists while the record is live. The guarantee does not hold for a method
 declared `execution.idempotent: true`, which ignores the key, or after the record expires (`Methods:Idempotency:Ttl`, default 24 h): each such
-call can create its own operation. Test: `tests/Methods.Tests/Operations/AsyncIdempotencyTests.cs`.
+call can create its own operation. The replayed envelope can also outlive the operation: the record is kept for `Methods:Operations:Retention`
+(default 7 days, at least 1 hour), so with a retention below the idempotency TTL a repeat can return a handle whose operation `GetAsync` no longer
+finds. Test: `tests/Methods.Tests/Operations/AsyncIdempotencyTests.cs`.
 
 ### Metrics
 
