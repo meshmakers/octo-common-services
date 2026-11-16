@@ -49,7 +49,8 @@ line `0.1.*`) fails fast with MSBuild error `OCTO0001`. Use `-c DebugL` locally.
 nuget.org inside a DebugL build, which only surfaced once the fallback was gone.
 
 This repository restores the upstream `999.0.0` packages from `../nuget`, so on a fresh workspace build the
-dependency chain first (`Invoke-BuildAll -configuration DebugL`, octo-tools).
+dependency chain first (`Invoke-BuildAll -configuration DebugL`, octo-tools). Its exit code and return value do not show
+a failed upstream build: continue only when the summary reports `Percentage of successful builds: 100%`.
 
 Propagate the produced `Meshmakers.Octo.Services.*.999.0.0.nupkg` files from `bin/DebugL/` into
 `../nuget` so downstream services (Asset-Repo, Reporting, Identity, ...) pick up local changes. A copy alone

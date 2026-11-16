@@ -87,19 +87,19 @@ tests `tests/Methods.Tests/InProcess/`. Guide: `docs/method-handler-sdk-in-proce
   caller's flow before the detached run. Without the opt-in a remote handler has no validated caller (`CallerPrincipal == null`) and the host refuses every call (next entry).
 - **Caller tenant of in-process calls, checked once** (`src/Methods/Authorization/CkMethodCallerTenantFilter.cs`, rule
   `src/Methods/Authorization/Token/CkMethodCallerTenantRule.cs`, tests `tests/Methods.Tests/Authorization/CkMethodCallerTenantTests.cs`): every
-  **in-process** call (in-process registrations and the bus handlers a service calls itself) whose caller token was issued for another tenant
-  than `CkMethodRequest.TenantId` is answered `METHOD_FORBIDDEN` with `methodId` and `reason = tenant-not-allowed` before the declared authorization,
+  **in-process** call (in-process registrations and own bus handlers) whose caller token was issued for another tenant
+  than `CkMethodRequest.TenantId` (an allow-listed service client excepted, below) is answered `METHOD_FORBIDDEN` with `methodId` and `reason = tenant-not-allowed` before the declared authorization,
   the idempotency store and the handler run. The HTTP `TenantAuthorizationMiddleware` alone may only log (`UserTokenEnforcement=LogOnly`, the local
-  default); the filter never reads those modes. Rule = `CkMethodCallerTenantRule`, the one the bus host's
-  `CkMethodCallerTokenValidator` also calls (no copy): user token (`sub`) -> `tenant_id` must equal the call's tenant (case-insensitive); service
+  default); the filter never reads those modes. Rule = `CkMethodCallerTenantRule`, also called by the bus host's
+  `CkMethodCallerTokenValidator` (no copy): user token (`sub`) -> `tenant_id` must equal the call's tenant (case-insensitive); service
   token (no `sub`) -> needs `client_id`, and `tenant_id` equals the tenant or the client is on `TenantAuthorization:CrossTenantServiceClientIds`;
   neither `sub` nor `client_id` -> `token-invalid`; no parent-tenant rule, `allowed_tenants` never consulted. Input: `CkMethodPrincipal.TokenTenantId`
   (the `tenant_id` claim) and `IsFromAccessToken`, both set by `CkMethodPrincipal.FromClaimsPrincipal` (init-only properties, binary compatible). A
   principal a service builds itself (a job, `new CkMethodPrincipal(...)`) is not from a token and is not judged; no principal is left to the
-  authorization (refused there). Band `CkMethodInvocationFilterOrder.CallerTenant` = 150: inside audit (refusal audited once), outside
+  authorization (refused there). Band `CkMethodInvocationFilterOrder.CallerTenant` = 150: inside audit (audited once), outside
   authorization (200) and idempotency (300, so a foreign caller never gets a replay). On the `bus` transport the filter passes (the bus host judges the
   forwarded token). Registered by `AddCkLocalMethodTransport` (`AddCkInProcessMethodHandlers`, `AddCkMethodHandlers`)
-  with `TryAddEnumerable`, not optional; binds `TenantAuthorization` itself. The log names tenant, method, invocation, reason and the verdict
+  with `TryAddEnumerable`, not optional; binds `TenantAuthorization`. The log names tenant, method, invocation, reason and the verdict
   category, never a token or claim value. A test principal needs a `tenant_id` claim of the route tenant. The per-handler checks of the
   asset-repo archive methods were removed. Then the generation check runs (`tenant-generation-check.md`).
 - **Method host enforces the declared authorization** (finding F-1 of the adversarial suite; `CkMethodHandlerInvoker`, tests `tests/Methods.Tests/Authorization/CkMethodHostAuthorizationTests.cs`, adversarial C16): after the caller token validation (remote) or with the principal of the calling process (in-process) and **before the parameters are deserialized**, the invoker calls `ICkMethodAuthorizationEvaluator.Evaluate(definition.Authorization, definition.Kind, request.TargetRtId, principal)` - the same evaluator type the gateway uses, no copied rule - on every path that reaches a handler. A registration without `Definition` is refused (`UnknownMethod`); a missing principal is refused. A refusal is `METHOD_FORBIDDEN` / `not-authorized` (`CkMethodAuthorizationErrors.Forbidden`), byte-identical to the gateway, the handler and the target are not touched; the log names the denial (`CkMethodDenial`) only. `AddCkMethodHandlers` and `AddCkInProcessMethodHandlers` `TryAdd` the evaluator and bind `Methods:Authorization`; the `CkMethodHandlerInvoker` constructor takes the evaluator as a required argument. Tests that are not about authorization register `AllowAnyCallerEvaluator` (integration) or use the fixtures' administrator principal (`HostFixture.Administrator`). Hosts in other repositories (pipeline handler, adapters through the SDK) pick this up with the library update and must enable `AddCkMethodCallerTokenValidation`.
