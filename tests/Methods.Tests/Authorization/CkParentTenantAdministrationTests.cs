@@ -168,6 +168,8 @@ public class CkParentTenantAdministrationTests
     [InlineData(Child, OtherMethod, CurrentGeneration, CkMethodErrorCodes.MethodForbidden)]
     [InlineData(Grandchild, Dump, CurrentGeneration, CkMethodErrorCodes.MethodForbidden)]
     [InlineData(Child, Dump, OldGeneration, CkMethodErrorCodes.MethodForbidden)]
+    // the generation is the parent's, never the child's: a parent token carrying the child's generation is refused
+    [InlineData(Child, Dump, ChildGeneration, CkMethodErrorCodes.MethodForbidden)]
     public async Task InProcess_ParentRule(string callTenant, string methodId, string generation, string? expectedError)
     {
         var options = EnforcingOptions();
@@ -202,6 +204,7 @@ public class CkParentTenantAdministrationTests
     [InlineData(Grandchild, Dump, true, CurrentGeneration, false)]
     [InlineData(Child, Dump, false, CurrentGeneration, false)]
     [InlineData(Child, Dump, true, OldGeneration, false)]
+    [InlineData(Child, Dump, true, ChildGeneration, false)]
     public async Task BusHost_ParentRule(string callTenant, string methodId, bool user, string generation, bool valid)
     {
         var options = EnforcingOptions();

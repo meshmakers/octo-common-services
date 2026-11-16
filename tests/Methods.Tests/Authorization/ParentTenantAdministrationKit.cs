@@ -24,6 +24,12 @@ internal static class ParentTenantAdministrationKit
     public const string CurrentGeneration = "1794750381540";
     public const string OldGeneration = "1794750081540";
 
+    /// <summary>
+    ///     The current generation of <see cref="Child" />; every other tenant has <see cref="CurrentGeneration" />. A parent
+    ///     token passes on the child only with the parent's generation, so a check against the child would be caught.
+    /// </summary>
+    public const string ChildGeneration = "1794750399999";
+
     public const string CrossClient = "platform-worker";
 
     /// <summary>The registry: one level per ordinary tenant, the whole estate for the system tenant.</summary>
@@ -73,7 +79,10 @@ internal static class ParentTenantAdministrationKit
         return options;
     }
 
-    /// <summary>A real generation check over a reader that knows the current generation of every tenant.</summary>
+    /// <summary>
+    ///     A real generation check over a reader that knows the current generation of every tenant: <see cref="ChildGeneration" />
+    ///     for <see cref="Child" />, <see cref="CurrentGeneration" /> for all others.
+    /// </summary>
     public static ITenantGenerationCheck GenerationCheck(TenantAuthorizationOptions options) =>
         new TenantGenerationCheck(new GenerationReader(), new TenantGenerationMetrics(), Options.Create(options),
             Options.Create(new OctoSystemConfiguration { SystemTenantId = SystemTenant }),
@@ -83,7 +92,9 @@ internal static class ParentTenantAdministrationKit
     {
         public ValueTask<string?> GetGenerationAsync(string tenantId, bool refresh = false,
             CancellationToken cancellationToken = default) =>
-            ValueTask.FromResult<string?>(CurrentGeneration);
+            ValueTask.FromResult<string?>(string.Equals(tenantId, Child, StringComparison.OrdinalIgnoreCase)
+                ? ChildGeneration
+                : CurrentGeneration);
 
         public void Invalidate(string tenantId)
         {

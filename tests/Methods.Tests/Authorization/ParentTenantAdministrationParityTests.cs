@@ -54,7 +54,8 @@ public class ParentTenantAdministrationParityTests
         new Case("client credentials of the parent on its child", Parent, Child, false, "parent-client", true, CurrentGeneration, false),
         new Case("allow-listed client credentials on the child", Parent, Child, false, CrossClient, true, CurrentGeneration, true),
         new Case("parent on its child without the role", Parent, Child, true, "studio", false, CurrentGeneration, false),
-        new Case("parent recreated after the token was issued", Parent, Child, true, "studio", true, OldGeneration, false)
+        new Case("parent recreated after the token was issued", Parent, Child, true, "studio", true, OldGeneration, false),
+        new Case("parent token carrying the child's generation", Parent, Child, true, "studio", true, ChildGeneration, false)
     ];
 
     public static TheoryData<string> Cases() => new(All.Select(c => c.Name));
