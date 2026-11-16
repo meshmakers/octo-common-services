@@ -268,6 +268,50 @@ public sealed class TenantAuthorizationMiddlewareMetricsTests : IDisposable
     }
 
     [Fact]
+    public void SeriesBudget_Exhausted_CollapsesClientAndRoute_ButKeepsTheOutcome()
+    {
+        using var metrics = new TenantAuthorizationMetrics(maxSeries: 2);
+        using var listener = new DecisionListener(metrics);
+        var endpoint = new RouteEndpoint(_ => Task.CompletedTask, RoutePatternFactory.Parse(RouteTemplate), 0,
+            EndpointMetadataCollection.Empty, "backup (test)");
+
+        metrics.RecordUserToken(TenantAuthorizationOutcome.WouldDeny, UserTokenTenantEnforcementMode.LogOnly, "app-1",
+            endpoint);
+        metrics.RecordUserToken(TenantAuthorizationOutcome.Match, UserTokenTenantEnforcementMode.LogOnly, "app-2",
+            endpoint);
+        metrics.RecordUserToken(TenantAuthorizationOutcome.WouldDeny, UserTokenTenantEnforcementMode.LogOnly, "app-3",
+            endpoint);
+        metrics.RecordUserToken(TenantAuthorizationOutcome.Match, UserTokenTenantEnforcementMode.LogOnly, "app-4",
+            endpoint);
+        metrics.RecordUserToken(TenantAuthorizationOutcome.WouldDeny, UserTokenTenantEnforcementMode.LogOnly, "app-1",
+            endpoint);
+
+        var measurements = listener.Measurements.Select(m => m.Tags).ToList();
+        Assert.Equal(5, measurements.Count);
+        Assert.Equal(("would_deny", "app-1", "/" + RouteTemplate), Labels(measurements[0]));
+        Assert.Equal(("match", "app-2", TenantAuthorizationMetrics.AnyRoute), Labels(measurements[1]));
+        Assert.Equal(("would_deny", TenantGenerationMetrics.OtherClientId, TenantAuthorizationMetrics.OtherRoute),
+            Labels(measurements[2]));
+        Assert.Equal(("match", TenantGenerationMetrics.OtherClientId, TenantAuthorizationMetrics.AnyRoute),
+            Labels(measurements[3]));
+        // A combination admitted before the budget ran out keeps its labels.
+        Assert.Equal(("would_deny", "app-1", "/" + RouteTemplate), Labels(measurements[4]));
+        Assert.All(measurements, m => Assert.Equal("user", m[TenantAuthorizationMetrics.TokenKindTag]));
+
+        static (string?, string?, string?) Labels(Dictionary<string, string?> tags) =>
+            (tags[TenantAuthorizationMetrics.OutcomeTag], tags[TenantAuthorizationMetrics.ClientIdTag],
+                tags[TenantAuthorizationMetrics.RouteTag]);
+    }
+
+    [Fact]
+    public void SeriesBudget_WithCollapsedCombinations_StaysBelowTheSdkDefaultLimit()
+    {
+        // 9 outcome labels x 2 token kinds x 3 modes collapsed combinations on top of the budget; the OpenTelemetry
+        // SDK default cardinality limit per metric is 2000.
+        Assert.True(TenantAuthorizationMetrics.MaxSeries + 9 * 2 * 3 < 2000);
+    }
+
+    [Fact]
     public void OutcomeLabel_UnknownOutcome_IsOther_NotADenial()
     {
         Assert.Equal(TenantAuthorizationMetrics.OtherOutcome,

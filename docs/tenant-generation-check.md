@@ -133,6 +133,12 @@ counters share the `client_id` bounds (`ClientIdLabelBudget`, `MetricLabels`).
 | `client_id` | the token's `client_id`; `unknown` when absent or not printable ASCII / longer than 128 characters; `other` after 1000 distinct values per process (same bounds as `octo.tenant_auth.generation_checks`) |
 | `route` | on `would_deny…` and `denied…` only: the route **template** of the endpoint with a leading slash (e.g. `/{tenantId}/graphql`), never the request path; `unknown` without a route template, `other` when it is longer than 128 characters or not printable ASCII. On every other outcome `any`: allowed requests are the bulk of the traffic, and client × route on them would multiply the series without serving any gate |
 
+**Series budget.** The OpenTelemetry SDK keeps at most 2000 label combinations per metric by default and folds further
+ones into an overflow series without labels. The counter therefore bounds the whole combination: after 1500 distinct
+combinations per process a new one is recorded with `client_id` = `other` (and `route` = `other` on refusals) but keeps
+`outcome`, `token_kind` and `mode`. The collapsed combinations add at most 9 × 2 × 3, so a refusal is never lost from an
+outcome-filtered query. A per-pod series count near 1500 is the sign to look at the clients and routes.
+
 Never the tenant id, the user, `sub` or a token value; a unit test asserts the exact label set. Requests the middleware
 does not judge are not counted: anonymous endpoints, requests without a bearer header, cookie principals,
 unauthenticated requests and routes without a tenant. A request that passes the tenant check is then judged by the tenant

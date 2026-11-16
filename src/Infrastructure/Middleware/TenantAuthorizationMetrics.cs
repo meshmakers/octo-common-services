@@ -52,6 +52,15 @@ public enum TenantAuthorizationOutcome
 ///         are the bulk of the traffic, and client × route on them would multiply the series without serving any gate.
 ///     </para>
 ///     <para>
+///         <b>Series budget.</b> The OpenTelemetry SDK keeps at most 2000 label combinations per metric by default and
+///         folds every further one into an overflow series without labels. This class therefore bounds the complete
+///         combination, not only <c>client_id</c>: after <see cref="MaxSeries" /> distinct combinations per process, a new
+///         combination is recorded with <c>client_id</c> = <c>other</c> and (on refusals) <c>route</c> = <c>other</c>, but
+///         keeps <c>outcome</c>, <c>token_kind</c> and <c>mode</c>. Those collapsed combinations are at most 9 × 2 × 3 (their
+///         <c>route</c> follows from the outcome), so the total stays below the SDK limit and a refusal is never lost
+///         from an outcome-filtered query.
+///     </para>
+///     <para>
 ///         Requests the middleware does not judge (anonymous endpoints, no bearer header, cookie principals,
 ///         unauthenticated requests, routes without a tenant) are not counted. The tenant generation check that follows
 ///         a passed tenant check has its own counter.
@@ -95,13 +104,25 @@ public sealed class TenantAuthorizationMetrics : IDisposable
     /// <summary>Value of <c>outcome</c> for an outcome without a label of its own.</summary>
     public const string OtherOutcome = "other";
 
+    /// <summary>Distinct label combinations per process before <c>client_id</c> and <c>route</c> collapse to <c>other</c>.</summary>
+    internal const int MaxSeries = 1500;
+
     private readonly ClientIdLabelBudget _clientIds = new(TenantGenerationMetrics.MaxClientIds);
+    private readonly HashSet<(string Outcome, string TokenKind, string Mode, string ClientId, string Route)> _series = [];
+    private readonly Lock _seriesGate = new();
+    private readonly int _maxSeries;
     private readonly Counter<long> _decisions;
     private readonly Meter _meter;
 
     /// <summary>Creates the meter and the counter.</summary>
-    public TenantAuthorizationMetrics()
+    public TenantAuthorizationMetrics() : this(MaxSeries)
     {
+    }
+
+    /// <summary>Creates the meter and the counter with another series budget (tests).</summary>
+    internal TenantAuthorizationMetrics(int maxSeries)
+    {
+        _maxSeries = maxSeries;
         _meter = new Meter(TenantGenerationMetrics.MeterName);
         _decisions = _meter.CreateCounter<long>(CounterName, "{decision}",
             "Tenant check decisions of the tenant authorization middleware, by outcome, token kind, mode, client and route");
@@ -176,13 +197,44 @@ public sealed class TenantAuthorizationMetrics : IDisposable
     private void Record(TenantAuthorizationOutcome outcome, string tokenKind, string mode, string? clientId,
         Endpoint? endpoint)
     {
+        var refusal = IsRefusal(outcome);
+        var series = (Outcome: OutcomeLabel(outcome), TokenKind: tokenKind, Mode: mode, ClientId: ClientIdLabel(clientId),
+            Route: refusal ? RouteLabel(endpoint) : AnyRoute);
+        if (!WithinBudget(series))
+        {
+            series = series with
+            {
+                ClientId = TenantGenerationMetrics.OtherClientId, Route = refusal ? OtherRoute : AnyRoute
+            };
+        }
+
         _decisions.Add(1, new TagList
         {
-            { OutcomeTag, OutcomeLabel(outcome) },
-            { TokenKindTag, tokenKind },
-            { ModeTag, mode },
-            { ClientIdTag, ClientIdLabel(clientId) },
-            { RouteTag, IsRefusal(outcome) ? RouteLabel(endpoint) : AnyRoute }
+            { OutcomeTag, series.Outcome },
+            { TokenKindTag, series.TokenKind },
+            { ModeTag, series.Mode },
+            { ClientIdTag, series.ClientId },
+            { RouteTag, series.Route }
         });
+    }
+
+    /// <summary>Whether the combination is known or still fits into the series budget (then it is remembered).</summary>
+    private bool WithinBudget((string Outcome, string TokenKind, string Mode, string ClientId, string Route) series)
+    {
+        lock (_seriesGate)
+        {
+            if (_series.Contains(series))
+            {
+                return true;
+            }
+
+            if (_series.Count >= _maxSeries)
+            {
+                return false;
+            }
+
+            _series.Add(series);
+            return true;
+        }
     }
 }

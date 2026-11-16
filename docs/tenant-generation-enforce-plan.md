@@ -235,8 +235,14 @@ protection is only complete when every service enforces.
 Set the value back to `LogOnly` in the cluster values and run the same CD again; the pods roll as in a normal rollout,
 no data changes and no restart beyond it. Requests refused under `Enforce` work again at once; users who signed in again
 in the meantime are not affected. `Disabled` exists for `TenantGenerationEnforcement` and identity's
-`ServiceTokenEnforcement` (not for `UserTokenEnforcement`), but hides the inventory (no log; the tenant generation counter
-stops and `octo.tenant_auth.decisions` only counts `not_checked`) — use it only as an emergency exit and go back to `LogOnly` afterwards.
+`ServiceTokenEnforcement` (not for `UserTokenEnforcement`), but hides part of the inventory — use it only as an emergency
+exit and go back to `LogOnly` afterwards:
+
+- `TenantGenerationEnforcement=Disabled` stops the generation check: no log line and no `octo.tenant_auth.generation_checks`
+  measurement. The tenant check (S1) and `octo.tenant_auth.decisions` are not affected.
+- `ServiceTokenEnforcement=Disabled` stops the tenant check for **service tokens** only: no log line, and their decisions
+  are counted as `not_checked`. User tokens are still judged by `UserTokenEnforcement` and counted as before (`match`,
+  `would_deny…`, `denied…`), so the counter is not a sign that S1 is off.
 
 ## Last step: code default
 
