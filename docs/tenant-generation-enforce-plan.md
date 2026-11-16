@@ -53,7 +53,8 @@ risk (Gerald, 2026-11-15): in `LogOnly` such a grant takes the current generatio
   lifetime, so the wait is the **larger** of the two maxima: an access token issued before the `tenant_gen` claim
   stays valid for its own lifetime.
 - **Alternative:** instead of waiting, the gate check states that users with older refresh tokens must
-  sign in again on this environment. One of the two, per environment, written down.
+  sign in again on this environment, and the largest `AccessTokenLifetime` is waited out before `Enforce` is set,
+  so no access token issued before the `tenant_gen` claim is still valid. One of the two, per environment, written down.
 
 **(b) No legitimate "would be denied".** Over the observation window before the gate check (proposal: the last 7 days;
 the window is Gerald's call) the logs and the metric show no refusal `Enforce` would make for a legitimate caller:
