@@ -15,6 +15,7 @@ using Meshmakers.Octo.Services.Infrastructure.Routing;
 using Meshmakers.Octo.Services.Infrastructure.Cors;
 using Meshmakers.Octo.Services.Infrastructure.DistributionEventHub;
 using Meshmakers.Octo.Services.Infrastructure.Services;
+using Meshmakers.Octo.Services.Infrastructure.TenantGeneration;
 using Microsoft.AspNetCore.Cors.Infrastructure;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Options;
@@ -59,6 +60,8 @@ public static class ServiceCollectionExtensions
         // Singleton because it owns the parent/child cache that keeps the parent-tenant
         // administration rule (AB#5060) off the database on every request.
         services.TryAddSingleton<ITenantHierarchyReader, TenantHierarchyReader>();
+        // AB#8999: the tenant generation (tenant_gen) check of TenantAuthorizationMiddleware, with its cache.
+        services.AddOctoTenantGenerationCheck();
         services.AddOptions<OctoCorsOptions>();
         services.AddSingletonMultipleInterfaces<CorsPolicyProvider, ICorsPolicyProvider>();
         services.AddExceptionHandler<OctoExceptionHandler>();
@@ -162,6 +165,22 @@ public static class ServiceCollectionExtensions
     {
         services.Configure<TenantAuthorizationOptions>(
             configuration.GetSection(TenantAuthorizationOptions.SectionName));
+        return services;
+    }
+
+    /// <summary>
+    ///     Registers the tenant generation check (AB#8999): <see cref="ITenantGenerationCheck" />, the cached
+    ///     <see cref="ITenantGenerationReader" /> and <see cref="TenantGenerationMetrics" />, all singletons, added only
+    ///     when not registered yet. Called by <c>AddOctoServiceInfrastructure()</c> and by the CK method registrations;
+    ///     identity calls it for its grants (AB#9017). The mode comes from
+    ///     <c>TenantAuthorization:TenantGenerationEnforcement</c> (bind with <c>AddOctoTenantAuthorization</c>).
+    /// </summary>
+    public static IServiceCollection AddOctoTenantGenerationCheck(this IServiceCollection services)
+    {
+        services.AddOptions<TenantAuthorizationOptions>();
+        services.TryAddSingleton<TenantGenerationMetrics>();
+        services.TryAddSingleton<ITenantGenerationReader, TenantGenerationReader>();
+        services.TryAddSingleton<ITenantGenerationCheck, TenantGenerationCheck>();
         return services;
     }
 

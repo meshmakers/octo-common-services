@@ -1,3 +1,4 @@
+using Meshmakers.Octo.Runtime.Engine.AuditTrails;
 using Meshmakers.Octo.Runtime.Engine.Secrets;
 using Meshmakers.Octo.Services.Observability;
 using Meshmakers.Octo.Services.RestDeprecation;
@@ -42,6 +43,22 @@ public class MeterRegistrationTests
     }
 
     /// <summary>
+    ///     AB#7279: octo.datapermissions.audit.violations (DataPermissionAudit in the engine) reaches the exporters, so
+    ///     the full count of AuditOnly violations stays queryable while the audit log only carries window summaries.
+    /// </summary>
+    [Fact]
+    public void DataPermissionAuditMeter_IsRegistered()
+    {
+        var builder = Host.CreateApplicationBuilder();
+        builder.AddObservability();
+
+        using var host = builder.Build();
+        _ = host.Services.GetRequiredService<MeterProvider>();
+
+        Assert.True(DataPermissionAudit.Violations.Enabled);
+    }
+
+    /// <summary>
     ///     AB#7249: octo.tenant_setup.failed / .pending_seconds (TenantSetupMetrics in Infrastructure, meter name
     ///     pinned there by a test) reach the exporters. Observability does not reference Infrastructure, so the
     ///     meter is created here under the same name.
@@ -57,6 +74,25 @@ public class MeterRegistrationTests
 
         using var meter = new System.Diagnostics.Metrics.Meter("Meshmakers.Octo.TenantSetup");
         var counter = meter.CreateCounter<int>("octo.tenant_setup.probe");
+
+        Assert.True(counter.Enabled);
+    }
+
+    /// <summary>
+    ///     AB#8999: octo.tenant_auth.generation_checks (TenantGenerationMetrics in Infrastructure, meter name pinned there
+    ///     by a test) reaches the exporters.
+    /// </summary>
+    [Fact]
+    public void TenantAuthorizationMeter_IsRegistered()
+    {
+        var builder = Host.CreateApplicationBuilder();
+        builder.AddObservability();
+
+        using var host = builder.Build();
+        _ = host.Services.GetRequiredService<MeterProvider>();
+
+        using var meter = new System.Diagnostics.Metrics.Meter("Meshmakers.Octo.TenantAuthorization");
+        var counter = meter.CreateCounter<int>("octo.tenant_auth.probe");
 
         Assert.True(counter.Enabled);
     }

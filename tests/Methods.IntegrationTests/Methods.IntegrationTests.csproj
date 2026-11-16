@@ -36,6 +36,8 @@
     <ItemGroup>
         <!-- AB#8443: the operation store contract runs against the in-memory store (Methods.Tests) and MongoDB (here) -->
         <Compile Include="..\Methods.Tests\Operations\OperationStoreContract.cs" Link="Operations\OperationStoreContract.cs" />
+        <!-- AB#8881: the tenant generation guard (recreated tenant id) against the same stores -->
+        <Compile Include="..\Methods.Tests\Operations\TenantGenerationStoreContract.cs" Link="Operations\TenantGenerationStoreContract.cs" />
     </ItemGroup>
 
 </Project>

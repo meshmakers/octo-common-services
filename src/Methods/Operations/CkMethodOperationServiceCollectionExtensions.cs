@@ -1,3 +1,4 @@
+using Meshmakers.Octo.Runtime.Contracts.MongoDb.TenantLifecycle;
 using Meshmakers.Octo.Services.Methods;
 using Meshmakers.Octo.Services.Methods.Operations;
 using Microsoft.Extensions.DependencyInjection.Extensions;
@@ -72,13 +73,65 @@ public static class CkMethodOperationServiceCollectionExtensions
 
     /// <summary>
     ///     Registers <see cref="CkMethodInMemoryOperationStore" /> unless a store is registered. Tests and single-replica
-    ///     hosts only: the records are not shared and do not survive a restart.
+    ///     hosts only: the records are not shared and do not survive a restart. AB#8881: wrapped in
+    ///     <see cref="CkMethodTenantGenerationOperationStore" />.
     /// </summary>
     public static IServiceCollection AddCkMethodInMemoryOperationStore(this IServiceCollection services,
         Action<CkMethodOperationOptions>? configure = null)
     {
         services.AddCkMethodOperationOptions(configure);
-        services.TryAddSingleton<ICkMethodOperationStore, CkMethodInMemoryOperationStore>();
+        services.AddCkMethodOperationStoreWithTenantGeneration<CkMethodInMemoryOperationStore>();
+        return services;
+    }
+
+    /// <summary>
+    ///     AB#8881: registers <typeparamref name="TStore" /> as <see cref="ICkMethodOperationStore" />, wrapped in
+    ///     <see cref="CkMethodTenantGenerationOperationStore" /> (reads ignore records of an earlier tenant with the same id),
+    ///     unless a store is registered; then <see cref="ICkMethodOperationTenantGeneration" /> and
+    ///     <see cref="ICkMethodOperationTenantPurge" />. The store registrations call it.
+    /// </summary>
+    public static IServiceCollection AddCkMethodOperationStoreWithTenantGeneration<TStore>(
+        this IServiceCollection services)
+        where TStore : class, ICkMethodOperationStore
+    {
+        ArgumentNullException.ThrowIfNull(services);
+        services.AddCkMethodOperationTenantGeneration();
+        if (services.All(d => d.ServiceType != typeof(ICkMethodOperationStore)))
+        {
+            services.TryAddSingleton<TStore>();
+            services.AddSingleton<ICkMethodOperationStore>(sp => new CkMethodTenantGenerationOperationStore(
+                sp.GetRequiredService<TStore>(), sp.GetRequiredService<ICkMethodOperationTenantGeneration>()));
+        }
+
+        services.AddCkMethodOperationTenantPurge();
+        return services;
+    }
+
+    /// <summary>
+    ///     AB#8881: registers <see cref="ICkMethodOperationTenantGeneration" /> unless one is registered: the creation time
+    ///     from the tenant lifecycle record (<see cref="CkMethodTenantLifecycleGeneration" />) when the host has the engine's
+    ///     <see cref="ITenantLifecycleStore" />, else <see cref="CkMethodNoOperationTenantGeneration" /> (no filter; tests).
+    /// </summary>
+    public static IServiceCollection AddCkMethodOperationTenantGeneration(this IServiceCollection services)
+    {
+        ArgumentNullException.ThrowIfNull(services);
+        services.TryAddSingleton<ICkMethodOperationTenantGeneration>(sp =>
+            sp.GetService<ITenantLifecycleStore>() is { } lifecycleStore
+                ? new CkMethodTenantLifecycleGeneration(lifecycleStore)
+                : new CkMethodNoOperationTenantGeneration());
+        return services;
+    }
+
+    /// <summary>
+    ///     Registers <see cref="ICkMethodOperationTenantPurge" /> (AB#8447) unless one is registered: the registered
+    ///     <see cref="ICkMethodOperationStore" /> when it implements the purge, else <see cref="CkMethodNoOperationTenantPurge" />.
+    ///     Called by the store registrations; a host with its own store calls it after registering the store.
+    /// </summary>
+    public static IServiceCollection AddCkMethodOperationTenantPurge(this IServiceCollection services)
+    {
+        services.TryAddSingleton<ICkMethodOperationTenantPurge>(sp =>
+            sp.GetRequiredService<ICkMethodOperationStore>() as ICkMethodOperationTenantPurge ??
+            new CkMethodNoOperationTenantPurge());
         return services;
     }
 }

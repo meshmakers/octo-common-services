@@ -1,6 +1,5 @@
 using Meshmakers.Octo.Services.Methods.MongoDb;
 using Meshmakers.Octo.Services.Methods.Operations;
-using Microsoft.Extensions.DependencyInjection.Extensions;
 
 // ReSharper disable once CheckNamespace
 namespace Microsoft.Extensions.DependencyInjection;
@@ -13,13 +12,15 @@ public static class CkMethodMongoOperationStoreServiceCollectionExtensions
     ///     as <see cref="ICkMethodOperationStore" /> unless a store is registered, and binds <c>Methods:Operations</c>. The
     ///     host already configures <c>OctoSystemConfiguration</c> (section <c>System</c>) for the engine; the store needs its
     ///     admin credentials. Combine with <c>AddCkMethodOperations()</c> (handler hosts) or <c>AddCkMethodOperationSweep()</c>
-    ///     (readers).
+    ///     (readers). AB#8447: also registers <see cref="ICkMethodOperationTenantPurge" /> (the store's purge of a deleted
+    ///     tenant). AB#8881: the store is wrapped in <see cref="CkMethodTenantGenerationOperationStore" />, so reads never
+    ///     return a record of an earlier tenant with the same id (generation = creation time of the tenant lifecycle record).
     /// </summary>
     public static IServiceCollection AddCkMethodMongoOperationStore(this IServiceCollection services,
         Action<CkMethodOperationOptions>? configure = null)
     {
         services.AddCkMethodOperationOptions(configure);
-        services.TryAddSingleton<ICkMethodOperationStore, CkMethodMongoOperationStore>();
+        services.AddCkMethodOperationStoreWithTenantGeneration<CkMethodMongoOperationStore>();
         return services;
     }
 }

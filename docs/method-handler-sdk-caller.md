@@ -62,8 +62,19 @@ validation always enforces; the `LogOnly` and `Disabled` modes of the HTTP side 
 An expired token is only reported as `token-expired` if it is genuine otherwise; an expired forgery is `token-invalid`. If the signing
 keys cannot be loaded at all (identity service down and nothing cached) the call is answered `METHOD_HANDLER_FAILED`, never accepted.
 
-**Not covered.** The in-process transport does not validate a token: it runs in the process that already authenticated the caller and
-hands the principal of that process (`CkMethodPrincipalScope`) to the handler as `CallerPrincipal`. A remote service that does not call
+**In-process calls.** The in-process transport does not validate a token: it runs in the process that already authenticated the caller and
+hands the principal of that process (`CkMethodPrincipalScope`) to the handler as `CallerPrincipal`. It does apply the **tenant rule** above
+to every in-process call (`CkMethodCallerTenantFilter`): a principal mapped from a token (`CkMethodPrincipal.FromClaimsPrincipal`)
+whose `tenant_id` names another tenant than the call is refused with `METHOD_FORBIDDEN` / `tenant-not-allowed` before the handler runs, with
+the same allow-list for service tokens, whatever mode the HTTP tenant gate runs in. A handler needs no tenant check of its own.
+A host that does its own work **before** the pipeline (the method gateway of the asset repository: role check, target load,
+parameter validation) runs the same step first: `CkMethodCallerTenantCheck.IsRefused`. A foreign-tenant token that the rule
+refuses then gets `METHOD_FORBIDDEN` / `tenant-not-allowed` for every call, never `METHOD_TARGET_NOT_FOUND`, a role refusal or a validation
+error that would tell it whether a target exists. A service token of another tenant on the allow-list
+(`TenantAuthorization:CrossTenantServiceClientIds`) passes this step and is judged like a caller of the tenant: it can receive a role,
+target or validation error.
+
+**Not covered.** A remote service that does not call
 `AddCkMethodCallerTokenValidation` has no validated caller, so the host refuses every call (`METHOD_FORBIDDEN`, see [The host enforces the declared authorization](#the-host-enforces-the-declared-authorization)). A handler that receives the raw token can replay it
 against the APIs until it expires (about an hour by default); an unauthenticated handler announcement on the bus is a separate
 decision. Switching the validation off (`Methods:Token:DisableValidation`) is a test configuration; the service refuses to

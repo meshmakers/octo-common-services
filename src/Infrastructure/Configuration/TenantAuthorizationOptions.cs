@@ -1,3 +1,5 @@
+using Meshmakers.Octo.Services.Infrastructure.TenantGeneration;
+
 namespace Meshmakers.Octo.Services.Infrastructure.Configuration;
 
 /// <summary>
@@ -173,6 +175,32 @@ public class TenantAuthorizationOptions
     ///     </para>
     /// </remarks>
     public TimeSpan TenantHierarchyCacheDuration { get; set; } = TimeSpan.FromSeconds(60);
+
+    /// <summary>
+    ///     How the tenant generation check treats an access token whose <c>tenant_gen</c> claim is missing or names an
+    ///     earlier tenant with the same id (AB#8999, security item AB#8970). Defaults to
+    ///     <see cref="TenantGenerationEnforcementMode.LogOnly" /> in this release: outcomes unchanged, <c>missing</c> and
+    ///     <c>mismatch</c> logged and counted (<c>octo.tenant_auth.generation_checks</c>). The switch to
+    ///     <see cref="TenantGenerationEnforcementMode.Enforce" /> per environment follows the plan of AB#9000.
+    /// </summary>
+    /// <remarks>
+    ///     Applies to <c>TenantAuthorizationMiddleware</c>, the CK method caller checks (bus host and in-process
+    ///     transport) and identity's grants (AB#9017), so one value per environment switches them together. Env
+    ///     <c>OCTO_TenantAuthorization__TenantGenerationEnforcement</c>.
+    /// </remarks>
+    public TenantGenerationEnforcementMode TenantGenerationEnforcement { get; set; } =
+        TenantGenerationEnforcementMode.LogOnly;
+
+    /// <summary>
+    ///     How long the current generation of a tenant (also "no generation") is reused before the lifecycle record is
+    ///     read again (AB#8999). Default 30 s; <see cref="TimeSpan.Zero" /> disables caching.
+    /// </summary>
+    /// <remarks>
+    ///     🔴 Must stay below the delete tombstone time (about 90 s): a deleted tenant id can only be created again after
+    ///     the settle sweep removed the tombstone, so a TTL below that guarantees that no cached generation of the deleted
+    ///     tenant survives into the recreated one on an instance that missed the tenant events.
+    /// </remarks>
+    public TimeSpan TenantGenerationCacheDuration { get; set; } = TimeSpan.FromSeconds(30);
 
     /// <summary>
     ///     Client ids of service clients that genuinely fan out across tenants with a single token and

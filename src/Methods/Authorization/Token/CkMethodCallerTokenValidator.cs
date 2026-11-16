@@ -1,5 +1,6 @@
 using System.Security.Claims;
 using Meshmakers.Octo.Services.Infrastructure.Configuration;
+using Meshmakers.Octo.Services.Infrastructure.TenantGeneration;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using Microsoft.IdentityModel.JsonWebTokens;
@@ -16,7 +17,7 @@ namespace Meshmakers.Octo.Services.Methods.Authorization;
 /// </summary>
 /// <remarks>
 ///     <para>
-///         <b>Tenant rule</b> (the one of <c>TenantAuthorizationMiddleware</c>, always enforcing): the <c>tenant_id</c> claim
+///         <b>Tenant rule</b> (<see cref="CkMethodCallerTenantRule" />, shared with the in-process transport since AB#8711; the one of <c>TenantAuthorizationMiddleware</c>, always enforcing): the <c>tenant_id</c> claim
 ///         must equal the tenant of the request. <c>allowed_tenants</c> is a tenant-selection hint, never an authorization.
 ///         A token without <c>sub</c> is a service token (client credentials): it needs <c>client_id</c>, and is
 ///         accepted for the request tenant or when the client is listed in
@@ -47,14 +48,17 @@ internal sealed class CkMethodCallerTokenValidator : ICkMethodCallerTokenValidat
     private readonly CkMethodTokenOptions _options;
     private readonly TenantAuthorizationOptions _tenantOptions;
     private readonly JsonWebTokenHandler _handler = new();
+    private readonly ITenantGenerationCheck? _generationCheck;
 
     public CkMethodCallerTokenValidator(
         IOptions<CkMethodTokenOptions> options,
         IOptions<TenantAuthorizationOptions> tenantOptions,
         IHttpClientFactory httpClientFactory,
         ILogger<CkMethodCallerTokenValidator> logger,
-        TimeProvider? timeProvider = null)
+        TimeProvider? timeProvider = null,
+        ITenantGenerationCheck? generationCheck = null)
     {
+        _generationCheck = generationCheck;
         _timeProvider = timeProvider ?? TimeProvider.System;
         _options = options.Value;
         _tenantOptions = tenantOptions.Value;
@@ -134,6 +138,11 @@ internal sealed class CkMethodCallerTokenValidator : ICkMethodCallerTokenValidat
                 lateReason == CkMethodTokenReasons.TokenExpired ? Category.Expired : Category.Audience);
         }
 
+        if (!await AllowTenantGenerationAsync(principal, expectedTenantId, cancellationToken).ConfigureAwait(false))
+        {
+            return Refuse(expectedTenantId, CkMethodTokenReasons.TenantNotAllowed, Category.TenantGeneration);
+        }
+
         return CkMethodTokenValidationResult.Valid(BuildPrincipal(principal, expectedTenantId));
     }
 
@@ -150,36 +159,52 @@ internal sealed class CkMethodCallerTokenValidator : ICkMethodCallerTokenValidat
             return CkMethodTokenReasons.TokenInvalid;
         }
 
-        var tokenTenant = principal.FindFirstValue(TenantIdClaimType);
-        var tenantMatches = !string.IsNullOrEmpty(tokenTenant) &&
-                            string.Equals(tokenTenant, expectedTenantId, StringComparison.OrdinalIgnoreCase);
-        var hasSubject = !string.IsNullOrWhiteSpace(principal.FindFirstValue(SubClaimType));
-        if (hasSubject)
+        // the one caller-tenant rule, shared with the in-process transport (AB#8711)
+        var verdict = CkMethodCallerTenantRule.Evaluate(principal.FindFirstValue(SubClaimType),
+            principal.FindFirstValue(ClientIdClaimType), principal.FindFirstValue(TenantIdClaimType), expectedTenantId,
+            _tenantOptions);
+        switch (verdict)
         {
-            if (tenantMatches)
-            {
+            case CkMethodCallerTenantVerdict.Allowed:
                 return null;
-            }
-
-            category = Category.UserTenant;
-            return CkMethodTokenReasons.TenantNotAllowed;
+            case CkMethodCallerTenantVerdict.UserTenantMismatch:
+                category = Category.UserTenant;
+                return CkMethodTokenReasons.TenantNotAllowed;
+            case CkMethodCallerTenantVerdict.ServiceTenantMismatch:
+                category = Category.ServiceTenant;
+                return CkMethodTokenReasons.TenantNotAllowed;
+            default:
+                // no sub and no client_id: the token cannot be attributed to a caller
+                category = Category.NoIdentity;
+                return CkMethodTokenReasons.TokenInvalid;
         }
+    }
 
-        // no sub: a service token (client credentials) is identified by its client_id
-        var clientId = principal.FindFirstValue(ClientIdClaimType);
-        if (string.IsNullOrWhiteSpace(clientId))
+    /// <summary>
+    ///     The tenant generation check (AB#8999) of a token that passed the tenant rule, against its own <c>tenant_id</c>
+    ///     and in the mode of <c>TenantAuthorization:TenantGenerationEnforcement</c>. An allow-listed cross-tenant service
+    ///     client on another tenant is not checked (its token tenant is not the call's). <c>false</c> = refuse
+    ///     (<c>tenant-not-allowed</c>); a failed lookup in <c>Enforce</c> throws
+    ///     <see cref="CkMethodTenantGenerationUnavailableException" /> (<c>METHOD_HANDLER_FAILED</c>).
+    /// </summary>
+    private async ValueTask<bool> AllowTenantGenerationAsync(ClaimsPrincipal principal, string expectedTenantId,
+        CancellationToken cancellationToken)
+    {
+        if (_generationCheck is null)
         {
-            category = Category.NoIdentity;
-            return CkMethodTokenReasons.TokenInvalid;
+            return true;
         }
 
-        if (tenantMatches || _tenantOptions.IsCrossTenantServiceClient(clientId))
+        var result = await CkMethodCallerTenantRule.CheckGenerationAsync(_generationCheck, _tenantOptions,
+            principal.FindFirstValue(SubClaimType), principal.FindFirstValue(ClientIdClaimType),
+            principal.FindFirstValue(TenantIdClaimType), TenantGenerationClaim.FromPrincipal(principal), expectedTenantId,
+            cancellationToken).ConfigureAwait(false);
+        return result switch
         {
-            return null;
-        }
-
-        category = Category.ServiceTenant;
-        return CkMethodTokenReasons.TenantNotAllowed;
+            TenantGenerationDecision.Deny => false,
+            TenantGenerationDecision.Unavailable => throw new CkMethodTenantGenerationUnavailableException(),
+            _ => true
+        };
     }
 
     private static CkMethodPrincipal BuildPrincipal(ClaimsPrincipal principal, string expectedTenantId)
@@ -388,7 +413,8 @@ internal sealed class CkMethodCallerTokenValidator : ICkMethodCallerTokenValidat
         ScopeMissing,
         UserTenant,
         ServiceTenant,
-        NoIdentity
+        NoIdentity,
+        TenantGeneration
     }
 }
 
@@ -399,3 +425,11 @@ internal sealed class CkMethodCallerTokenValidator : ICkMethodCallerTokenValidat
 /// </summary>
 public sealed class CkMethodTokenKeysUnavailableException()
     : InvalidOperationException("The signing keys of the caller token issuer are not available.");
+
+/// <summary>
+///     The current generation of the caller token's tenant could not be read in <c>Enforce</c> (AB#8999). The caller token
+///     cannot be judged, so the call is not executed; the handler host answers <c>METHOD_HANDLER_FAILED</c>, never a
+///     success.
+/// </summary>
+public sealed class CkMethodTenantGenerationUnavailableException()
+    : InvalidOperationException("The tenant generation of the caller token cannot be verified right now.");

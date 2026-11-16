@@ -42,6 +42,8 @@ public static class CkMethodTokenServiceCollectionExtensions
         services.AddOptions<TenantAuthorizationOptions>().BindConfiguration(TenantAuthorizationOptions.SectionName);
         services.AddHttpClient(CkMethodTokenOptions.HttpClientName);
         services.TryAddSingleton(TimeProvider.System);
+        // AB#8999: the tenant generation step of the tenant rule.
+        services.AddOctoTenantGenerationCheck();
         services.TryAddSingleton<ICkMethodCallerTokenValidator, CkMethodCallerTokenValidator>();
         return services;
     }

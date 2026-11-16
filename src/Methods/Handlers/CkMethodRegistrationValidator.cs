@@ -8,8 +8,37 @@ namespace Meshmakers.Octo.Services.Methods.Handlers;
 ///     run time (sensitive parameters, declared error codes). A mismatch is a programming error: it fails the startup of
 ///     the service with a message that names the method, instead of failing the first call in production.
 /// </summary>
-internal sealed class CkMethodRegistrationValidator(ICkMethodDefinitionSource definitions)
+internal sealed class CkMethodRegistrationValidator(ICkMethodDefinitionSource definitions, TimeProvider? timeProvider = null)
 {
+    private readonly TimeProvider _timeProvider = timeProvider ?? TimeProvider.System;
+
+    /// <summary>
+    ///     The startup validation (AB#8969): loads, or waits for, the CK cache of every validation tenant within
+    ///     <paramref name="cacheLoadTimeout" />, then validates. When a cache is unloaded again while the registrations are
+    ///     checked (a concurrent CK model import), it loads the cache again and repeats, within the same deadline. A cache that
+    ///     does not load in time fails with <see cref="CkMethodDefinitionCacheNotLoadedException" />, a missing method with the
+    ///     "no such method" error.
+    /// </summary>
+    public async Task ValidateAsync(CkMethodHandlerRegistrations registrations, TimeSpan cacheLoadTimeout,
+        CancellationToken cancellationToken)
+    {
+        var deadline = _timeProvider.GetUtcNow() + cacheLoadTimeout;
+        while (true)
+        {
+            await definitions.EnsureLoadedAsync(deadline, cancellationToken).ConfigureAwait(false);
+            try
+            {
+                Validate(registrations);
+                return;
+            }
+            catch (CkMethodDefinitionCacheNotLoadedException) when (_timeProvider.GetUtcNow() < deadline)
+            {
+                // unloaded between the load and the check: load again (EnsureLoadedAsync throws once the deadline passed)
+            }
+        }
+    }
+
+    /// <summary>Validates against the cache as it is now; throws <see cref="CkMethodDefinitionCacheNotLoadedException" /> for an unloaded cache.</summary>
     public void Validate(CkMethodHandlerRegistrations registrations)
     {
         foreach (var registration in registrations.Handlers.Values.OrderBy(r => r.MethodId, StringComparer.Ordinal))

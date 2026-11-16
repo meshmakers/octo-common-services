@@ -33,6 +33,14 @@ Code"): `AccountChangePasswordParameters` (required parameters are `required` pr
 when the method has a result, and the method id constant in the model's `*CkIds` class, for example
 `Sample.Accounts/Account.ChangePassword-1`. Use the constant; never type the id by hand.
 
+**Record parameters bind as the generated `Rt{Record}Record`.** A parameter of value type `Record` is the model's
+runtime record, an attribute bag. `CkMethodJson.Options` binds it with its CK attributes only: the bookkeeping members
+`attributes` and `ckRecordId` are neither read nor written, and an array attribute (`IAttributeValueList<T>`, an interface
+System.Text.Json cannot create on its own) is read as a list into the record. So a record that holds a record array, a string
+array or an int array works as a handler parameter type; write no plain look-alike classes. A missing mandatory array reads as
+an empty list (the generated getter), a missing optional one as `null`, an explicit `[]` as an empty list. A record result is
+written the same way (`{"path":...,"indexed":...}`).
+
 **The result on the wire is the bare `Value`.** The host serializes only `Value` of the result record with
 `CkMethodJson.Options`: `new AccountChangePasswordResult { Value = 12 }` becomes `resultJson` `12`, a String `"abc"`, a record
 `{"name":...}`; never `{"value": 12}`. A null `Value` is a success without `resultJson`. The registration refuses a result type
@@ -112,14 +120,33 @@ At startup (order 15, before the bus) every registration is checked against the 
 (`Methods:ValidationTenantIds` to name other tenants; ids are matched case-insensitively against the CK cache, so the default
 `OctoSystem` works as is): unknown method id, a parameter without a property on the parameters
 record, a scalar type mismatch, result vs. no-result handler. A mismatch **stops the service** with a message that names the
-method. The host then connects one shared command endpoint per method (competing consumers, faults suppressed), **waits until every
+method.
+
+**The CK cache is loaded for the check.** A CK model import at startup (this replica's own, or the reload after another
+replica imported first) unloads the tenant's CK cache, and the check runs right after it. The check therefore first loads the CK cache of
+every validation tenant that is not loaded (through the tenant context of the service), or waits for it when a load fails because another
+replica's import is still running. It retries until `Methods:CacheLoadTimeout` (default 2 min, environment variable
+`OCTO_Methods__CacheLoadTimeout`, must be positive). When the cache is unloaded again while the registrations are checked, it loads
+it again and repeats, within the same deadline. The check never treats an unloaded cache as "no such method" any more:
+
+| Situation | Result |
+|-----------|--------|
+| Cache not loaded, loads within the timeout | the check runs, the service starts |
+| Method really not in the loaded model (or the model is not installed) | start fails with the existing "... has no such method" error |
+| Cache does not load within the timeout | start fails with "The CK cache of tenant '&lt;tenant&gt;' did not load ..." (`CkMethodDefinitionCacheNotLoadedException`), naming the tenant, the last load error and the `Methods:CacheLoadTimeout` setting |
+
+So several replicas of a service with CK methods start on a fresh or freshly upgraded tenant without a service-specific reload or
+retry. Tests: `tests/Methods.Tests/Handlers/CkMethodValidationCacheLoadTests.cs` (on-demand load, wait without a loader, unknown
+method, timeout, unload between load and check, four replicas on one fresh tenant).
+
+The host then connects one shared command endpoint per method (competing consumers, faults suppressed), **waits until every
 endpoint accepts messages** (`EndpointHandle.WaitUntilReadyAsync`, at most `Methods:EndpointReadyTimeout`, default 30 s; the
 service fails to start instead of announcing a handler that cannot receive), and only then announces the handler
 (`CkMethodHandlerAnnounced`). It repeats the announcement every 15 s (TTL 45 s) and withdraws on graceful shutdown before it
 removes the queues.
 
 Options (section `Methods`): `HeartbeatInterval`, `Ttl`, `ValidateRegistrations` (default `true`, switch off only in tests),
-`ValidationTenantIds`, `EndpointReadyTimeout`.
+`ValidationTenantIds`, `CacheLoadTimeout` (default 2 min), `EndpointReadyTimeout`.
 
 **Heartbeat and TTL (final values).** The defaults are final: **`Methods:HeartbeatInterval` = 15 s, `Methods:Ttl` = 45 s**
 (environment variables `OCTO_Methods__HeartbeatInterval` and `OCTO_Methods__Ttl`, format `hh:mm:ss`). Every announcement carries its own
