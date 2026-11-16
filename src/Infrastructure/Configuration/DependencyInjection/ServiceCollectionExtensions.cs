@@ -62,6 +62,8 @@ public static class ServiceCollectionExtensions
         services.TryAddSingleton<ITenantHierarchyReader, TenantHierarchyReader>();
         // AB#8999: the tenant generation (tenant_gen) check of TenantAuthorizationMiddleware, with its cache.
         services.AddOctoTenantGenerationCheck();
+        // The decision counter of TenantAuthorizationMiddleware (octo.tenant_auth.decisions).
+        services.TryAddSingleton<TenantAuthorizationMetrics>();
         services.AddOptions<OctoCorsOptions>();
         services.AddSingletonMultipleInterfaces<CorsPolicyProvider, ICorsPolicyProvider>();
         services.AddExceptionHandler<OctoExceptionHandler>();
@@ -165,6 +167,7 @@ public static class ServiceCollectionExtensions
     {
         services.Configure<TenantAuthorizationOptions>(
             configuration.GetSection(TenantAuthorizationOptions.SectionName));
+        services.TryAddSingleton<TenantAuthorizationMetrics>();
         return services;
     }
 
@@ -191,6 +194,7 @@ public static class ServiceCollectionExtensions
         Action<TenantAuthorizationOptions> configure)
     {
         services.Configure(configure);
+        services.TryAddSingleton<TenantAuthorizationMetrics>();
         return services;
     }
 

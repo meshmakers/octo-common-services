@@ -60,6 +60,11 @@ namespace Meshmakers.Octo.Services.Infrastructure.Middleware;
 ///         the estate (AB#5058, AB#5061, AB#5065). Service tokens keep the exact match plus their
 ///         own allow-list.
 ///     </para>
+///     <para>
+///         <b>Metric.</b> Every decision of the tenant check is counted in <c>octo.tenant_auth.decisions</c>
+///         (<see cref="TenantAuthorizationMetrics" />) next to its log line, so the inventory of the <c>LogOnly</c>
+///         modes can be read per service, client and route without searching log text.
+///     </para>
 /// </remarks>
 internal class TenantAuthorizationMiddleware(
     RequestDelegate next,
@@ -245,6 +250,7 @@ internal class TenantAuthorizationMiddleware(
                       string.Equals(tokenTenantId, routeTenantId, StringComparison.OrdinalIgnoreCase);
         if (matches)
         {
+            CountUserToken(context, endpoint, TenantAuthorizationOutcome.Match);
             return true;
         }
 
@@ -265,6 +271,7 @@ internal class TenantAuthorizationMiddleware(
                 tokenTenantId,
                 routeTenantId,
                 endpoint.DisplayName ?? "<unnamed>");
+            CountUserToken(context, endpoint, TenantAuthorizationOutcome.AllowedParentAdmin);
             return true;
         }
 
@@ -287,6 +294,9 @@ internal class TenantAuthorizationMiddleware(
                 string.IsNullOrEmpty(tokenTenantId) ? "<none>" : tokenTenantId,
                 routeTenantId,
                 isParentAdministrationEndpoint);
+            CountUserToken(context, endpoint, string.IsNullOrEmpty(tokenTenantId)
+                ? TenantAuthorizationOutcome.DeniedMissingTenantId
+                : TenantAuthorizationOutcome.Denied);
             var message = isParentAdministrationEndpoint
                 ? $"Access to tenant '{routeTenantId}' is denied: the token was issued for tenant " +
                   $"'{tokenTenantId}', and '{routeTenantId}' is not an existing child tenant of it. " +
@@ -309,6 +319,9 @@ internal class TenantAuthorizationMiddleware(
             context.User.FindFirstValue(ClientIdClaimType) ?? "<none>",
             string.IsNullOrEmpty(tokenTenantId) ? "<none>" : tokenTenantId,
             routeTenantId);
+        CountUserToken(context, endpoint, string.IsNullOrEmpty(tokenTenantId)
+            ? TenantAuthorizationOutcome.WouldDenyMissingTenantId
+            : TenantAuthorizationOutcome.WouldDeny);
         return true;
     }
 
@@ -347,12 +360,12 @@ internal class TenantAuthorizationMiddleware(
     private async Task<bool> AllowServiceTokenAsync(HttpContext context, string routeTenantId)
     {
         var settings = options.Value;
+        var clientId = context.User.FindFirstValue(ClientIdClaimType);
         if (settings.ServiceTokenEnforcement == ServiceTokenTenantEnforcementMode.Disabled)
         {
+            CountServiceToken(context, clientId, TenantAuthorizationOutcome.NotChecked);
             return true;
         }
-
-        var clientId = context.User.FindFirstValue(ClientIdClaimType);
 
         // Explicitly allowed to work across tenants — the multi-tenant platform workers.
         if (settings.IsCrossTenantServiceClient(clientId))
@@ -360,6 +373,7 @@ internal class TenantAuthorizationMiddleware(
             logger.LogDebug(
                 "Service token of client '{ClientId}' is allow-listed for cross-tenant access; tenant '{RouteTenantId}' not checked",
                 clientId, routeTenantId);
+            CountServiceToken(context, clientId, TenantAuthorizationOutcome.AllowedCrossTenantClient);
             return true;
         }
 
@@ -374,6 +388,7 @@ internal class TenantAuthorizationMiddleware(
                 logger.LogWarning(
                     "Denied: service token of client '{ClientId}' carries no tenant_id claim but addresses tenant '{RouteTenantId}' (AB#5032)",
                     clientId, routeTenantId);
+                CountServiceToken(context, clientId, TenantAuthorizationOutcome.DeniedMissingTenantId);
                 await WriteForbiddenAsync(context,
                     $"Access to tenant '{routeTenantId}' is denied: the service token carries no tenant. " +
                     $"Request the token with acr_values=tenant:{routeTenantId}.");
@@ -384,11 +399,13 @@ internal class TenantAuthorizationMiddleware(
                 "Service token of client '{ClientId}' carries no tenant_id claim and addresses tenant '{RouteTenantId}'. " +
                 "This would be denied with ServiceTokenEnforcement=Enforce (AB#5032)",
                 clientId, routeTenantId);
+            CountServiceToken(context, clientId, TenantAuthorizationOutcome.WouldDenyMissingTenantId);
             return true;
         }
 
         if (string.Equals(tokenTenantId, routeTenantId, StringComparison.OrdinalIgnoreCase))
         {
+            CountServiceToken(context, clientId, TenantAuthorizationOutcome.Match);
             return true;
         }
 
@@ -397,6 +414,7 @@ internal class TenantAuthorizationMiddleware(
             logger.LogWarning(
                 "Denied: service token of client '{ClientId}' was issued for tenant '{TokenTenantId}' but addresses tenant '{RouteTenantId}' (AB#5032)",
                 clientId, tokenTenantId, routeTenantId);
+            CountServiceToken(context, clientId, TenantAuthorizationOutcome.Denied);
             await WriteForbiddenAsync(context,
                 $"Access to tenant '{routeTenantId}' is denied: the service token was issued for tenant " +
                 $"'{tokenTenantId}'. Request the token with acr_values=tenant:{routeTenantId}.");
@@ -407,8 +425,22 @@ internal class TenantAuthorizationMiddleware(
             "Service token of client '{ClientId}' was issued for tenant '{TokenTenantId}' but addresses tenant '{RouteTenantId}'. " +
             "This would be denied with ServiceTokenEnforcement=Enforce (AB#5032)",
             clientId, tokenTenantId, routeTenantId);
+        CountServiceToken(context, clientId, TenantAuthorizationOutcome.WouldDeny);
         return true;
     }
+
+    /// <summary>
+    ///     Counts a user-token decision in <c>octo.tenant_auth.decisions</c>. The metrics are resolved per request like
+    ///     <see cref="ITenantHierarchyReader" />: a host without the registration runs without the counter.
+    /// </summary>
+    private void CountUserToken(HttpContext context, Endpoint? endpoint, TenantAuthorizationOutcome outcome) =>
+        context.RequestServices?.GetService<TenantAuthorizationMetrics>()?.RecordUserToken(outcome,
+            options.Value.UserTokenEnforcement, context.User.FindFirstValue(ClientIdClaimType), endpoint);
+
+    /// <summary>Counts a service-token decision in <c>octo.tenant_auth.decisions</c>, see <see cref="CountUserToken" />.</summary>
+    private void CountServiceToken(HttpContext context, string? clientId, TenantAuthorizationOutcome outcome) =>
+        context.RequestServices?.GetService<TenantAuthorizationMetrics>()?.RecordServiceToken(outcome,
+            options.Value.ServiceTokenEnforcement, clientId, context.GetEndpoint());
 
     /// <summary>
     ///     Sets <c>403 Forbidden</c> and writes a JSON body naming the reason (AB#5227). The shape

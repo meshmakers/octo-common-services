@@ -1,5 +1,5 @@
 ---
-description: Tenant authorization middleware: service- and user-token enforcement, parent-tenant rule, denial bodies, tenant role policies.
+description: Tenant authorization middleware: service- and user-token enforcement, parent-tenant rule, denial bodies, decision metric, tenant role policies.
 applies_to: src/Infrastructure/**/TenantAuthorization*.cs, src/Infrastructure/Authorization/**, src/Infrastructure/Services/*TenantHierarchyReader.cs
 ---
 
@@ -299,6 +299,13 @@ covers both causes in one sentence ("not an existing child tenant of it — if t
 deleted, re-create it first") without telling an unrelated caller which of the two applies, and
 mentions that a tenant created moments ago may take up to one TTL of the hierarchy cache (60 s) to
 be recognized. The body is written best-effort (`Response.HasStarted` guard).
+
+## Metric of the decisions
+
+Every decision of the tenant check is counted next to its log line in `octo.tenant_auth.decisions` (meter
+`Meshmakers.Octo.TenantAuthorization`, `TenantAuthorizationMetrics`), labels `outcome`, `token_kind`, `mode`, `client_id`
+and `route` (route template), never tenant, user, `sub` or token values. Label values, scope and queries:
+[tenant-generation-check.md](tenant-generation-check.md#decisions-of-the-tenant-check).
 
 ## Tenant role policies: scope plus role in one place
 

@@ -7,6 +7,13 @@ entries are grouped by work item until a release assigns the version.
 
 ### Added
 
+- **AB#9033** (security) — `TenantAuthorizationMiddleware` counts every decision of its tenant check in the new counter
+  `octo.tenant_auth.decisions` (meter `Meshmakers.Octo.TenantAuthorization`), labels `outcome` (`match`, `allowed_parent_admin`,
+  `allowed_cross_tenant_client`, `not_checked`, `would_deny`, `would_deny_missing_tenant_id`, `denied`, `denied_missing_tenant_id`),
+  `token_kind` (`user`, `service`), `mode`, `client_id` and `route` (route template); never tenant, user, `sub` or token values.
+  Registered by `AddOctoServiceInfrastructure()` and `AddOctoTenantAuthorization(...)`; request outcomes and log lines are unchanged.
+  The operator plan uses it for gate (b) of the identity switch; observation window 1 day, chart values of the S2 switch filled in.
+  Docs: `docs/tenant-authorization.md`, `docs/tenant-generation-enforce-plan.md`.
 - **AB#8999** (security, AB#8970) — services check the access-token claim `tenant_gen` (issued by identity since AB#8997), so a
   token of a deleted tenant is not accepted by a new tenant with the same id. `TenantAuthorizationMiddleware`, the CK method bus host
   (`CkMethodCallerTokenValidator`) and the in-process transport (`CkMethodCallerTenantFilter`, via

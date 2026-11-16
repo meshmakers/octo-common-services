@@ -57,10 +57,8 @@ public sealed class TenantGenerationMetrics : IDisposable
     };
 
     internal const int MaxClientIds = 1000;
-    private const int MaxLabelLength = 128;
 
-    private readonly HashSet<string> _clientIds = new(StringComparer.Ordinal);
-    private readonly Lock _clientIdsGate = new();
+    private readonly ClientIdLabelBudget _clientIds = new(MaxClientIds);
     private readonly Counter<long> _checks;
     private readonly Meter _meter;
 
@@ -86,7 +84,7 @@ public sealed class TenantGenerationMetrics : IDisposable
         {
             { OutcomeTag, OutcomeLabel(outcome) },
             { ModeTag, ModeLabel(mode) },
-            { TransportTag, Bounded(transport) ?? "other" },
+            { TransportTag, ClientIdLabelBudget.Bounded(transport) ?? "other" },
             { ClientIdTag, ClientIdLabel(clientId) }
         };
         if (!string.IsNullOrWhiteSpace(grantType))
@@ -115,46 +113,5 @@ public sealed class TenantGenerationMetrics : IDisposable
         _ => "disabled"
     };
 
-    internal string ClientIdLabel(string? clientId)
-    {
-        var bounded = Bounded(clientId);
-        if (bounded is null)
-        {
-            return UnknownClientId;
-        }
-
-        lock (_clientIdsGate)
-        {
-            if (_clientIds.Contains(bounded))
-            {
-                return bounded;
-            }
-
-            if (_clientIds.Count >= MaxClientIds)
-            {
-                return OtherClientId;
-            }
-
-            _clientIds.Add(bounded);
-            return bounded;
-        }
-    }
-
-    private static string? Bounded(string? value)
-    {
-        if (string.IsNullOrWhiteSpace(value) || value.Length > MaxLabelLength)
-        {
-            return null;
-        }
-
-        foreach (var c in value)
-        {
-            if (c < 0x21 || c > 0x7e)
-            {
-                return null;
-            }
-        }
-
-        return value;
-    }
+    internal string ClientIdLabel(string? clientId) => _clientIds.Label(clientId);
 }
