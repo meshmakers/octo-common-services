@@ -73,8 +73,7 @@ tests `tests/Methods.Tests/InProcess/`. Guide: `docs/method-handler-sdk-in-proce
   asymmetric algorithms only (HS* and `none` can never be configured in). Tenant rule = `TenantAuthorizationMiddleware`, always enforcing:
   `tenant_id` must equal the request tenant (case-insensitive); `allowed_tenants` is never consulted (it is a selection hint); no `sub` =
   service token, needs `client_id`, accepted for the request tenant or when listed in `TenantAuthorization:CrossTenantServiceClientIds`
-  (shared options; the `LogOnly`/`Disabled` modes of the HTTP side are never applied); the parent-tenant administration rule applies
-  only through `ValidateForMethodAsync` (the handler host's path, next entries) and only for the closed method list. `token-expired` is only
+  (shared options; the `LogOnly`/`Disabled` modes of the HTTP side are never applied); parent rule: `parent-tenant-administration.md`. `token-expired` is only
   reported for a token that is genuine otherwise (re-validated without the lifetime/audience check; expired + forged = `token-invalid`;
   expired + foreign tenant = `tenant-not-allowed`). Keys: own cache (`TimeProvider`), scheduled refresh `KeyAutomaticRefreshInterval` (12 h)
   keeps the cached keys when the identity service is down, an unknown `kid` forces one refresh throttled by `KeyRefreshInterval` (5 min,
@@ -93,9 +92,8 @@ tests `tests/Methods.Tests/InProcess/`. Guide: `docs/method-handler-sdk-in-proce
   the idempotency store and the handler run. The HTTP `TenantAuthorizationMiddleware` alone may only log (`UserTokenEnforcement=LogOnly`, the local
   default); the filter never reads those modes. Rule = `CkMethodCallerTenantRule`, also called by the bus host's
   `CkMethodCallerTokenValidator` (no copy): user token (`sub`) -> `tenant_id` must equal the call's tenant (case-insensitive); service
-  token (no `sub`) -> needs `client_id`, and `tenant_id` equals the tenant or the client is on `TenantAuthorization:CrossTenantServiceClientIds`;
-  neither `sub` nor `client_id` -> `token-invalid`; `allowed_tenants` never consulted; the parent-tenant administration rule (next entry) is the
-  only widening. Input: `CkMethodPrincipal.TokenTenantId`
+  token (no `sub`) -> needs `client_id`, and `tenant_id` equals the tenant or the client is on `CrossTenantServiceClientIds`;
+  neither `sub` nor `client_id` -> `token-invalid`; parent rule: `parent-tenant-administration.md`; no `allowed_tenants`. Input: `CkMethodPrincipal.TokenTenantId`
   (the `tenant_id` claim) and `IsFromAccessToken`, both set by `CkMethodPrincipal.FromClaimsPrincipal` (init-only properties, binary compatible). A
   principal a service builds itself (a job, `new CkMethodPrincipal(...)`) is not from a token and is not judged; no principal is left to the
   authorization (refused there). Band `CkMethodInvocationFilterOrder.CallerTenant` = 150: inside audit (audited once), outside
@@ -104,28 +102,6 @@ tests `tests/Methods.Tests/InProcess/`. Guide: `docs/method-handler-sdk-in-proce
   with `TryAddEnumerable`, not optional; binds `TenantAuthorization`. The log names tenant, method, invocation, reason and the verdict
   category, never a token or claim value. A test principal needs a `tenant_id` claim of the route tenant. The per-handler checks of the
   asset-repo archive methods were removed. Then the generation check runs (`tenant-generation-check.md`).
-- **Parent-tenant administration of CK methods** (`src/Methods/Authorization/CkParentTenantAdministrationMethods.cs`,
-  `CkMethodCallerTenantRule.EvaluateAsync`, `CkMethodCallerTenantCheck.CheckAsync`, tests
-  `tests/Methods.Tests/Authorization/CkParentTenantAdministrationTests.cs` and the REST-vs-method parity matrix
-  `ParentTenantAdministrationParityTests.cs`): the method counterpart of the REST rule of `[AllowParentTenantAdministration]`
-  (`tenant-authorization.md`). A **user** token (`sub`) issued for tenant P may call a method of the **closed list**
-  `CkParentTenantAdministrationMethods` (`System.Bot/TenantRepository.Dump-1`, `.Restore-1`, `.ExportArchiveData-1`,
-  `.ImportArchiveData-1`; ordinal match, a new method version is not on it) on tenant C when
-  `ITenantHierarchyReader.IsChildTenantAsync(P, C)` is true: one level for an ordinary parent, the whole estate for the system tenant,
-  cached and fail-closed (no reader registered, or a reader that throws = refused). The opt-in lives at the method, never on an
-  endpoint; every other method keeps the exact match. Service tokens never use it (exact match plus `CrossTenantServiceClientIds`
-  as before). The roles stay those the method declares (`TenantManagement`, the equivalent of the REST policy) and are judged on
-  the caller's token by the gateway and the host. The tenant generation step checks `tenant_gen` against the **token tenant P**, so a
-  P token from before P was recreated is refused on this path as on the own-tenant path. Always enforcing, no switch: the
-  `LogOnly`/`Disabled` modes of the HTTP side never apply here. Where it runs: the asset-repo gateway
-  (`CheckAsync`, transport label `gateway`), the in-process filter (`CkMethodCallerTenantFilter`, optional `ITenantHierarchyReader`)
-  and the bus host (`ICkMethodCallerTokenValidator.ValidateForMethodAsync`, called by the handler host through the
-  `ValidateAsync(CkMethodRequest)` extension; the default interface implementation has **no** parent rule, so another implementation
-  stays on the exact match). The synchronous `CkMethodCallerTenantCheck.IsRefused` and `ValidateAsync(token, tenant)` without a
-  method keep the exact match. Every grant is logged at Information with subject, client, token tenant, call tenant, method id and the
-  place of the check; never the token or the parameters. Operation records of these methods are readable by the parent through
-  the asset repository's `runtime.operations` (records of the closed list only); `CkMethodOperationQuery.MethodIds` restricts a
-  store query to a method set (an empty set matches nothing).
 - **Method host enforces the declared authorization** (finding F-1 of the adversarial suite; `CkMethodHandlerInvoker`, tests `tests/Methods.Tests/Authorization/CkMethodHostAuthorizationTests.cs`, adversarial C16): after the caller token validation (remote) or with the principal of the calling process (in-process) and **before the parameters are deserialized**, the invoker calls `ICkMethodAuthorizationEvaluator.Evaluate(definition.Authorization, definition.Kind, request.TargetRtId, principal)` - the same evaluator type the gateway uses, no copied rule - on every path that reaches a handler. A registration without `Definition` is refused (`UnknownMethod`); a missing principal is refused. A refusal is `METHOD_FORBIDDEN` / `not-authorized` (`CkMethodAuthorizationErrors.Forbidden`), byte-identical to the gateway, the handler and the target are not touched; the log names the denial (`CkMethodDenial`) only. `AddCkMethodHandlers` and `AddCkInProcessMethodHandlers` `TryAdd` the evaluator and bind `Methods:Authorization`; the `CkMethodHandlerInvoker` constructor takes the evaluator as a required argument. Tests that are not about authorization register `AllowAnyCallerEvaluator` (integration) or use the fixtures' administrator principal (`HostFixture.Administrator`). Hosts in other repositories (pipeline handler, adapters through the SDK) pick this up with the library update and must enable `AddCkMethodCallerTokenValidation`.
 - **Method audit** (`src/Methods/Audit/`, tests `tests/Methods.Tests/Audit`, doc `docs/method-audit.md`): `AddCkMethodAudit()` registers
   `ICkMethodAuditRecorder` (public; the gateway records its pre-dispatch refusals through it with `Transport = "gateway"`) and `CkMethodAuditFilter`

@@ -18,8 +18,9 @@ entries are grouped by work item until a release assigns the version.
   `ITenantHierarchyReader` in `CkMethodCallerTenantFilter` and `CkMethodCallerTokenValidator`,
   `CkMethodOperationQuery.MethodIds` (restricts a store query to a method set; empty set matches nothing; in-memory and MongoDB
   stores), and the endpoint metadata `IAllowParentTenantAdministrationRequest` (per-request predicate for an endpoint that also
-  serves tenant content). No member of an interface implemented in another repository changes without a default. Docs:
-  `docs/method-pipeline.md`.
+  serves tenant content), which `TenantAuthorizationMiddleware` asks for a user token of another tenant and grants only with
+  a registered child (counted as `allowed_parent_admin`). No member of an interface implemented in another repository changes
+  without a default. Docs: `docs/parent-tenant-administration.md`.
 
 - **AB#9033** (security) — `TenantAuthorizationMiddleware` counts every decision of its tenant check in the new counter
   `octo.tenant_auth.decisions` (meter `Meshmakers.Octo.TenantAuthorization`), labels `outcome` (`match`, `allowed_parent_admin`,
