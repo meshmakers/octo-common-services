@@ -407,6 +407,9 @@ public, registered by `AddOctoServiceInfrastructure()` and the CK method registr
   (env `OCTO_TenantAuthorization__TenantGenerationEnforcement`). `LogOnly`: outcome unchanged, `missing`/`mismatch` logged
   (rate-limited per client) and counted, a failed lookup counted. `Enforce`: `missing`/`mismatch` → 403 / `METHOD_FORBIDDEN`
   (`tenant-not-allowed`); `lookup_failed` → 503 / `METHOD_HANDLER_FAILED`, never 200. The switch per environment is AB#9000.
+- **Enforce plan (AB#9000):** `docs/tenant-generation-enforce-plan.md` — gates per cluster (refresh-token lifetime since
+  identity #305, no legitimate "would be denied"), log lines, Dash0 queries, values, rollback, checklist. No chart renders
+  `TenantGenerationEnforcement` yet (follow-up F1 there); identity's `User`/`ServiceTokenEnforcement` are chart values.
 - **Cache:** `TenantGenerationReader`, per instance and tenant, also "no record"; one read per tenant per
   `TenantGenerationCacheDuration` (default 30 s, clamped to 60 s, 🔴 must stay below the ~90 s delete tombstone), concurrent misses
   share one read, a failed read is answered as failed for 2 s, dropped by `PosCreateTenant` / `PosUpdateTenant` / `PreUpdateTenant` / `PreDeleteTenant`; a newer token
