@@ -180,7 +180,8 @@ is an event storm that trails the delete by seconds to minutes). Four mechanisms
   service without stream data still stops an archive whose column became Hidden (the archive goes `Failed` with its
   reason; engine `docs/archive-hidden-columns.md`). Services without stream data skip it before any context lookup, so
   the registry-only probe above stays their only lookup. `CacheOnly` updates skip it. Best-effort: a failure is logged
-  as ERROR and never fails the setup. A `Full` update that arrives while the same tenant is in work in this service is
+  as ERROR and never fails the setup. Like the setup, it skips a tenant with a `Deleting` tombstone, so it never resolves
+  (and re-creates) a tenant that a delete is tearing down. A `Full` update that arrives while the same tenant is in work in this service is
   still dropped for setup, but its re-check is remembered and runs once when the running handling ends, so an import that
   committed after the running re-check loaded the model is not missed. Known gap: every stream-data replica re-checks, and
   without a compare-and-swap on the status two replicas can write the same `Failed` transition twice.

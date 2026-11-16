@@ -4,6 +4,7 @@ using Meshmakers.Octo.Common.DistributionEventHub.Consumers;
 using Meshmakers.Octo.ConstructionKit.Contracts.Services;
 using Meshmakers.Octo.Runtime.Contracts.MongoDb;
 using Meshmakers.Octo.Runtime.Contracts.MongoDb.Services;
+using Meshmakers.Octo.Runtime.Contracts.MongoDb.TenantLifecycle;
 using Meshmakers.Octo.Services.Contracts.DistributionEventHub.Messages;
 using Meshmakers.Octo.Services.Infrastructure.Services;
 using Meshmakers.Octo.Services.Infrastructure.TenantGeneration;
@@ -18,7 +19,8 @@ internal class PosCreatePosUpdateTenantConsumer(
     ISystemContext systemContext,
     IDefaultConfigurationCreatorService defaultConfigurationCreatorService,
     ITenantGenerationReader? tenantGenerationReader = null,
-    IStreamDataRepositoryFactory? streamDataRepositoryFactory = null)
+    IStreamDataRepositoryFactory? streamDataRepositoryFactory = null,
+    ITenantLifecycleStore? tenantLifecycleStore = null)
     : IDistributedConsumer<PosCreateTenant>, IDistributedConsumer<PosUpdateTenant>
 {
     private static readonly ConcurrentDictionary<string, bool> TenantsInHandling = new();
@@ -57,6 +59,15 @@ internal class PosCreatePosUpdateTenantConsumer(
 
         try
         {
+            // Like the setup's Deleting gate: resolving a tenant that a delete is tearing down could run the
+            // resolve-time CK imports and re-create its dropped database.
+            if (tenantLifecycleStore is not null &&
+                await tenantLifecycleStore.GetAsync(tenantId).ConfigureAwait(false) is { State: TenantLifecycleState.Deleting })
+            {
+                logger.LogInformation("Archive re-check skipped, tenant '{TenantId}' is being deleted", tenantId);
+                return;
+            }
+
             var tenantContext = await systemContext.TryFindTenantContextAsync(tenantId).ConfigureAwait(false);
             if (tenantContext is not null)
             {

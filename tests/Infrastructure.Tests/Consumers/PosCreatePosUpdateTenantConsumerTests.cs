@@ -3,6 +3,7 @@ using Meshmakers.Octo.Common.DistributionEventHub.Consumers;
 using Meshmakers.Octo.ConstructionKit.Contracts.Services;
 using Meshmakers.Octo.Runtime.Contracts.MongoDb;
 using Meshmakers.Octo.Runtime.Contracts.MongoDb.Services;
+using Meshmakers.Octo.Runtime.Contracts.MongoDb.TenantLifecycle;
 using Meshmakers.Octo.Services.Contracts.DistributionEventHub.Messages;
 using Meshmakers.Octo.Services.Infrastructure.Consumers;
 using Meshmakers.Octo.Services.Infrastructure.Services;
@@ -30,9 +31,11 @@ public class PosCreatePosUpdateTenantConsumerTests
     private readonly IDefaultConfigurationCreatorService _creatorService =
         A.Fake<IDefaultConfigurationCreatorService>();
 
-    private PosCreatePosUpdateTenantConsumer CreateSut(IStreamDataRepositoryFactory? streamData = null) => new(
+    private PosCreatePosUpdateTenantConsumer CreateSut(IStreamDataRepositoryFactory? streamData = null,
+        ITenantLifecycleStore? lifecycleStore = null) => new(
         NullLogger<PosCreatePosUpdateTenantConsumer>.Instance,
-        _ckCacheService, _systemContext, _creatorService, streamDataRepositoryFactory: streamData);
+        _ckCacheService, _systemContext, _creatorService, streamDataRepositoryFactory: streamData,
+        tenantLifecycleStore: lifecycleStore);
 
     private static IDistributedContext<T> ContextFor<T>(T message) where T : class
     {
@@ -203,5 +206,19 @@ public class PosCreatePosUpdateTenantConsumerTests
 
         A.CallTo(() => _creatorService.SetupAsync(tenantId)).MustHaveHappenedOnceExactly();
         A.CallTo(() => tenant.RevalidateArchiveAccessAsync()).MustHaveHappenedTwiceExactly();
+    }
+
+    [Fact]
+    public async Task PosUpdate_ForATenantBeingDeleted_DoesNotResolveItForTheReCheck()
+    {
+        A.CallTo(() => _systemContext.IsTenantRegisteredAsync(A<string>._)).Returns(true);
+        var lifecycle = A.Fake<ITenantLifecycleStore>();
+        A.CallTo(() => lifecycle.GetAsync("live-tenant", A<CancellationToken>._))
+            .Returns(new TenantLifecycleRecord { TenantId = "live-tenant", State = TenantLifecycleState.Deleting });
+
+        await CreateSut(A.Fake<IStreamDataRepositoryFactory>(), lifecycle).ConsumeAsync(ContextFor(
+            new PosUpdateTenant("live-tenant", Guid.NewGuid(), DateTime.UtcNow)));
+
+        A.CallTo(() => _systemContext.TryFindTenantContextAsync(A<string>._)).MustNotHaveHappened();
     }
 }
