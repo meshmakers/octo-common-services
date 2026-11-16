@@ -10,9 +10,9 @@ using Meshmakers.Octo.Services.Infrastructure.Services;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Routing;
 using Microsoft.Extensions.DependencyInjection;
-using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
 using Xunit;
+using Infrastructure.Tests.TenantGeneration;
 
 namespace Infrastructure.Tests.Middleware;
 
@@ -86,11 +86,12 @@ public class TenantAuthorizationMiddlewareTenantNotFoundTests
         new("tenant_id", tenantId)
     ];
 
-    private static async Task InvokeAsync(HttpContext context, Exception thrown, TenantAuthorizationOptions? options = null)
+    private readonly RecordingLogger<TenantAuthorizationMiddleware> _logger = new();
+
+    private async Task InvokeAsync(HttpContext context, Exception thrown, TenantAuthorizationOptions? options = null)
     {
         var middleware = new TenantAuthorizationMiddleware(_ => throw thrown,
-            Options.Create(options ?? new TenantAuthorizationOptions()),
-            NullLogger<TenantAuthorizationMiddleware>.Instance);
+            Options.Create(options ?? new TenantAuthorizationOptions()), _logger);
         await middleware.InvokeAsync(context);
     }
 
@@ -213,9 +214,12 @@ public class TenantAuthorizationMiddlewareTenantNotFoundTests
         A.CallTo(() => _systemContext.IsTenantRegisteredAsync(A<string>._))
             .ThrowsAsync(new InvalidOperationException("registry down"));
         var context = CreateContext(UserToken(RouteTenant));
+        var original = TenantException.TenantDoesNotExist(RouteTenant);
 
-        await Assert.ThrowsAsync<TenantException>(() =>
-            InvokeAsync(context, TenantException.TenantDoesNotExist(RouteTenant)));
+        var thrown = await Assert.ThrowsAsync<TenantException>(() => InvokeAsync(context, original));
+
+        Assert.Same(original, thrown);
+        Assert.Single(_logger.Warnings);
     }
 
     [Fact]
@@ -283,6 +287,41 @@ public class TenantAuthorizationMiddlewareTenantNotFoundTests
         await Assert.ThrowsAsync<TenantException>(() =>
             InvokeAsync(context, TenantException.TenantDoesNotExist(RouteTenant)));
         A.CallTo(() => _systemContext.IsTenantRegisteredAsync(A<string>._)).MustNotHaveHappened();
+    }
+
+    [Fact]
+    public async Task A_request_aborted_while_the_probe_fails_keeps_the_original_exception()
+    {
+        var context = CreateContext(UserToken(RouteTenant));
+        using var aborted = new CancellationTokenSource();
+        context.RequestAborted = aborted.Token;
+        A.CallTo(() => _systemContext.IsTenantRegisteredAsync(A<string>._))
+            .Invokes(() => aborted.Cancel())
+            .ThrowsAsync(new OperationCanceledException(aborted.Token));
+        var original = TenantException.TenantDoesNotExist(RouteTenant);
+
+        var thrown = await Assert.ThrowsAsync<TenantException>(() => InvokeAsync(context, original));
+
+        Assert.Same(original, thrown);
+        Assert.Empty(_logger.Warnings);
+    }
+
+    [Fact]
+    public async Task A_request_aborted_while_the_probe_succeeds_is_not_mapped()
+    {
+        var context = CreateContext(UserToken(RouteTenant));
+        using var aborted = new CancellationTokenSource();
+        context.RequestAborted = aborted.Token;
+        A.CallTo(() => _systemContext.IsTenantRegisteredAsync(A<string>._))
+            .Invokes(() => aborted.Cancel())
+            .Returns(false);
+        var original = TenantException.TenantDoesNotExist(RouteTenant);
+
+        var thrown = await Assert.ThrowsAsync<TenantException>(() => InvokeAsync(context, original));
+
+        Assert.Same(original, thrown);
+        Assert.Equal(StatusCodes.Status200OK, context.Response.StatusCode);
+        Assert.Equal(0, context.Response.Body.Length);
     }
 
     private sealed class StartedResponseFeature : Microsoft.AspNetCore.Http.Features.HttpResponseFeature

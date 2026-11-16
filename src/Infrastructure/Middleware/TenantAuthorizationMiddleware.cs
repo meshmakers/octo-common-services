@@ -544,17 +544,26 @@ internal class TenantAuthorizationMiddleware(
             return false;
         }
 
+        bool registered;
         try
         {
-            return !await systemContext.IsTenantRegisteredAsync(routeTenantId);
+            registered = await systemContext.IsTenantRegisteredAsync(routeTenantId);
         }
-        catch (Exception e) when (!context.RequestAborted.IsCancellationRequested)
+        catch (Exception e)
         {
-            logger.LogWarning(
-                "The tenant registry could not be read to classify a missing tenant on route tenant '{RouteTenantId}' ({ExceptionType})",
-                routeTenantId, e.GetType().Name);
+            // A probe failure never replaces the original exception; after an abort it is not worth a warning.
+            if (!context.RequestAborted.IsCancellationRequested)
+            {
+                logger.LogWarning(
+                    "The tenant registry could not be read to classify a missing tenant on route tenant '{RouteTenantId}' ({ExceptionType})",
+                    routeTenantId, e.GetType().Name);
+            }
+
             return false;
         }
+
+        // The request may have been aborted while the probe ran: then nobody reads a mapped response.
+        return !registered && !context.RequestAborted.IsCancellationRequested;
     }
 
     /// <summary>
