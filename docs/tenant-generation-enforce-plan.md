@@ -30,7 +30,8 @@ Preconditions on every environment:
 
 An environment is switched only when **both** hold, written down in the gate check comment (step 1 below):
 
-**(a) Time.** The longest refresh-token lifetime of the environment has passed since identity with #305 reached it.
+**(a) Time.** The longest refresh-token lifetime of the environment (or the longest access-token lifetime, if larger,
+see below) has passed since identity with #305 reached it.
 Refresh tokens, authorization codes and device codes issued before #305 carry no stored generation (`missing`); in
 `LogOnly` a refresh stores the current generation on the rotated refresh token, so active sessions migrate by
 themselves, and an unused old refresh token expires at the latest one lifetime after #305 arrived. Accepted residual
@@ -41,8 +42,9 @@ risk (Gerald, 2026-11-15): in `LogOnly` such a grant takes the current generatio
   largest value of any client on the environment (octo-cli `GetClients` per tenant, or Studio) and record it. A client
   with `0` or no value gets the OpenIddict server default (14 days; identity configures no other); it does not raise the
   maximum above the 30-day default.
-- The access-token lifetime (`AccessTokenLifetime`, default `3600`) is covered by the same window: tokens issued before
-  the `tenant_gen` claim (AB#8997) expired long before.
+- Read the largest `AccessTokenLifetime` (default `3600`) the same way. Identity does not bound it by the refresh-token
+  lifetime, so the wait is the **larger** of the two maxima: an access token issued before the `tenant_gen` claim
+  (AB#8997) stays valid for its own lifetime.
 - **Alternative** (AC1 of AB#9000): instead of waiting, the gate check states that users with older refresh tokens must
   sign in again on this environment. One of the two, per environment, written down.
 
@@ -106,7 +108,8 @@ Metric (PromQL) on `octo.tenant_auth.generation_checks` (meter `Meshmakers.Octo.
 `outcome`, `mode`, `transport`, `client_id`, `grant_type`):
 
 ```promql
-# (b)1 + (b)2 + (b)3: everything that is not a match, per service, client and path
+# (b)1 + (b)2 + (b)3: everything that is not a match, per service, client and path.
+# Run the first two as range queries over the whole observation window with step 1d; an instant query shows only the last day.
 sum by (service_name, outcome, transport, grant_type, client_id) (
   increase({otel_metric_name="octo.tenant_auth.generation_checks", outcome=~"missing|mismatch|lookup_failed"}[1d])
 )
@@ -169,7 +172,7 @@ protection is only complete when every service enforces.
 ## Switch, per environment
 
 1. **Gate check** recorded as an `[Odysseus]` or `[Ariadne]` comment on AB#8970: P1 date, longest
-   `AbsoluteRefreshTokenLifetime` and the date (a) is met (or the forced re-login statement), the query results of (b)
+   `AbsoluteRefreshTokenLifetime` and `AccessTokenLifetime`, the date (a) is met (or the forced re-login statement), the query results of (b)
    with time range, every client that still produces `missing`, `mismatch`, `lookup_failed` or an S1 "would be denied"
    line, with its explanation.
 2. **Gerald's go** for this cluster, in his own words.
@@ -193,14 +196,17 @@ emergency exit and go back to `LogOnly` afterwards.
 ## Last step: code default
 
 Once all four environments have run `Enforce` for one release train, the code default of `TenantGenerationEnforcement`
-flips to `Enforce` in this repository (separate small PR, CHANGELOG entry; AB#9000 AC4). After that the chart value of F1
-and the explicit identity values can be removed from the cluster values.
+flips to `Enforce` in this repository (separate small PR, CHANGELOG entry; AB#9000 AC4). The S2 value of F1 stays in the
+cluster values until **every** service of that cluster runs a release built with the new default (each consumer picks it
+up only with its next package update and deployment); removing it earlier turns that service back to `LogOnly`. The
+explicit S1 identity values stay as long as the chart renders `LogOnly` for missing keys; they can only go once the chart
+default for identity is `Enforce`.
 
 ## Per-cluster checklist
 
 Dates of the switches are decided by Gerald; the empty cells are filled at the gate check and the switch.
 
-| Cluster | P1: identity #305 since | Longest refresh-token lifetime | (a) met on / re-login statement | (b) gate check comment (AB#8970) | Gerald's go | S1 identity `Enforce` | S2 tenant_gen `Enforce` (needs F1) | 24 h watch recorded |
+| Cluster | P1: identity #305 since | Longest refresh- / access-token lifetime | (a) met on / re-login statement | (b) gate check comment (AB#8970) | Gerald's go | S1 identity `Enforce` | S2 tenant_gen `Enforce` (needs F1) | 24 h watch recorded |
 |---|---|---|---|---|---|---|---|---|
 | test-2 | 2026-11-15 (rolling CD of `main`) | | | | | set by octo-mesh-deployment #834 (2026-11-15) | | |
 | staging-1 | (release with #305; identity renders `LogOnly`) | | | | decided by Gerald | | | |
