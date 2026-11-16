@@ -8,6 +8,7 @@ using System.Threading.Tasks;
 using Meshmakers.Octo.Services.Observability;
 
 using Microsoft.AspNetCore.Builder;
+using Microsoft.AspNetCore.Connections;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging;
@@ -75,41 +76,79 @@ public class PrometheusEndpointTests
         return response.StatusCode;
     }
 
+    /// <summary>
+    ///     The metrics port has to be in the configuration before the host is built, so it cannot be port 0 (unlike
+    ///     <see cref="HealthEndpointTests" />). A probed port can be taken by another process before Kestrel binds
+    ///     it (loaded CI agents), so a start that fails with "address already in use" is repeated with fresh ports.
+    /// </summary>
     private static async Task<TestHost> StartAsync(bool? prometheusPort)
     {
-        var publicPort = FreePort();
-        var internalPort = FreePort();
-
-        var builder = WebApplication.CreateBuilder();
-        builder.WebHost.UseUrls($"http://127.0.0.1:{publicPort}", $"http://127.0.0.1:{internalPort}");
-        builder.Logging.ClearProviders();
-        if (prometheusPort == true)
+        const int attempts = 5;
+        for (var attempt = 1; ; attempt++)
         {
-            builder.Configuration.AddInMemoryCollection(new Dictionary<string, string?>
+            var (publicPort, internalPort) = TwoFreePorts();
+            var builder = WebApplication.CreateBuilder();
+            builder.WebHost.UseUrls($"http://127.0.0.1:{publicPort}", $"http://127.0.0.1:{internalPort}");
+            builder.Logging.ClearProviders();
+            if (prometheusPort == true)
             {
-                [WebApplicationExtensions.PrometheusPortKey] = internalPort.ToString()
-            });
+                builder.Configuration.AddInMemoryCollection(new Dictionary<string, string?>
+                {
+                    [WebApplicationExtensions.PrometheusPortKey] = internalPort.ToString()
+                });
+            }
+
+            builder.AddObservability();
+            var app = builder.Build();
+            app.MapObservability();
+            try
+            {
+                await app.StartAsync();
+            }
+            catch (Exception e)
+            {
+                await app.DisposeAsync();
+                if (attempt < attempts && IsAddressInUse(e))
+                {
+                    continue;
+                }
+
+                throw;
+            }
+
+            return new TestHost(app, $"http://127.0.0.1:{publicPort}", $"http://127.0.0.1:{internalPort}", internalPort);
         }
-
-        builder.AddObservability();
-        var app = builder.Build();
-        app.MapObservability();
-        await app.StartAsync();
-
-        return new TestHost(app, $"http://127.0.0.1:{publicPort}", $"http://127.0.0.1:{internalPort}", internalPort);
     }
 
-    private static int FreePort()
+    /// <summary>Kestrel reports a taken port as <see cref="AddressInUseException" />, wrapped or not.</summary>
+    private static bool IsAddressInUse(Exception e)
     {
-        var listener = new TcpListener(IPAddress.Loopback, 0);
-        listener.Start();
+        for (var current = e; current != null; current = current.InnerException)
+        {
+            if (current is AddressInUseException)
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /// <summary>Two distinct free loopback ports: both probe listeners are held open together, then released.</summary>
+    private static (int First, int Second) TwoFreePorts()
+    {
+        var first = new TcpListener(IPAddress.Loopback, 0);
+        var second = new TcpListener(IPAddress.Loopback, 0);
+        first.Start();
+        second.Start();
         try
         {
-            return ((IPEndPoint)listener.LocalEndpoint).Port;
+            return (((IPEndPoint)first.LocalEndpoint).Port, ((IPEndPoint)second.LocalEndpoint).Port);
         }
         finally
         {
-            listener.Stop();
+            first.Stop();
+            second.Stop();
         }
     }
 

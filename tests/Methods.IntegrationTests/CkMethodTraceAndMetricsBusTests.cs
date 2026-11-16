@@ -156,6 +156,12 @@ public sealed class CkMethodTraceAndMetricsBusTests(RabbitMqFixture rabbitMq) : 
         });
         gateway.AddCkMethodDispatcher();
         await StartAsync(gateway);
+        if (withHandler)
+        {
+            // the first call of a test must not race the handler's announcement (readiness, not timing)
+            await HandlerReadiness.WaitForLiveHandlersAsync(_providers[^1], MethodId, instances: 1);
+        }
+
         return (_providers[^1].GetRequiredService<ICkMethodDispatcher>(), probe);
     }
 
@@ -173,7 +179,7 @@ public sealed class CkMethodTraceAndMetricsBusTests(RabbitMqFixture rabbitMq) : 
     [Fact]
     public async Task CallOverTheBus_IsOneTrace_GatewaySpan_CallSpan_BusSpans_HandlerSpan()
     {
-        var spans = new List<Activity>();
+        var spans = new LockedCollection<Activity>();
         var builder = Host.CreateApplicationBuilder();
         builder.AddObservability();
         builder.Services.ConfigureOpenTelemetryTracerProvider((_, b) => b.AddSource("test.gateway").AddInMemoryExporter(spans));
@@ -190,7 +196,7 @@ public sealed class CkMethodTraceAndMetricsBusTests(RabbitMqFixture rabbitMq) : 
             traceId = gateway.TraceId.ToString();
             gatewaySpanId = gateway.SpanId.ToString();
             var response = await dispatcher.InvokeAsync(NewRequest(), TestContext.Current.CancellationToken);
-            Assert.True(response.Success, response.Error?.Code);
+            Assert.True(response.Success, HandlerReadiness.Describe(response));
         }
 
         Assert.True(tracer.ForceFlush(10_000));
@@ -198,20 +204,52 @@ public sealed class CkMethodTraceAndMetricsBusTests(RabbitMqFixture rabbitMq) : 
         Assert.NotNull(probe.ActivityAtEntry);
         Assert.Equal(traceId, probe.ActivityAtEntry.TraceId.ToString());
 
-        var inTrace = spans.Where(s => s.TraceId.ToString() == traceId).ToList();
-        var call = Assert.Single(inTrace, s => s.OperationName == "CK method call");
-        var handle = Assert.Single(inTrace, s => s.OperationName == "CK method handle");
+        // A span is exported when it ends. MassTransit ends its consume span after the handler answered, so the gateway can
+        // hold the response before that bus span is exported (seen on loaded build agents). Wait until the chain from the
+        // handler span to the call span is complete instead of reading it once.
+        var (inTrace, call, handle, reachedCall, busSpans) = WalkFromHandlerToCall(spans, traceId);
+        var deadline = DateTime.UtcNow.AddSeconds(10);
+        while (!reachedCall && DateTime.UtcNow < deadline)
+        {
+            await Task.Delay(20, TestContext.Current.CancellationToken);
+            tracer.ForceFlush(1_000);
+            (inTrace, call, handle, reachedCall, busSpans) = WalkFromHandlerToCall(spans, traceId);
+        }
+
+        Assert.NotNull(call);
+        Assert.NotNull(handle);
+        Assert.Single(inTrace, s => s.OperationName == "CK method call");
+        Assert.Single(inTrace, s => s.OperationName == "CK method handle");
         Assert.Equal(gatewaySpanId, call.ParentSpanId.ToString());
         Assert.Equal(CkMethodTransportNames.Bus, call.GetTagItem("ck.method.transport"));
         Assert.Equal(MethodId, call.GetTagItem("ck.method.id"));
         Assert.Equal("SUCCESS", call.GetTagItem("ck.method.outcome"));
         Assert.Equal(MethodId, handle.GetTagItem("ck.method.id"));
 
-        // the handler span descends from the call span through the bus: walk up by parent span id
+        Assert.True(reachedCall, "the handler span does not descend from the call span");
+        Assert.True(busSpans >= 1, "no MassTransit span between the call span and the handler span");
+        // nothing from the call leaked into a second trace
+        Assert.DoesNotContain(spans.Snapshot(), s => s.OperationName == "CK method handle" && s.TraceId.ToString() != traceId);
+    }
+
+    /// <summary>
+    ///     Walks up from the handler span by parent span id and reports whether it reaches the call span, counting the
+    ///     MassTransit spans on the way. Reads a snapshot of the exported spans (the exporter adds from other threads).
+    /// </summary>
+    private static (List<Activity> InTrace, Activity? Call, Activity? Handle, bool ReachedCall, int BusSpans)
+        WalkFromHandlerToCall(LockedCollection<Activity> spans, string traceId)
+    {
+        var inTrace = spans.Snapshot().Where(s => s.TraceId.ToString() == traceId).ToList();
+        var call = inTrace.FirstOrDefault(s => s.OperationName == "CK method call");
+        var handle = inTrace.FirstOrDefault(s => s.OperationName == "CK method handle");
+        if (call == null || handle == null)
+        {
+            return (inTrace, call, handle, false, 0);
+        }
+
         var bySpanId = inTrace.ToDictionary(s => s.SpanId.ToString());
         var busSpans = 0;
         var cursor = handle;
-        var reachedCall = false;
         while (cursor.ParentSpanId != default && bySpanId.TryGetValue(cursor.ParentSpanId.ToString(), out var parent))
         {
             if (parent.Source.Name == "MassTransit")
@@ -221,17 +259,13 @@ public sealed class CkMethodTraceAndMetricsBusTests(RabbitMqFixture rabbitMq) : 
 
             if (parent.SpanId == call.SpanId)
             {
-                reachedCall = true;
-                break;
+                return (inTrace, call, handle, true, busSpans);
             }
 
             cursor = parent;
         }
 
-        Assert.True(reachedCall, "the handler span does not descend from the call span");
-        Assert.True(busSpans >= 1, "no MassTransit span between the call span and the handler span");
-        // nothing from the call leaked into a second trace
-        Assert.DoesNotContain(spans, s => s.OperationName == "CK method handle" && s.TraceId.ToString() != traceId);
+        return (inTrace, call, handle, false, busSpans);
     }
 
     [Fact]
@@ -267,7 +301,7 @@ public sealed class CkMethodTraceAndMetricsBusTests(RabbitMqFixture rabbitMq) : 
         var ok = await dispatcher.InvokeAsync(NewRequest(), TestContext.Current.CancellationToken);
         var none = await dispatcher.InvokeAsync(NewRequest(unregistered), TestContext.Current.CancellationToken);
 
-        Assert.True(ok.Success);
+        Assert.True(ok.Success, HandlerReadiness.Describe(ok));
         Assert.Equal(CkMethodErrorCodes.MethodHandlerNotAvailable, none.Error!.Code);
         List<(string Name, double Value, Dictionary<string, string?> Tags)> snapshot;
         lock (measurements)
