@@ -32,6 +32,7 @@ internal sealed class CkMethodHandlerRegistry : ICkMethodHandlerRegistry
     private DateTime _lastPruneUtc;
     private DateTime _warmUpEndsUtc;
     private TaskCompletionSource _changed = NewSignal();
+    private int _waitingCalls;
 
     public CkMethodHandlerRegistry(TimeProvider timeProvider, IOptions<CkMethodDispatcherOptions>? options = null)
     {
@@ -103,9 +104,14 @@ internal sealed class CkMethodHandlerRegistry : ICkMethodHandlerRegistry
                     continue; // stale announcement delivered after the withdrawal
                 }
 
+                // the time of the last returned send stays: a handler that answers but whose queue is still not bound
+                // is recognised on the next return (see MarkNoQueueBound)
                 instances[message.InstanceId] = new State(
                     new CkMethodHandlerEntry(methodId, message.ServiceName, message.InstanceId, message.Version,
-                        message.ContractVersion, now, now + ttl, false, tenants), null);
+                        message.ContractVersion, now, now + ttl, false, tenants), null)
+                {
+                    NoQueueBoundAtUtc = existing?.NoQueueBoundAtUtc
+                };
                 MarkDirty(Normalize(methodId), message.InstanceId);
             }
 
@@ -126,10 +132,13 @@ internal sealed class CkMethodHandlerRegistry : ICkMethodHandlerRegistry
             foreach (var methodId in message.MethodIds)
             {
                 var instances = InstancesOf(Normalize(methodId));
+                // an entry that had already ended (expired, withdrawn) keeps its end, so a late or repeated withdrawal does
+                // not start a new hand-over for a handler that is gone for a while
                 var entry = instances.TryGetValue(message.InstanceId, out var existing)
                     ? existing.Entry with
                     {
-                        LastSeenUtc = now, ExpiresUtc = now, Withdrawn = true, Source = CkMethodHandlerEntrySource.Announcement
+                        LastSeenUtc = now, ExpiresUtc = existing.Entry.ExpiresUtc < now ? existing.Entry.ExpiresUtc : now,
+                        Withdrawn = true, Source = CkMethodHandlerEntrySource.Announcement
                     }
                     : new CkMethodHandlerEntry(methodId, message.ServiceName, message.InstanceId, null,
                         CkMethodContract.CurrentVersion, now, now, true, [CkMethodHandlerTenants.All]);
@@ -145,13 +154,23 @@ internal sealed class CkMethodHandlerRegistry : ICkMethodHandlerRegistry
             _changed = NewSignal();
         }
 
-        // a waiting call re-checks and is refused at once (a withdrawal is an answer)
+        // a waiting call re-checks: it waits for the hand-over of the method, then it is refused
         signal.TrySetResult();
     }
 
     /// <summary>
+    ///     How long a returned send is remembered per instance: a second return within this time after the instance
+    ///     announced itself again marks a handler that answers but whose queue stays unbound.
+    /// </summary>
+    internal static readonly TimeSpan NoQueueBoundRepeatWindow = TimeSpan.FromSeconds(30);
+
+    /// <summary>
     ///     The broker returned a mandatory send (no queue bound): expires the instances of the method that were last
     ///     seen before the send started. An instance announced while the send was in flight (rolling update) stays live.
+    ///     The entry becomes first-hand knowledge (source <see cref="CkMethodHandlerEntrySource.Announcement" />, also for a
+    ///     row restored from the snapshot). A return within <see cref="NoQueueBoundRepeatWindow" /> of the previous one of
+    ///     the same instance is marked as repeated: that handler answered the discovery request (or its heartbeat) but its
+    ///     queue is still not bound, so the dispatcher neither waits for it nor asks again.
     /// </summary>
     internal void MarkNoQueueBound(string qualifiedMethodId, DateTime sendStartedUtc)
     {
@@ -168,7 +187,16 @@ internal sealed class CkMethodHandlerRegistry : ICkMethodHandlerRegistry
                 var state = instances[key];
                 if (state.Entry.ExpiresUtc > now && state.Entry.LastSeenUtc <= sendStartedUtc)
                 {
-                    instances[key] = state with { Entry = state.Entry with { ExpiresUtc = now, NoQueueBound = true } };
+                    var repeated = state.NoQueueBoundAtUtc is { } previous && now - previous <= NoQueueBoundRepeatWindow;
+                    instances[key] = state with
+                    {
+                        Entry = state.Entry with
+                        {
+                            ExpiresUtc = now, NoQueueBound = true, Source = CkMethodHandlerEntrySource.Announcement
+                        },
+                        NoQueueBoundAtUtc = now,
+                        RepeatedNoQueueBound = repeated
+                    };
                     MarkDirty(Normalize(qualifiedMethodId), key);
                 }
             }
@@ -311,6 +339,56 @@ internal sealed class CkMethodHandlerRegistry : ICkMethodHandlerRegistry
         }
     }
 
+    /// <summary>
+    ///     When the last entry of the method that this registry received itself (not restored from the snapshot) ended:
+    ///     the newest <c>ExpiresUtc</c> of those entries (withdrawal, expiry or returned send), whether that entry
+    ///     ended because the broker returned a send (no queue bound) and whether that return repeated an earlier one
+    ///     (see <see cref="MarkNoQueueBound" />). <c>null</c> when there is no such entry. The hand-over
+    ///     wait of the dispatcher is counted from this moment.
+    /// </summary>
+    internal (DateTime EndedUtc, bool NoQueueBound, bool RepeatedNoQueueBound)? GetLastEnded(string qualifiedMethodId)
+    {
+        lock (_lock)
+        {
+            if (!_methods.TryGetValue(Normalize(qualifiedMethodId), out var instances))
+            {
+                return null;
+            }
+
+            var last = instances.Values
+                .Where(s => s.Entry.Source == CkMethodHandlerEntrySource.Announcement)
+                .MaxBy(s => s.Entry.ExpiresUtc);
+            return last == null ? null : (last.Entry.ExpiresUtc, last.Entry.NoQueueBound, last.RepeatedNoQueueBound);
+        }
+    }
+
+    /// <summary>
+    ///     Takes one of <paramref name="max" /> places for a call that waits for a handler; <c>false</c> when all are
+    ///     taken. Every successful call is paired with <see cref="LeaveWait" />.
+    /// </summary>
+    internal bool TryEnterWait(int max)
+    {
+        while (true)
+        {
+            var current = Volatile.Read(ref _waitingCalls);
+            if (current >= max)
+            {
+                return false;
+            }
+
+            if (Interlocked.CompareExchange(ref _waitingCalls, current + 1, current) == current)
+            {
+                return true;
+            }
+        }
+    }
+
+    /// <summary>Frees the place taken with <see cref="TryEnterWait" />.</summary>
+    internal void LeaveWait() => Interlocked.Decrement(ref _waitingCalls);
+
+    /// <summary>Calls that wait for a handler right now (tests and diagnostics).</summary>
+    internal int WaitingCalls => Volatile.Read(ref _waitingCalls);
+
     public CkMethodHandlerEntry? GetLastSeen(string qualifiedMethodId)
     {
         lock (_lock)
@@ -379,5 +457,12 @@ internal sealed class CkMethodHandlerRegistry : ICkMethodHandlerRegistry
         }
     }
 
-    private sealed record State(CkMethodHandlerEntry Entry, DateTime? WithdrawnAtSource);
+    private sealed record State(CkMethodHandlerEntry Entry, DateTime? WithdrawnAtSource)
+    {
+        /// <summary>When the broker last returned a send for this instance (dispatcher clock).</summary>
+        public DateTime? NoQueueBoundAtUtc { get; init; }
+
+        /// <summary>The last return came within the repeat window of the previous one.</summary>
+        public bool RepeatedNoQueueBound { get; init; }
+    }
 }

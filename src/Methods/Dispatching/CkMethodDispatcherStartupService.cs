@@ -26,8 +26,7 @@ internal sealed class CkMethodDispatcherStartupService(
         registry.ExtendWarmUp();
         try
         {
-            await eventHub.PublishAsync(new CkMethodHandlerDiscoveryRequested(Guid.NewGuid(),
-                timeProvider.GetUtcNow().UtcDateTime) { RequestingInstanceId = DispatcherInstanceId }).ConfigureAwait(false);
+            await eventHub.PublishAsync(CkMethodHandlerDiscoveryRequester.CreateMessage(timeProvider)).ConfigureAwait(false);
         }
         catch (Exception e)
         {

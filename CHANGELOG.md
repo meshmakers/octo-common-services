@@ -7,6 +7,18 @@ entries are grouped by work item until a release assigns the version.
 
 ### Added
 
+- **AB#9159** — CK method callers are no longer refused while a handler restarts or the broker reconnects. New dispatcher
+  options `Methods:Dispatcher:HandlerHandOver` (default 3 s, at most 30 s, zero = off) and `Methods:Dispatcher:MaxWaitingCalls`
+  (default 1000): after a withdrawal, an expiry or a returned send a call waits, counted from the moment the last entry of the method
+  ended and capped by its deadline, for a new announcement before it is refused with `METHOD_HANDLER_NOT_AVAILABLE` /
+  `no-live-handler` (unchanged envelope, log line and `ck.method.no_handler` meaning). After the broker returns a send the registry still
+  listed, the dispatcher publishes a discovery request (internal `CkMethodHandlerDiscoveryRequester`: at most one in flight and one per
+  second, repeated while calls wait in that hand-over, publish abandoned after 10 s), so live handlers re-announce at once instead of
+  with their next heartbeat; a second return of the same instance within 30 s gets neither wait nor request. The hand-over wait holds no
+  thread, follows the caller's cancellation and is bounded by `MaxWaitingCalls`; the warm-up wait is unchanged. A returned send makes a
+  restored snapshot row first-hand, and a late withdrawal of an ended entry keeps its end. No public type or interface member
+  changes. Docs: `docs/method-dispatcher.md`, `docs/method-handler-sdk-delivery.md`.
+
 - **AB#8986** (security) — parent-tenant administration of CK methods, the method counterpart of the REST rule of
   `[AllowParentTenantAdministration]`. A **user** token issued for tenant P may call a method of the closed list
   `CkParentTenantAdministrationMethods` (`System.Bot/TenantRepository.Dump-1`, `Restore-1`, `ExportArchiveData-1`,

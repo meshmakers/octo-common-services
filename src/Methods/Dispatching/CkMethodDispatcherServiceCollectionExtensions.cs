@@ -40,6 +40,7 @@ public static class CkMethodDispatcherServiceCollectionExtensions
 
         services.TryAddSingleton<ICkMethodDeclaringElementResolver, CkCacheMethodDeclaringElementResolver>();
         services.TryAddSingleton<ICkMethodTimeoutResolver, CkCacheMethodTimeoutResolver>();
+        services.TryAddSingleton<CkMethodHandlerDiscoveryRequester>();
         services.TryAddSingleton<ICkMethodDispatcher, CkMethodDispatcher>();
         if (services.All(d => d.ImplementationType != typeof(CkMethodDispatcherStartupService)))
         {

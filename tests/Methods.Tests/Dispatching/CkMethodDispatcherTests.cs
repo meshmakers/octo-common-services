@@ -2,6 +2,7 @@ using System.Text.Json;
 using FakeItEasy;
 using Meshmakers.Octo.Common.DistributionEventHub;
 using Meshmakers.Octo.Common.DistributionEventHub.Services;
+using Meshmakers.Octo.Runtime.Contracts.MongoDb.Methods;
 using Meshmakers.Octo.Services.Contracts.DistributionEventHub.Methods;
 using Meshmakers.Octo.Services.Methods.Dispatching;
 using Meshmakers.Octo.Services.Methods.Tests.Handlers;
@@ -33,6 +34,7 @@ public class CkMethodDispatcherTests
     private readonly List<ICkMethodInvocationFilter> _filters = [];
     private ICkInProcessMethodTransport? _inProcess;
     private ICkMethodInvocationPipeline? _pipeline;
+    private CkMethodHandlerDiscoveryRequester? _discovery;
 
     public CkMethodDispatcherTests()
     {
@@ -75,8 +77,11 @@ public class CkMethodDispatcherTests
             services.AddSingleton<ICkInProcessMethodTransport>(_inProcess);
         }
 
+        _discovery ??= new CkMethodHandlerDiscoveryRequester(_eventHub, _time,
+            loggers.CreateLogger<CkMethodHandlerDiscoveryRequester>());
         return new CkMethodDispatcher(_resolver, _pipeline, _registry, _eventHub, services.BuildServiceProvider(),
-            new CkMethodSensitivityResolver(null), Options.Create(_options), _time, loggers.CreateLogger<CkMethodDispatcher>());
+            new CkMethodSensitivityResolver(null), Options.Create(_options), _time, loggers.CreateLogger<CkMethodDispatcher>(),
+            _discovery);
     }
 
     private void BusReturns(CkMethodResponse response) =>
@@ -104,6 +109,47 @@ public class CkMethodDispatcherTests
         (Exception)Activator.CreateInstance(typeof(DistributionTimeoutException), nonPublic: true)!;
 
     private int Sends() => Fake.GetCalls(_eventHub).Count(c => c.Method.Name == "GetCommandResponseAsync");
+
+    /// <summary>Discovery requests published by the dispatcher (they run in the background).</summary>
+    private int DiscoveryRequests() => Fake.GetCalls(_eventHub).Count(c => c.Method.Name == "PublishAsync" &&
+                                                                         c.Arguments.FirstOrDefault() is CkMethodHandlerDiscoveryRequested);
+
+    private async Task WaitForDiscoveryRequestsAsync(int expected)
+    {
+        var until = DateTime.UtcNow + TimeSpan.FromSeconds(10);
+        while (DiscoveryRequests() < expected && DateTime.UtcNow < until)
+        {
+            await Task.Delay(10, TestContext.Current.CancellationToken);
+        }
+
+        Assert.Equal(expected, DiscoveryRequests());
+    }
+
+    /// <summary>
+    ///     Advances the fake clock in steps until the task completes (at most 60 s of fake time) and returns how much
+    ///     time passed. For a call whose wait is re-armed on another thread after a registry signal.
+    /// </summary>
+    private async Task<TimeSpan> AdvanceUntilCompletedAsync(Task task, TimeSpan step)
+    {
+        var advanced = TimeSpan.Zero;
+        while (!task.IsCompleted && advanced < TimeSpan.FromSeconds(60))
+        {
+            await Task.Delay(20, TestContext.Current.CancellationToken);
+            if (task.IsCompleted)
+            {
+                break;
+            }
+
+            _time.Advance(step);
+            advanced += step;
+        }
+
+        await task.WaitAsync(TimeSpan.FromSeconds(10), TestContext.Current.CancellationToken);
+        return advanced;
+    }
+
+    /// <summary>Lets the hand-over after the last handler went away run out.</summary>
+    private void AfterTheHandOver() => _time.Advance(_options.HandlerHandOver);
 
     [Fact]
     public async Task Bus_ReturnsTheHandlersEnvelopeUnchanged_ForSuccessDeclaredErrorAndFailure()
@@ -195,26 +241,32 @@ public class CkMethodDispatcherTests
     }
 
     [Fact]
-    public async Task WithdrawnHandler_IsRefused_WithoutSending()
+    public async Task WithdrawnHandler_IsRefused_WithoutSending_OnceTheHandOverEnded()
     {
         AfterWarmUp();
         WithoutDefaultHandler();
+        AfterTheHandOver();
 
-        var response = await Dispatcher().InvokeAsync(Request(), TestContext.Current.CancellationToken);
+        var call = Dispatcher().InvokeAsync(Request(), TestContext.Current.CancellationToken);
+        Assert.True(call.IsCompleted); // after the hand-over a withdrawal is an answer: no wait at all
+        var response = await call;
 
         Assert.Equal("no-live-handler", response.Error!.Parameters[CkMethodErrorParameters.Reason]);
         Assert.Equal(0, Sends());
     }
 
     [Fact]
-    public async Task DuringTheWarmUp_AWithdrawalTheRegistryReceived_IsRefusedAtOnce_WithoutSending()
+    public async Task DuringTheWarmUp_AWithdrawalTheRegistryReceived_WaitsOnlyForTheHandOver_NotForTheWarmUp()
     {
-        WithoutDefaultHandler(); // a withdrawal is an answer: nothing to wait for
+        WithoutDefaultHandler(); // a withdrawal is an answer: only the hand-over is waited for
 
-        var call = Dispatcher().InvokeAsync(Request(), TestContext.Current.CancellationToken);
+        var call = Dispatcher().InvokeAsync(Request(deadlineSeconds: 60), TestContext.Current.CancellationToken);
+        Assert.False(call.IsCompleted);
 
-        Assert.True(call.IsCompleted);
-        Assert.Equal("no-live-handler", (await call).Error!.Parameters[CkMethodErrorParameters.Reason]);
+        AfterTheHandOver(); // well before the warm-up ends
+        var response = await call.WaitAsync(TimeSpan.FromSeconds(10), TestContext.Current.CancellationToken);
+
+        Assert.Equal("no-live-handler", response.Error!.Parameters[CkMethodErrorParameters.Reason]);
         Assert.Equal(0, Sends());
     }
 
@@ -223,26 +275,35 @@ public class CkMethodDispatcherTests
     {
         _registry.OnAnnounced(new CkMethodHandlerAnnounced(Guid.NewGuid(), Now)
             { ServiceName = "device", InstanceId = "d", MethodIds = [UnannouncedMethod], TtlSeconds = 45 });
-        _time.Advance(TimeSpan.FromSeconds(46)); // also past the warm-up
+        _time.Advance(TimeSpan.FromSeconds(45) + _options.HandlerHandOver); // also past the warm-up and the hand-over
 
-        var response = await Dispatcher().InvokeAsync(Request(methodId: UnannouncedMethod),
-            TestContext.Current.CancellationToken);
+        var call = Dispatcher().InvokeAsync(Request(methodId: UnannouncedMethod), TestContext.Current.CancellationToken);
+        Assert.True(call.IsCompleted);
+        var response = await call;
 
         Assert.Equal(CkMethodErrorCodes.MethodHandlerNotAvailable, response.Error!.Code);
         Assert.Equal(0, Sends());
     }
 
     [Fact]
-    public async Task AfterTheBrokerReturnedASend_TheNextCallIsRefused_WithoutSending()
+    public async Task AfterTheBrokerReturnedASend_TheNextCallIsRefused_WithoutSending_WhenNoHandlerAnswers()
     {
         AfterWarmUp();
         BusThrows(new CommandNotRoutableException()); // the live entry was stale (handler crashed inside its TTL)
 
         var first = await Dispatcher().InvokeAsync(Request(), TestContext.Current.CancellationToken);
-        var second = await Dispatcher().InvokeAsync(Request(), TestContext.Current.CancellationToken);
+        var second = Dispatcher().InvokeAsync(Request(), TestContext.Current.CancellationToken);
+        Assert.False(second.IsCompleted); // waits for the hand-over: nobody answers the discovery request
+        AfterTheHandOver();
+        var response = await second.WaitAsync(TimeSpan.FromSeconds(10), TestContext.Current.CancellationToken);
 
         Assert.Equal("no-live-handler", first.Error!.Parameters[CkMethodErrorParameters.Reason]);
-        Assert.Equal("no-live-handler", second.Error!.Parameters[CkMethodErrorParameters.Reason]);
+        Assert.Equal("no-live-handler", response.Error!.Parameters[CkMethodErrorParameters.Reason]);
+        Assert.Equal(1, Sends());
+
+        // and after the hand-over the method costs no wait any more
+        var third = Dispatcher().InvokeAsync(Request(), TestContext.Current.CancellationToken);
+        Assert.True(third.IsCompleted);
         Assert.Equal(1, Sends());
     }
 
@@ -299,16 +360,21 @@ public class CkMethodDispatcherTests
     }
 
     [Fact]
-    public async Task DuringTheWarmUp_AWithdrawalArrivingWhileTheCallWaits_RefusesItAtOnce()
+    public async Task DuringTheWarmUp_AWithdrawalArrivingWhileTheCallWaits_EndsTheWaitWithTheHandOver()
     {
         var call = Dispatcher().InvokeAsync(Request(deadlineSeconds: 60, methodId: UnannouncedMethod),
             TestContext.Current.CancellationToken);
         Assert.False(call.IsCompleted);
 
-        // no time passes: the withdrawal itself wakes the waiting call
+        // the withdrawal wakes the waiting call; from now on it waits only for the hand-over, not the whole warm-up
         _registry.OnWithdrawn(new CkMethodHandlerWithdrawn(Guid.NewGuid(), Now)
             { ServiceName = "identity", InstanceId = "gone", MethodIds = [UnannouncedMethod] });
-        var response = await call.WaitAsync(TimeSpan.FromSeconds(10), TestContext.Current.CancellationToken);
+        await Task.Yield();
+        Assert.False(call.IsCompleted);
+        // the woken call sets up its next timer on another thread: advance in steps instead of racing it
+        var advanced = await AdvanceUntilCompletedAsync(call, TimeSpan.FromMilliseconds(250));
+        Assert.InRange(advanced, _options.HandlerHandOver - TimeSpan.FromMilliseconds(250), _options.HandlerHandOver + TimeSpan.FromSeconds(1));
+        var response = await call;
 
         Assert.Equal("no-live-handler", response.Error!.Parameters[CkMethodErrorParameters.Reason]);
         Assert.Equal(0, Sends());
@@ -757,6 +823,395 @@ public class CkMethodDispatcherTests
         Assert.DoesNotContain(TestData.Token, text);
         Assert.Contains("***", text);
     }
+
+    // ---- hand-over after the last handler went away -----------------------------------------------------------
+
+    [Fact]
+    public async Task HandOver_SingleReplicaRestart_TheCallWaitsForTheNewInstance_AndIsSent()
+    {
+        AfterWarmUp();
+        BusReturns(CkMethodResponse.Succeeded(Guid.Empty, "new"));
+        WithoutDefaultHandler(); // the only replica stops (graceful shutdown of a restart or a Recreate rollout)
+
+        var call = Dispatcher().InvokeAsync(Request(), TestContext.Current.CancellationToken);
+        Assert.False(call.IsCompleted);
+        Assert.Equal(0, Sends());
+
+        _time.Advance(TimeSpan.FromSeconds(2)); // the new instance starts and announces itself inside the hand-over
+        _registry.OnAnnounced(new CkMethodHandlerAnnounced(Guid.NewGuid(), Now)
+            { ServiceName = "identity", InstanceId = "restarted", MethodIds = [RemoteMethod] });
+        var response = await call.WaitAsync(TimeSpan.FromSeconds(10), TestContext.Current.CancellationToken);
+
+        Assert.True(response.Success);
+        Assert.Equal(1, Sends());
+        // the wait used up two seconds of the 15 s deadline
+        Assert.Equal(TimeSpan.FromSeconds(13) + _options.ResponseGrace, SentOptions().Timeout);
+    }
+
+    [Fact]
+    public async Task HandOver_HandlerCrashed_TheExpiryStartsTheHandOver_AndANewInstanceIsWaitedFor()
+    {
+        AfterWarmUp();
+        BusReturns(CkMethodResponse.Succeeded(Guid.Empty, "new"));
+        _registry.OnAnnounced(new CkMethodHandlerAnnounced(Guid.NewGuid(), Now)
+            { ServiceName = "device", InstanceId = "crashed", MethodIds = [UnannouncedMethod], TtlSeconds = 45 });
+        _time.Advance(TimeSpan.FromSeconds(46)); // no withdrawal: the entry expired one second ago
+
+        var call = Dispatcher().InvokeAsync(Request(methodId: UnannouncedMethod), TestContext.Current.CancellationToken);
+        Assert.False(call.IsCompleted);
+        _registry.OnAnnounced(new CkMethodHandlerAnnounced(Guid.NewGuid(), Now)
+            { ServiceName = "device", InstanceId = "replacement", MethodIds = [UnannouncedMethod] });
+
+        var response = await call.WaitAsync(TimeSpan.FromSeconds(10), TestContext.Current.CancellationToken);
+        Assert.True(response.Success);
+        Assert.Equal(1, Sends());
+    }
+
+    [Fact]
+    public async Task HandOver_IsCountedFromTheWithdrawal_NotFromTheCall()
+    {
+        AfterWarmUp();
+        WithoutDefaultHandler();
+        _time.Advance(_options.HandlerHandOver - TimeSpan.FromSeconds(1));
+
+        var call = Dispatcher().InvokeAsync(Request(deadlineSeconds: 60), TestContext.Current.CancellationToken);
+        Assert.False(call.IsCompleted);
+
+        _time.Advance(TimeSpan.FromSeconds(1)); // the rest of the window, not a whole hand-over
+        var response = await call.WaitAsync(TimeSpan.FromSeconds(10), TestContext.Current.CancellationToken);
+
+        Assert.Equal(CkMethodErrorCodes.MethodHandlerNotAvailable, response.Error!.Code);
+        Assert.Equal("no-live-handler", response.Error.Parameters[CkMethodErrorParameters.Reason]);
+        Assert.Equal(0, Sends());
+    }
+
+    [Fact]
+    public async Task HandOver_EndsAtTheRequestDeadline()
+    {
+        _options.HandlerHandOver = TimeSpan.FromSeconds(30);
+        AfterWarmUp();
+        WithoutDefaultHandler();
+
+        var call = Dispatcher().InvokeAsync(Request(deadlineSeconds: 2), TestContext.Current.CancellationToken);
+        _time.Advance(TimeSpan.FromSeconds(2));
+        var response = await call.WaitAsync(TimeSpan.FromSeconds(10), TestContext.Current.CancellationToken);
+
+        Assert.Equal(CkMethodErrorCodes.MethodHandlerNotAvailable, response.Error!.Code);
+        Assert.Equal(0, Sends());
+    }
+
+    [Fact]
+    public async Task HandOver_IsCappedAtItsMaximum()
+    {
+        _options.HandlerHandOver = TimeSpan.FromHours(1);
+        AfterWarmUp();
+        WithoutDefaultHandler();
+
+        var call = Dispatcher().InvokeAsync(Request(deadlineSeconds: 300), TestContext.Current.CancellationToken);
+        _time.Advance(CkMethodDispatcherOptions.MaxHandlerHandOver);
+        var response = await call.WaitAsync(TimeSpan.FromSeconds(10), TestContext.Current.CancellationToken);
+
+        Assert.Equal(CkMethodErrorCodes.MethodHandlerNotAvailable, response.Error!.Code);
+    }
+
+    [Theory]
+    [InlineData(0)]
+    [InlineData(-1)]
+    public async Task HandOverZeroOrNegative_RefusesAtOnce_AsBefore(int seconds)
+    {
+        _options.HandlerHandOver = TimeSpan.FromSeconds(seconds);
+        AfterWarmUp();
+        WithoutDefaultHandler();
+
+        var call = Dispatcher().InvokeAsync(Request(), TestContext.Current.CancellationToken);
+
+        Assert.True(call.IsCompleted);
+        Assert.Equal("no-live-handler", (await call).Error!.Parameters[CkMethodErrorParameters.Reason]);
+        Assert.Equal(0, Sends());
+    }
+
+    [Fact]
+    public async Task HandOver_CancellationOfTheCaller_Surfaces_AndFreesItsPlace()
+    {
+        AfterWarmUp();
+        WithoutDefaultHandler();
+        using var cts = new CancellationTokenSource();
+        var call = Dispatcher().InvokeAsync(Request(), cts.Token);
+        Assert.Equal(1, _registry.WaitingCalls);
+
+        await cts.CancelAsync();
+
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => call.WaitAsync(TimeSpan.FromSeconds(10),
+            TestContext.Current.CancellationToken));
+        Assert.Equal(0, _registry.WaitingCalls);
+        Assert.Equal(0, Sends());
+    }
+
+    [Fact]
+    public async Task HandOver_WaitingCallsAreBounded_TheCallBeyondTheLimitIsRefusedAtOnce()
+    {
+        _options.MaxWaitingCalls = 2;
+        AfterWarmUp();
+        WithoutDefaultHandler();
+        var dispatcher = Dispatcher();
+
+        var first = dispatcher.InvokeAsync(Request(), TestContext.Current.CancellationToken);
+        var second = dispatcher.InvokeAsync(Request(), TestContext.Current.CancellationToken);
+        var third = dispatcher.InvokeAsync(Request(), TestContext.Current.CancellationToken);
+
+        Assert.False(first.IsCompleted);
+        Assert.False(second.IsCompleted);
+        Assert.True(third.IsCompleted);
+        Assert.Equal(CkMethodErrorCodes.MethodHandlerNotAvailable, (await third).Error!.Code);
+        Assert.Equal(2, _registry.WaitingCalls);
+
+        AfterTheHandOver();
+        await Task.WhenAll(first, second).WaitAsync(TimeSpan.FromSeconds(10), TestContext.Current.CancellationToken);
+        Assert.Equal(0, _registry.WaitingCalls); // every place is given back
+        Assert.Contains(_logs.GetSnapshot(), r => r.Level == LogLevel.Warning && r.Message.Contains("too many calls wait"));
+    }
+
+    [Fact]
+    public async Task MaxWaitingCallsZero_NoCallWaitsInTheHandOver_TheWarmUpStillWaits()
+    {
+        _options.MaxWaitingCalls = 0;
+        WithoutDefaultHandler();
+
+        var handOver = Dispatcher().InvokeAsync(Request(), TestContext.Current.CancellationToken);
+        var warmUp = Dispatcher().InvokeAsync(Request(methodId: UnannouncedMethod), TestContext.Current.CancellationToken);
+
+        Assert.True(handOver.IsCompleted);
+        Assert.Equal(CkMethodErrorCodes.MethodHandlerNotAvailable, (await handOver).Error!.Code);
+        Assert.False(warmUp.IsCompleted); // the warm-up after a start is not bounded by the option
+        AfterWarmUp();
+        await warmUp.WaitAsync(TimeSpan.FromSeconds(10), TestContext.Current.CancellationToken);
+    }
+
+    [Fact]
+    public async Task HandOver_ALateWithdrawalOfAnEndedEntry_DoesNotStartANewWindow()
+    {
+        AfterWarmUp();
+        WithoutDefaultHandler();
+        _time.Advance(TimeSpan.FromMinutes(5));
+
+        WithoutDefaultHandler(); // delivered again, long after the instance stopped
+        var call = Dispatcher().InvokeAsync(Request(), TestContext.Current.CancellationToken);
+
+        Assert.True(call.IsCompleted);
+        Assert.Equal(CkMethodErrorCodes.MethodHandlerNotAvailable, (await call).Error!.Code);
+    }
+
+    [Fact]
+    public async Task BrokerReturn_OfARowRestoredFromTheSnapshot_GetsTheHandOverToo()
+    {
+        WithoutDefaultHandler();
+        _registry.Restore([
+            new CkMethodHandlerSnapshotRecord
+            {
+                MethodKey = CkMethodHandlerRegistry.Normalize(UnannouncedMethod), InstanceId = "restored",
+                MethodId = UnannouncedMethod, ServiceName = "device", ContractVersion = 1, LastSeenUtc = Now,
+                ExpiresUtc = Now.AddMinutes(10), Tenants = ["*"]
+            }
+        ]);
+        AfterWarmUp();
+        A.CallTo(() => _eventHub.GetCommandResponseAsync<CkMethodRequest, CkMethodResponse>(A<string>._,
+                A<CkMethodRequest>._, A<CommandSendOptions>._, A<CancellationToken>._))
+            .Throws(new CommandNotRoutableException()).Once()
+            .Then.Returns(CkMethodResponse.Succeeded(Guid.Empty, "restored"));
+
+        var first = await Dispatcher().InvokeAsync(Request(methodId: UnannouncedMethod), TestContext.Current.CancellationToken);
+        Assert.Equal("no-live-handler", first.Error!.Parameters[CkMethodErrorParameters.Reason]);
+        await WaitForDiscoveryRequestsAsync(1);
+
+        var second = Dispatcher().InvokeAsync(Request(methodId: UnannouncedMethod), TestContext.Current.CancellationToken);
+        Assert.False(second.IsCompleted); // the warm-up is over: this is the hand-over
+        _registry.OnAnnounced(new CkMethodHandlerAnnounced(Guid.NewGuid(), Now)
+            { ServiceName = "device", InstanceId = "restored", MethodIds = [UnannouncedMethod] });
+
+        Assert.True((await second.WaitAsync(TimeSpan.FromSeconds(10), TestContext.Current.CancellationToken)).Success);
+    }
+
+    [Fact]
+    public async Task BrokerReturn_AHandlerThatAnswersButStaysUnbound_IsRefusedAtOnceAfterItsSecondReturn_WithoutFurtherRequests()
+    {
+        AfterWarmUp();
+        BusThrows(new CommandNotRoutableException()); // the process answers, its method queue stays unbound
+        var dispatcher = Dispatcher();
+
+        await dispatcher.InvokeAsync(Request(), TestContext.Current.CancellationToken);
+        await WaitForDiscoveryRequestsAsync(1);
+        var waiting = dispatcher.InvokeAsync(Request(), TestContext.Current.CancellationToken);
+        Assert.False(waiting.IsCompleted);
+        AnnounceDefaultHandler(); // answer to the discovery request
+        var second = await waiting.WaitAsync(TimeSpan.FromSeconds(10), TestContext.Current.CancellationToken);
+        Assert.Equal("no-live-handler", second.Error!.Parameters[CkMethodErrorParameters.Reason]);
+        Assert.Equal(2, Sends()); // sent once more, returned again
+
+        _time.Advance(CkMethodHandlerDiscoveryRequester.MinInterval);
+        var third = dispatcher.InvokeAsync(Request(), TestContext.Current.CancellationToken);
+        Assert.True(third.IsCompleted); // repeated return: no hand-over wait
+        Assert.Equal(2, Sends());
+        await Task.Delay(100, TestContext.Current.CancellationToken);
+        Assert.Equal(1, DiscoveryRequests()); // and no further request
+    }
+
+    [Fact]
+    public async Task BrokerReturn_AHangingDiscoveryPublish_IsAbandoned_SoALaterReturnCanAskAgain()
+    {
+        AfterWarmUp();
+        var hanging = new TaskCompletionSource();
+        A.CallTo(() => _eventHub.PublishAsync(A<CkMethodHandlerDiscoveryRequested>._, A<CancellationToken?>._))
+            .Returns(hanging.Task);
+        var requester = new CkMethodHandlerDiscoveryRequester(_eventHub, _time,
+            NullLogger<CkMethodHandlerDiscoveryRequester>.Instance);
+
+        Assert.True(requester.Request());
+        await WaitForDiscoveryRequestsAsync(1);
+        _time.Advance(CkMethodHandlerDiscoveryRequester.MinInterval);
+        Assert.False(requester.Request()); // still in flight
+
+        _time.Advance(CkMethodHandlerDiscoveryRequester.PublishTimeout);
+        var until = DateTime.UtcNow + TimeSpan.FromSeconds(10);
+        var again = false;
+        while (!again && DateTime.UtcNow < until)
+        {
+            again = requester.Request();
+            if (!again)
+            {
+                await Task.Delay(10, TestContext.Current.CancellationToken);
+            }
+        }
+
+        Assert.True(again);
+        hanging.TrySetResult();
+    }
+
+    [Fact]
+    public async Task HandOver_ManyWaitingCalls_AllEndWithTheAnnouncement_AndEachIsSentOnce()
+    {
+        AfterWarmUp();
+        BusReturns(CkMethodResponse.Succeeded(Guid.Empty, "new"));
+        WithoutDefaultHandler();
+        var dispatcher = Dispatcher();
+
+        var calls = Enumerable.Range(0, 50)
+            .Select(_ => dispatcher.InvokeAsync(Request(), TestContext.Current.CancellationToken)).ToList();
+        Assert.Equal(50, _registry.WaitingCalls);
+        _registry.OnAnnounced(new CkMethodHandlerAnnounced(Guid.NewGuid(), Now)
+            { ServiceName = "identity", InstanceId = "restarted", MethodIds = [RemoteMethod] });
+        var responses = await Task.WhenAll(calls).WaitAsync(TimeSpan.FromSeconds(10), TestContext.Current.CancellationToken);
+
+        Assert.All(responses, r => Assert.True(r.Success));
+        Assert.Equal(50, Sends());
+        Assert.Equal(0, _registry.WaitingCalls);
+    }
+
+    // ---- discovery request after a returned send ----------------------------------------------------------------
+
+    [Fact]
+    public async Task BrokerReturn_PublishesADiscoveryRequest_AndALiveHandlerThatAnswersIsCalledWithoutWaitingForItsHeartbeat()
+    {
+        AfterWarmUp();
+        // the handler is live but its queue is not bound for a moment (it re-binds after a broker reconnect)
+        A.CallTo(() => _eventHub.GetCommandResponseAsync<CkMethodRequest, CkMethodResponse>(A<string>._,
+                A<CkMethodRequest>._, A<CommandSendOptions>._, A<CancellationToken>._))
+            .Throws(new CommandNotRoutableException()).Once()
+            .Then.Returns(CkMethodResponse.Succeeded(Guid.Empty, DefaultInstance));
+
+        var first = await Dispatcher().InvokeAsync(Request(), TestContext.Current.CancellationToken);
+        Assert.Equal("no-live-handler", first.Error!.Parameters[CkMethodErrorParameters.Reason]);
+        await WaitForDiscoveryRequestsAsync(1);
+
+        var second = Dispatcher().InvokeAsync(Request(), TestContext.Current.CancellationToken);
+        Assert.False(second.IsCompleted); // the expired entry is in its hand-over: the call waits for the answer
+        AnnounceDefaultHandler(); // the handler's answer to the discovery request, no time passed
+        var response = await second.WaitAsync(TimeSpan.FromSeconds(10), TestContext.Current.CancellationToken);
+
+        Assert.True(response.Success);
+        Assert.Equal(2, Sends()); // the returned call is never sent again
+    }
+
+    [Fact]
+    public async Task BrokerReturn_DiscoveryRequestsAreThrottled_AndRepeatedWhileCallsWaitInTheHandOver()
+    {
+        AfterWarmUp();
+        BusThrows(new CommandNotRoutableException());
+        var dispatcher = Dispatcher();
+
+        await dispatcher.InvokeAsync(Request(), TestContext.Current.CancellationToken);
+        await WaitForDiscoveryRequestsAsync(1);
+
+        // a burst of calls in the same second: no further request
+        var waiting = Enumerable.Range(0, 20)
+            .Select(_ => dispatcher.InvokeAsync(Request(deadlineSeconds: 60), TestContext.Current.CancellationToken)).ToList();
+        await Task.Delay(100, TestContext.Current.CancellationToken);
+        Assert.Equal(1, DiscoveryRequests());
+
+        // about one second later a waiting call asks again: a handler that was still re-binding answers this one
+        // (advanced in steps: the waiting calls re-arm their timers on other threads)
+        var advanced = TimeSpan.Zero;
+        var step = TimeSpan.FromMilliseconds(250);
+        while (DiscoveryRequests() < 2 && advanced < _options.HandlerHandOver - step)
+        {
+            _time.Advance(step);
+            advanced += step;
+            await Task.Delay(20, TestContext.Current.CancellationToken);
+        }
+
+        Assert.InRange(DiscoveryRequests(), 2, 3);
+        Assert.True(advanced >= CkMethodHandlerDiscoveryRequester.MinInterval, $"asked again after {advanced}");
+
+        var all = Task.WhenAll(waiting);
+        await AdvanceUntilCompletedAsync(all, step);
+        var responses = await all;
+        Assert.All(responses, r => Assert.Equal(CkMethodErrorCodes.MethodHandlerNotAvailable, r.Error!.Code));
+        Assert.Equal(1, Sends());
+        // at most one request per second of the hand-over
+        Assert.InRange(DiscoveryRequests(), 2, 1 + (int)Math.Ceiling(_options.HandlerHandOver / CkMethodHandlerDiscoveryRequester.MinInterval));
+
+        // after the hand-over a call neither waits nor asks again
+        var before = DiscoveryRequests();
+        _time.Advance(CkMethodHandlerDiscoveryRequester.MinInterval);
+        Assert.True(dispatcher.InvokeAsync(Request(), TestContext.Current.CancellationToken).IsCompleted);
+        await Task.Delay(100, TestContext.Current.CancellationToken);
+        Assert.Equal(before, DiscoveryRequests());
+    }
+
+    [Fact]
+    public async Task Withdrawal_PublishesNoDiscoveryRequest()
+    {
+        AfterWarmUp();
+        WithoutDefaultHandler();
+
+        var call = Dispatcher().InvokeAsync(Request(), TestContext.Current.CancellationToken);
+        AfterTheHandOver();
+        await call.WaitAsync(TimeSpan.FromSeconds(10), TestContext.Current.CancellationToken);
+        await Task.Delay(100, TestContext.Current.CancellationToken);
+
+        Assert.Equal(0, DiscoveryRequests()); // a stopped instance announces its successor itself
+    }
+
+    [Fact]
+    public async Task BrokerReturn_AFailingDiscoveryPublish_DoesNotChangeTheAnswer()
+    {
+        AfterWarmUp();
+        BusThrows(new CommandNotRoutableException());
+        A.CallTo(() => _eventHub.PublishAsync(A<CkMethodHandlerDiscoveryRequested>._, A<CancellationToken?>._))
+            .ThrowsAsync(new InvalidOperationException("broker gone"));
+
+        var response = await Dispatcher().InvokeAsync(Request(), TestContext.Current.CancellationToken);
+
+        Assert.Equal("no-live-handler", response.Error!.Parameters[CkMethodErrorParameters.Reason]);
+        var until = DateTime.UtcNow + TimeSpan.FromSeconds(10);
+        while (!_logs.GetSnapshot().Any(r => r.Message.Contains("discovery request failed")) && DateTime.UtcNow < until)
+        {
+            await Task.Delay(10, TestContext.Current.CancellationToken);
+        }
+
+        var log = Assert.Single(_logs.GetSnapshot(), r => r.Message.Contains("discovery request failed"));
+        Assert.DoesNotContain("broker gone", log.Message); // the type only
+    }
+
 
     private sealed class LambdaFilter(int order,
         Func<CkMethodInvocationContext, CkMethodInvocationDelegate, Task<CkMethodResponse>> run) : ICkMethodInvocationFilter

@@ -241,7 +241,14 @@ public sealed partial class CkMethodDispatcherBusTests(RabbitMqFixture rabbitMq)
         services.AddCkMethodHandlers(serviceName, m => m.Handle<ChangePasswordHandler>(MethodId));
         if (heartbeat is { } interval)
         {
-            services.Configure<CkMethodHandlerOptions>(o => o.HeartbeatInterval = interval);
+            services.Configure<CkMethodHandlerOptions>(o =>
+            {
+                o.HeartbeatInterval = interval;
+                if (o.Ttl < 2 * interval)
+                {
+                    o.Ttl = 3 * interval; // the validator wants at least two heartbeats per TTL
+                }
+            });
         }
 
         return (await StartAsync(services), probe);
@@ -250,7 +257,8 @@ public sealed partial class CkMethodDispatcherBusTests(RabbitMqFixture rabbitMq)
     /// <summary>A gateway: dispatcher + registry feed. With <paramref name="inProcess" /> it also hosts the handler.</summary>
     private async Task<(Host Host, ICkMethodDispatcher Dispatcher, RecordingFilter Filter)> StartGatewayAsync(
         bool inProcess = false, ICkCacheService? ckCache = null, string name = "Gateway",
-        ICkInProcessAmbientStateProbe? probe = null, TimeSpan? warmUp = null, bool refuseWithoutLiveHandler = true)
+        ICkInProcessAmbientStateProbe? probe = null, TimeSpan? warmUp = null, bool refuseWithoutLiveHandler = true,
+        TimeSpan? handOver = null)
     {
         var filter = new RecordingFilter();
         var services = BaseServices();
@@ -274,6 +282,10 @@ public sealed partial class CkMethodDispatcherBusTests(RabbitMqFixture rabbitMq)
         {
             o.RegistryWarmUp = warmUp ?? TimeSpan.FromSeconds(2);
             o.RefuseWithoutLiveHandler = refuseWithoutLiveHandler;
+            if (handOver is { } h)
+            {
+                o.HandlerHandOver = h;
+            }
         });
         if (inProcess)
         {
@@ -518,10 +530,11 @@ public sealed partial class CkMethodDispatcherBusTests(RabbitMqFixture rabbitMq)
     }
 
     [Fact]
-    public async Task ConsumerDisposed_IsNotAvailable_WithinOneSecond()
+    public async Task ConsumerDisposed_IsNotAvailable_WithinOneSecond_WithoutHandOver()
     {
         var (handler, _) = await StartHandlerHostAsync();
-        var (_, dispatcher, _) = await StartGatewayAsync();
+        // the hand-over is off: the refusal itself is measured (the hand-over has tests of its own)
+        var (_, dispatcher, _) = await StartGatewayAsync(handOver: TimeSpan.Zero);
         Assert.True((await dispatcher.InvokeAsync(NewRequest(), TestContext.Current.CancellationToken)).Success);
 
         await handler.DisposeAsync(); // withdraws, removes the endpoints, stops the bus
@@ -538,7 +551,7 @@ public sealed partial class CkMethodDispatcherBusTests(RabbitMqFixture rabbitMq)
     public async Task HandlerWithdrawnMidFlight_TheInFlightCallStillGetsExactlyOneEnvelope_AndNewCallsFailFast()
     {
         var (handler, probe) = await StartHandlerHostAsync();
-        var (_, dispatcher, _) = await StartGatewayAsync();
+        var (_, dispatcher, _) = await StartGatewayAsync(handOver: TimeSpan.Zero); // fail fast: no hand-over wait
 
         var inFlight = dispatcher.InvokeAsync(NewRequest(target: "gate", timeout: TimeSpan.FromSeconds(6)),
             TestContext.Current.CancellationToken);

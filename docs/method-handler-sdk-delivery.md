@@ -97,8 +97,8 @@ and run once per call for both transports.
 | Situation | Envelope |
 |---|---|
 | Handler answered | the handler's `CkMethodResponse` unchanged (success, declared error, `METHOD_HANDLER_FAILED`, `METHOD_TIMEOUT`, `METHOD_OUTCOME_UNKNOWN`, ...) |
-| The registry knows no live handler (never announced, local only in another service, withdrawn, expired) | `METHOD_HANDLER_NOT_AVAILABLE`, parameters `methodId` and `reason` = `no-live-handler`, no stack trace, **nothing sent**; inside the registry warm-up the call first waits for an announcement |
-| A live entry is stale (handler crashed inside its TTL): the broker returns the mandatory send | the same envelope (`no-live-handler`) within milliseconds; the entry is expired, so the next call is refused before the send |
+| The registry knows no live handler (never announced, local only in another service, withdrawn, expired) | `METHOD_HANDLER_NOT_AVAILABLE`, parameters `methodId` and `reason` = `no-live-handler`, no stack trace, **nothing sent**; inside the registry warm-up, or inside the hand-over after the last handler went away, the call first waits for an announcement |
+| A live entry is stale (handler crashed inside its TTL): the broker returns the mandatory send | the same envelope (`no-live-handler`) within milliseconds; the entry is expired and the dispatcher asks every handler to announce itself again, so the next call waits for the hand-over and is sent when a live handler answers, or refused before the send when none does |
 | The registry knows live handlers, none serves the tenant | `METHOD_HANDLER_NOT_AVAILABLE`, `reason` = `tenant-not-served`, nothing sent |
 | The request carries a newer contract version than every live handler announced | `METHOD_CONTRACT_VERSION_UNSUPPORTED`, nothing sent (wire contract rule 4) |
 | No answer before `DeadlineUtc` + `ResponseGrace` (2 s), or the deadline has passed already | `METHOD_TIMEOUT` (outcome unknown), nothing is re-sent |
@@ -142,8 +142,21 @@ access token. RabbitMQ returned it unroutable and did not store it, but it had r
 * **Warm-up.** A freshly started dispatcher has not heard every handler yet. Until `Methods:Dispatcher:RegistryWarmUp` (default 20 s,
   longer than the 15 s heartbeat; the discovery request at start restarts it) has passed, a call whose method the registry has **not heard
   of** (or knows only from the restored snapshot) waits for an announcement of that method, at most until the warm-up ends or the request
-  deadline passes, and is then sent or refused. A withdrawal or an expiry the registry received itself is an answer: such a call is refused
-  at once, also inside the warm-up. Zero turns the wait off.
+  deadline passes, and is then sent or refused. A withdrawal or an expiry the registry received itself ends the warm-up wait for that
+  method; the hand-over below applies instead. Zero turns the wait off.
+* **Hand-over.** When the last handler of a method goes away (withdrawal, expiry, returned send) a successor may be about to announce
+  itself: a restarted single replica, a `Recreate` rollout, scale 0 -> 1, or a live handler that re-binds its queue after a broker
+  reconnect. For `Methods:Dispatcher:HandlerHandOver` (default 3 s, at most 30 s, zero = off) **counted from the moment the last entry
+  ended** a call waits for an announcement, at most until the request deadline, and is then sent or refused with the same
+  `METHOD_HANDLER_NOT_AVAILABLE` / `no-live-handler` envelope, log line and metrics as before. After the window a call is refused at once.
+  At most `Methods:Dispatcher:MaxWaitingCalls` (1000) calls wait in a hand-over at a time; the wait holds no thread and ends with the
+  caller's cancellation. A rolling update with `maxSurge` >= 1 has no gap: the new instance announces before the old one withdraws.
+  A restart that takes longer than the hand-over still refuses calls until the new instance announces; raise the hand-over (up to 30 s)
+  for such a handler host or keep two replicas.
+* **Broker return asks for discovery.** When the broker returns a send the registry still listed (no queue bound), the dispatcher expires
+  the entries and publishes a discovery request; live handlers answer within milliseconds, so calls succeed again as soon as the handler's
+  queue is bound, not with its next heartbeat (up to 15 s). While calls wait in that hand-over the request is repeated once per second.
+  A handler that answers but whose queue stays unbound is returned a second time and then refused at once until its next heartbeat.
 * **A live entry is not a guarantee.** The send stays mandatory. A handler that crashed (no withdrawal) stays live for at most its TTL; the
   first call in that window is sent and returned by the broker (`no-live-handler`), the entry is expired (`NoQueueBound`) and every
   further call is refused before the send. This window (one call per crashed instance, at most the TTL) is the remaining case in which a
@@ -151,7 +164,7 @@ access token. RabbitMQ returned it unroutable and did not store it, but it had r
   never the body.
 * **Races.** A handler that starts announces itself only after its endpoint accepts messages; a call in the milliseconds before the
   announcement arrives is refused (safe direction, the caller may retry). A graceful stop withdraws before the endpoints go, so new calls
-  are refused at once. Several dispatcher replicas each keep their own registry from the same broadcasts (and share the snapshot), so they
+  are never sent to the stopping instance; they wait for the hand-over and are refused when no successor announces itself. Several dispatcher replicas each keep their own registry from the same broadcasts (and share the snapshot), so they
   decide alike.
 * **Emergency switch.** `Methods:Dispatcher:RefuseWithoutLiveHandler=false` (env `OCTO_Methods__Dispatcher__RefuseWithoutLiveHandler`)
   restores the advisory registry: an empty registry does not refuse and the broker decides. Use it only when the registry feed is broken
@@ -203,10 +216,12 @@ The `timeoutSeconds` of that `METHOD_TIMEOUT` is the timeout of the request, not
 
 **Tests.** `tests/Methods.Tests/Dispatching` (dispatcher with a faked hub, registry races, declaring-element resolution, registration;
 Registry gate: no call on the event hub without a live handler, warm-up wait and its ends, withdrawal inside the warm-up, stale entry after a
-returned send, emergency switch) and `tests/Methods.IntegrationTests/CkMethodDispatcherBusTests.cs` (private RabbitMQ: the same cases over
+returned send, emergency switch; hand-over: restart of a single replica, crash expiry, window, deadline, cap, cancellation, waiter bound,
+discovery after a returned send) and `tests/Methods.IntegrationTests/CkMethodDispatcherBusTests.cs` (private RabbitMQ: the same cases over
 the bus and in-process, no consumer, consumer gone, mid-flight stop, timeout, derived type, replicas; registry gate: the send exchange of a
 refused method does not exist on the broker, with the emergency switch off it does, a gateway started before its handler waits for the
-announcement).
+announcement) and `CkMethodDispatcherBusTests.HandOver.cs` (restart of the only replica, no successor, handler connection lost and
+restored).
 
 ## Replicas and sharing
 
