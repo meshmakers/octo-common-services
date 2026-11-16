@@ -172,14 +172,16 @@ internal sealed class CkMethodHandlerRegistry : ICkMethodHandlerRegistry
     ///     the same instance is marked as repeated: that handler answered the discovery request (or its heartbeat) but its
     ///     queue is still not bound, so the dispatcher neither waits for it nor asks again.
     /// </summary>
-    internal void MarkNoQueueBound(string qualifiedMethodId, DateTime sendStartedUtc)
+    /// <returns><c>true</c> when at least one instance was expired by a return that is not repeated.</returns>
+    internal bool MarkNoQueueBound(string qualifiedMethodId, DateTime sendStartedUtc)
     {
         var now = Now;
+        var firstReturn = false;
         lock (_lock)
         {
             if (!_methods.TryGetValue(Normalize(qualifiedMethodId), out var instances))
             {
-                return;
+                return false;
             }
 
             foreach (var key in instances.Keys.ToList())
@@ -197,10 +199,13 @@ internal sealed class CkMethodHandlerRegistry : ICkMethodHandlerRegistry
                         NoQueueBoundAtUtc = now,
                         RepeatedNoQueueBound = repeated
                     };
+                    firstReturn |= !repeated;
                     MarkDirty(Normalize(qualifiedMethodId), key);
                 }
             }
         }
+
+        return firstReturn;
     }
 
     /// <summary>Starts queueing every change for <see cref="TakeChanges" /> (called once a snapshot store exists).</summary>

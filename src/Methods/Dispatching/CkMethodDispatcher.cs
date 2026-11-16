@@ -262,11 +262,14 @@ internal sealed class CkMethodDispatcher(
         }
         catch (CommandNotRoutableException)
         {
-            registry.MarkNoQueueBound(request.MethodId, sentAtUtc);
             // The registry listed a handler, the broker had no queue for it: a handler may be re-binding its queue (broker
             // reconnect). Live handlers answer the discovery request at once, so the next calls (which wait for the
-            // hand-over) find them instead of being refused until the next heartbeat. This call is not sent again.
-            discovery?.Request();
+            // hand-over) find them instead of being refused until the next heartbeat. This call is not sent again. A
+            // repeated return (the handler answered but its queue is still not bound) does not ask again.
+            if (registry.MarkNoQueueBound(request.MethodId, sentAtUtc))
+            {
+                discovery?.Request();
+            }
             return NotAvailable(request, ReasonNoLiveHandler);
         }
         catch (DistributionTimeoutException)
@@ -306,20 +309,9 @@ internal sealed class CkMethodDispatcher(
     private async Task<IReadOnlyList<CkMethodHandlerEntry>> WaitForLiveHandlerAsync(CkMethodRequest request,
         CancellationToken cancellationToken)
     {
-        var (firstUntil, _, handOver) = WaitUntil(request);
-        if (firstUntil <= timeProvider.GetUtcNow().UtcDateTime)
-        {
-            return [];
-        }
-
-        // the bound applies to the hand-over; the warm-up wait after a start stays as it was
-        if (handOver && !registry.TryEnterWait(options.Value.MaxWaitingCalls))
-        {
-            logger.LogWarning("CK method {MethodId}: too many calls wait for a handler, the call is refused at once",
-                request.MethodId);
-            return [];
-        }
-
+        // Admission to the bounded hand-over is taken when the wait is (or becomes) a hand-over; the warm-up wait after a
+        // start is not counted. A warm-up wait that turns into a hand-over (a withdrawal arrived) is admitted then.
+        var admitted = false;
         try
         {
             while (true)
@@ -333,10 +325,22 @@ internal sealed class CkMethodDispatcher(
                 }
 
                 var now = timeProvider.GetUtcNow().UtcDateTime;
-                var (until, askingForDiscovery, _) = WaitUntil(request);
+                var (until, askingForDiscovery, handOver) = WaitUntil(request);
                 if (until <= now)
                 {
                     return [];
+                }
+
+                if (handOver && !admitted)
+                {
+                    if (!registry.TryEnterWait(options.Value.MaxWaitingCalls))
+                    {
+                        logger.LogWarning("CK method {MethodId}: too many calls wait for a handler, the call is refused at once",
+                            request.MethodId);
+                        return [];
+                    }
+
+                    admitted = true;
                 }
 
                 // while the handlers are asked to announce themselves, wake up to ask again (the request is throttled)
@@ -355,7 +359,7 @@ internal sealed class CkMethodDispatcher(
         }
         finally
         {
-            if (handOver)
+            if (admitted)
             {
                 registry.LeaveWait();
             }
@@ -374,15 +378,16 @@ internal sealed class CkMethodDispatcher(
     /// </summary>
     private (DateTime Until, bool AskingForDiscovery, bool HandOver) WaitUntil(CkMethodRequest request)
     {
-        var lastSeen = registry.GetLastSeen(request.MethodId);
-        if (lastSeen == null || lastSeen.Source == CkMethodHandlerEntrySource.Snapshot)
+        // An end this registry observed itself (withdrawal, expiry or returned send of an entry it received) decides;
+        // only a method it has not heard of, or knows only from the restored snapshot, gets the warm-up.
+        var ended = registry.GetLastEnded(request.MethodId);
+        if (ended == null)
         {
             return (Earliest(registry.WarmUpEndsUtc, request.DeadlineUtc), false, false);
         }
 
         var handOver = HandOverOf(options.Value);
-        var ended = registry.GetLastEnded(request.MethodId);
-        if (handOver <= TimeSpan.Zero || ended == null || ended.Value.RepeatedNoQueueBound)
+        if (handOver <= TimeSpan.Zero || ended.Value.RepeatedNoQueueBound)
         {
             return (DateTime.MinValue, false, true);
         }

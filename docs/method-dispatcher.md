@@ -42,15 +42,16 @@ applies_to: src/Methods/Dispatching/**
   returned send (`MarkNoQueueBound`) the registry has an answer, but a successor may be about to announce itself (single-replica
   restart, `Recreate` rollout, scale 0 -> 1, crash with a restart, handler re-binding its queue after a broker reconnect). A call that
   arrives within the hand-over **counted from the moment the last received entry of the method ended** (`GetLastEnded`: newest
-  `ExpiresUtc` of the entries with source `Announcement`) waits for an announcement, at most until the window ends or the request deadline,
+  `ExpiresUtc` of the entries with source `Announcement`; such an end decides over a restored snapshot row, the warm-up applies only
+  without one) waits for an announcement, at most until the window ends or the request deadline,
   then it is sent or refused with `METHOD_HANDLER_NOT_AVAILABLE` / `no-live-handler` exactly as before (same WARN line, same
   `ck.method.calls` / `ck.method.no_handler` counting; nothing is counted for the wait itself). A call after the window is refused at once,
   so a handler that is gone for good adds no latency. A late or repeated withdrawal of an entry that had already ended keeps its end, so
   it does not start a new window. The time the wait used is taken from the deadline the send sees.
   Bounds: the wait holds no thread (one shared `TaskCompletionSource` per registry change plus a `Task.Delay` on the `TimeProvider`),
   follows the caller's token, and at most `Methods:Dispatcher:MaxWaitingCalls` (1000) calls wait in a hand-over at a time, over all
-  methods (`CkMethodHandlerRegistry.TryEnterWait`/`LeaveWait`; the warm-up wait after a start is not counted and unchanged); a call beyond
-  it is refused at once with a WARN that names the method only. Zero lets no call wait in a hand-over.
+  methods (`CkMethodHandlerRegistry.TryEnterWait`/`LeaveWait`; the warm-up wait after a start is not counted and unchanged, a warm-up wait
+  that turns into a hand-over is admitted then); a call beyond it is refused at once with a WARN that names the method only. Zero lets no call wait in a hand-over.
 - **Discovery after a returned send** (`CkMethodHandlerDiscoveryRequester`, singleton of `AddCkMethodDispatcher`): when the broker returns
   a send the registry still listed, the dispatcher expires the entries (`MarkNoQueueBound`) and publishes a `CkMethodHandlerDiscoveryRequested`,
   so live handlers re-announce within milliseconds instead of with their next heartbeat (up to 15 s). The returned call itself is not sent
@@ -62,7 +63,8 @@ applies_to: src/Methods/Dispatching/**
   first-hand (`Source` `Announcement`), so a returned send gets the hand-over also right after a dispatcher restart.
   **A handler that answers but stays unbound** (its process runs, its method queue does not): the waiting calls are sent once when it
   re-announces and returned again. A second return of the same instance within 30 s of the previous one
-  (`CkMethodHandlerRegistry.NoQueueBoundRepeatWindow`) is marked repeated: no hand-over wait and no discovery request for it, its calls are
+  (`CkMethodHandlerRegistry.NoQueueBoundRepeatWindow`) is marked repeated (`MarkNoQueueBound` returns `false`): no hand-over wait and no
+  discovery request for it, neither from the returned call nor from waiting calls; its calls are
   refused at once until its next heartbeat, as before the hand-over existed. So such a handler costs one extra round of returned sends per
   episode, never a loop of discovery requests.
 - **Registry snapshot**: with an `ICkMethodHandlerSnapshotStore` in the host (port and Mongo store live in

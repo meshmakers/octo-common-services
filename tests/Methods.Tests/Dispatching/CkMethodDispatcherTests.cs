@@ -1056,6 +1056,70 @@ public class CkMethodDispatcherTests
     }
 
     [Fact]
+    public async Task BrokerReturn_ARepeatedReturnAfterTheThrottleInterval_PublishesNoFurtherRequest()
+    {
+        AfterWarmUp();
+        BusThrows(new CommandNotRoutableException()); // the process answers, its method queue stays unbound
+        var dispatcher = Dispatcher();
+        await dispatcher.InvokeAsync(Request(), TestContext.Current.CancellationToken);
+        await WaitForDiscoveryRequestsAsync(1);
+
+        _time.Advance(TimeSpan.FromSeconds(1.5)); // the throttle no longer holds a second request back
+        AnnounceDefaultHandler(); // the answer to the first request
+        var second = await dispatcher.InvokeAsync(Request(), TestContext.Current.CancellationToken);
+
+        Assert.Equal("no-live-handler", second.Error!.Parameters[CkMethodErrorParameters.Reason]);
+        Assert.Equal(2, Sends());
+        await Task.Delay(100, TestContext.Current.CancellationToken);
+        Assert.Equal(1, DiscoveryRequests()); // the repeated return does not ask again
+    }
+
+    [Fact]
+    public async Task HandOver_AWarmUpWaitThatTurnsIntoAHandOver_IsBoundedToo()
+    {
+        _options.MaxWaitingCalls = 0; // no call may wait in a hand-over
+        var call = Dispatcher().InvokeAsync(Request(deadlineSeconds: 60, methodId: UnannouncedMethod),
+            TestContext.Current.CancellationToken);
+        Assert.False(call.IsCompleted); // the warm-up wait is not bounded
+
+        _registry.OnWithdrawn(new CkMethodHandlerWithdrawn(Guid.NewGuid(), Now)
+            { ServiceName = "device", InstanceId = "gone", MethodIds = [UnannouncedMethod] });
+        var response = await call.WaitAsync(TimeSpan.FromSeconds(10), TestContext.Current.CancellationToken);
+
+        Assert.Equal(CkMethodErrorCodes.MethodHandlerNotAvailable, response.Error!.Code); // refused at once: no place
+        Assert.Equal(0, _registry.WaitingCalls);
+    }
+
+    [Fact]
+    public async Task BrokerReturn_OfAnOlderRestoredRow_GetsTheHandOver_EvenWhenANewerRestoredRowExists()
+    {
+        WithoutDefaultHandler();
+        CkMethodHandlerSnapshotRecord Row(string instance, DateTime lastSeen, DateTime expires) => new()
+        {
+            MethodKey = CkMethodHandlerRegistry.Normalize(UnannouncedMethod), InstanceId = instance,
+            MethodId = UnannouncedMethod, ServiceName = "device", ContractVersion = 1, LastSeenUtc = lastSeen,
+            ExpiresUtc = expires, Tenants = ["*"]
+        };
+        _registry.Restore([
+            Row("older-live", Now.AddSeconds(-10), Now.AddMinutes(10)),
+            Row("newer-expired", Now.AddSeconds(-5), Now.AddSeconds(-1))
+        ]);
+        AfterWarmUp();
+        A.CallTo(() => _eventHub.GetCommandResponseAsync<CkMethodRequest, CkMethodResponse>(A<string>._,
+                A<CkMethodRequest>._, A<CommandSendOptions>._, A<CancellationToken>._))
+            .Throws(new CommandNotRoutableException()).Once()
+            .Then.Returns(CkMethodResponse.Succeeded(Guid.Empty, "older-live"));
+
+        await Dispatcher().InvokeAsync(Request(methodId: UnannouncedMethod), TestContext.Current.CancellationToken);
+        var second = Dispatcher().InvokeAsync(Request(methodId: UnannouncedMethod), TestContext.Current.CancellationToken);
+        Assert.False(second.IsCompleted); // the returned send decides, not the newer snapshot row
+        _registry.OnAnnounced(new CkMethodHandlerAnnounced(Guid.NewGuid(), Now)
+            { ServiceName = "device", InstanceId = "older-live", MethodIds = [UnannouncedMethod] });
+
+        Assert.True((await second.WaitAsync(TimeSpan.FromSeconds(10), TestContext.Current.CancellationToken)).Success);
+    }
+
+    [Fact]
     public async Task BrokerReturn_AHangingDiscoveryPublish_IsAbandoned_SoALaterReturnCanAskAgain()
     {
         AfterWarmUp();

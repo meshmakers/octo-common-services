@@ -209,8 +209,9 @@ dispatcher host therefore knows its handlers, the served tenants and the contrac
 * **Service data only.** Ids, service name, versions, times, served tenants and flags; no parameter value, token or user data (allow-list
   test over the result types). The GraphQL query that exposes it to system administrators lives in octo-asset-repo-services.
 
-**A handler stopping mid-flight.** A graceful stop withdraws first and removes the endpoints; new calls fail at once with
-`METHOD_HANDLER_NOT_AVAILABLE`. A call that is running on that instance gets its cancellation token cancelled and ends as
+**A handler stopping mid-flight.** A graceful stop withdraws first and removes the endpoints; new calls are never sent to it. They wait
+for the hand-over (`Methods:Dispatcher:HandlerHandOver`) and are sent to a successor that announces itself in that time; otherwise they
+fail with `METHOD_HANDLER_NOT_AVAILABLE`, at once when the hand-over is off or its window has ended. A call that is running on that instance gets its cancellation token cancelled and ends as
 `METHOD_TIMEOUT` (outcome unknown) or, when the handler finished first, with its result. It is never lost silently and never run twice.
 The `timeoutSeconds` of that `METHOD_TIMEOUT` is the timeout of the request, not a host default.
 
