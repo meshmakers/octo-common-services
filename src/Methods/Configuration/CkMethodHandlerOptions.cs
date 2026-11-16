@@ -50,4 +50,14 @@ public sealed class CkMethodHandlerOptions
     ///     System model.
     /// </summary>
     public List<string> ValidationTenantIds { get; set; } = [];
+
+    /// <summary>
+    ///     How long the startup validation loads, or waits for, the CK cache of each validation tenant before it gives up
+    ///     (AB#8969). A CK model import at startup (this replica, or the reload after another replica imported) unloads the
+    ///     cache; the validation loads it again instead of reporting the methods as missing. When the time runs out the
+    ///     start fails with a message that names the tenant and the cache load, not a missing method. Default 2 min (the
+    ///     time a cache load waits for a running CK model import); must be positive, validated at startup
+    ///     (<c>Methods:CacheLoadTimeout</c>, environment variable <c>OCTO_Methods__CacheLoadTimeout</c>).
+    /// </summary>
+    public TimeSpan CacheLoadTimeout { get; set; } = TimeSpan.FromMinutes(2);
 }

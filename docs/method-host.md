@@ -70,6 +70,16 @@ and registry (F3.2/F3.3) and the pipeline handler are other stories. Developer g
   Tenant ids (the default `SystemTenantId` like `OctoSystem` and every `ValidationTenantIds` entry) are normalised (trimmed, lower-case) to the
   key the CK cache uses (`CkCacheMethodDefinitionSource.NormalizeTenantId`, tests `CkCacheMethodDefinitionSourceTests`), so a host with the
   default configuration starts; no `ValidationTenantIds` workaround is needed.
+  **The check loads the CK cache itself.** A CK model import at startup unloads the tenant's cache (own import, or the reload
+  after another replica imported) right before the check. `CkMethodRegistrationValidator.ValidateAsync` first calls
+  `ICkMethodDefinitionSource.EnsureLoadedAsync` (default interface member, no-op for test sources): `CkCacheMethodDefinitionSource` loads each
+  unloaded validation tenant through `ICkMethodValidationCacheLoader` (default `CkMethodValidationCacheLoader`: `ISystemContext` ->
+  `ITenantContext.LoadCacheForTenantAsync`), retrying failed loads (e.g. a CK import of another replica still running) every 500 ms until
+  `Methods:CacheLoadTimeout` (default 2 min, positive, validated by `CkMethodHandlerOptionsValidator`). `Find` stays synchronous and throws
+  `CkMethodDefinitionCacheNotLoadedException` for an unloaded tenant (also a `CkCacheException` from a concurrent unload) instead of
+  skipping it; the validator then loads again and repeats within the same deadline. Timeout = distinct start failure naming the tenant and
+  the cache load, never "no such method". Both validation services (bus and in-process, Order 15) use it. Service-specific reloads of the
+  system tenant's model are no longer needed for the check. Tests `CkMethodValidationCacheLoadTests`.
 - **Sensitive data**: the host never logs `ParametersJson` or the token (`CkMethodRequest.ToString()` redacts, the host logs ids
   only). `CkMethodRedactor` additionally masks the values of CK `sensitive: true` parameters and the caller token in the
   message, stack trace and `ToString()` of an exception a handler throws before the host logs it. Tests: `CkMethodHandlerInvokerTests`.
@@ -145,6 +155,17 @@ Decision OD-5: at most once after accept, record before the accepted envelope, l
   (2 min, >= 3 x heartbeat), `SweepInterval` (1 min), `RetryAfterSeconds` (5, 1-3600); `CkMethodOperationOptionsValidator` + `ValidateOnStart`,
   messages name the setting only.
 - **Metric** `ck.method.operations` (labels `method_id`, `state`); sweep-ended operations count as `failed` with `method_id` `other`.
+- **Deleted tenant**: `ICkMethodOperationTenantPurge.DeleteTenantAsync(tenant)` (separate interface, both stores implement it,
+  registered by both store registrations via `AddCkMethodOperationTenantPurge()`, no-op for a custom store) removes all records of the
+  tenant; the bot service calls it on `PosDeleteTenant` (Deleting tombstone only). A restore does not purge (records are in the system database).
+- **Tenant generation (security)**: both store registrations wrap the store in `CkMethodTenantGenerationOperationStore`
+  (`AddCkMethodOperationStoreWithTenantGeneration<TStore>()`): reads ignore records accepted before the current tenant's creation time
+  (`ICkMethodOperationTenantGeneration`, `CkMethodTenantLifecycleGeneration` = `TenantLifecycleRecord.CreatedUtc`; `null` = no filter;
+  unreadable = `CkMethodOperationStoreException`). Closes the failed-purge and the late-write gap for a tenant id created again.
+  `ICkMethodOperationTenantPurge.DeleteTenantAcceptedBeforeAsync` (default: removes nothing) is the setup cleanup the bot calls. A custom
+  store registered before the registration is not wrapped (documented in `docs/method-handler-sdk.md`). Resolving
+  `ICkMethodOperationStore` gives the guard; the concrete store is `.Inner` (tests use `AsyncOperationFixture.InMemoryStore`).
+  Tests `TenantGenerationStoreContract` (linked into `Methods.IntegrationTests` for MongoDB), `TenantGenerationOperationStoreTests.cs`.
 - **Tests**: `tests/Methods.Tests/Operations/` (`OperationStoreContract` is linked into `Methods.IntegrationTests`, which runs it against a
   MongoDB replica set via Testcontainers; skipped without Docker or with `OCTO_SKIP_CONTAINER_TESTS=true`), `AsyncHandlerTests`,
   `AsyncIdempotencyTests`, `OperationOptionsTests`; `tests/Methods.IntegrationTests/Operations/MongoOperationStoreTests.cs`.

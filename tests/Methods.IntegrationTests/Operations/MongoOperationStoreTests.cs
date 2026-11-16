@@ -88,6 +88,17 @@ public class MongoOperationStoreTests(OperationsMongoFixture mongo)
 }
 
 /// <summary>
+///     AB#8881 (security): on a real replica set, a tenant created again with the id of a deleted tenant reads none of the
+///     deleted tenant's records (failed purge, late write after the purge), and the setup purge removes them.
+/// </summary>
+public class MongoTenantGenerationStoreTests(OperationsMongoFixture mongo)
+    : TenantGenerationStoreContract, IClassFixture<OperationsMongoFixture>
+{
+    protected override ICkMethodOperationStore CreateInner() =>
+        new CkMethodMongoOperationStore(mongo.NewDatabase(), Time, NullLogger<CkMethodMongoOperationStore>.Instance);
+}
+
+/// <summary>
 ///     AB#8443: what only the real database shows: indexes, durability across store instances (a service restart), a
 ///     handler host that dies while it works, and the raw documents (no parameters, no token).
 /// </summary>

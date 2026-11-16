@@ -24,6 +24,7 @@ for the published package list. Targets .NET 10, DebugL for local development.
 | `src/Notifications/**`, `tests/Notifications.Tests/**`, `tests/Notifications.IntegrationTests/**`, `azure-pipelines.yml` | `docs/notification-ck-model.md` |
 | `src/RestDeprecation/**`, `src/Swagger/Transformers/**`, `tests/RestDeprecation.Tests/**` | `docs/rest-deprecation.md` |
 | `src/Infrastructure/**/TenantAuthorization*.cs`, `src/Infrastructure/Authorization/**`, `src/Infrastructure/Services/*TenantHierarchyReader.cs` | `docs/tenant-authorization.md` |
+| `src/Infrastructure/TenantGeneration/**`, `tests/Infrastructure.Tests/TenantGeneration/**`, `src/Methods/Authorization/CkMethodCallerTenantCheck.cs` | `docs/tenant-generation-check.md` |
 | `src/Infrastructure/Services/DefaultConfigurationCreatorServiceStandardized.cs`, `src/Infrastructure/Services/TenantReconcilerOptions.cs` | `docs/tenant-reconciler.md` |
 | `src/Infrastructure/Services/**`, `src/Infrastructure/Consumers/**`, `src/Infrastructure/Initialization/**`, `src/Contracts/DistributionEventHub/Commands/**` | `docs/tenant-setup.md` |
 <!-- <<< end generated: routing -->

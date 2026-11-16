@@ -3,6 +3,7 @@ using Meshmakers.Octo.Common.DistributionEventHub.Consumers;
 using Meshmakers.Octo.ConstructionKit.Contracts.Services;
 using Meshmakers.Octo.Runtime.Contracts.MongoDb;
 using Meshmakers.Octo.Services.Contracts.DistributionEventHub.Messages;
+using Meshmakers.Octo.Services.Infrastructure.TenantGeneration;
 
 // ReSharper disable InconsistentlySynchronizedField
 
@@ -18,13 +19,17 @@ namespace Meshmakers.Octo.Services.Infrastructure.Consumers;
 internal class PreUpdatePreDeleteTenantConsumer(
     ILogger<PreUpdatePreDeleteTenantConsumer> logger,
     ICkCacheService ckCacheService,
-    ISystemContext systemContext)
+    ISystemContext systemContext,
+    ITenantGenerationReader? tenantGenerationReader = null)
     : IDistributedConsumer<PreUpdateTenant>, IDistributedConsumer<PreDeleteTenant>
 {
     private static readonly Lock Lock = new();
 
     public Task ConsumeAsync(IDistributedContext<PreUpdateTenant> context)
     {
+        // AB#8999: drop the cached tenant generation, so no value of this creation cycle outlives it.
+        tenantGenerationReader?.Invalidate(context.Message.TenantId);
+
         logger.LogInformation("Pre update tenant received: '{TenantId}'", context.Message.TenantId);
 
         var tenantId = context.Message.TenantId.NormalizeString();
@@ -55,6 +60,9 @@ internal class PreUpdatePreDeleteTenantConsumer(
 
     public async Task ConsumeAsync(IDistributedContext<PreDeleteTenant> context)
     {
+        // AB#8999: drop the cached tenant generation, so no value of this creation cycle outlives it.
+        tenantGenerationReader?.Invalidate(context.Message.TenantId);
+
         logger.LogInformation("Pre delete tenant received: {TenantId}", context.Message.TenantId);
 
         var tenantId = context.Message.TenantId.NormalizeString();

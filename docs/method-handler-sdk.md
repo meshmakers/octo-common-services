@@ -18,6 +18,14 @@ Code"): `AccountChangePasswordParameters` (required parameters are `required` pr
 when the method has a result, and the method id constant in the model's `*CkIds` class, for example
 `Sample.Accounts/Account.ChangePassword-1`. Use the constant; never type the id by hand.
 
+**Record parameters bind as the generated `Rt{Record}Record`.** A parameter of value type `Record` is the model's
+runtime record, an attribute bag. `CkMethodJson.Options` binds it with its CK attributes only: the bookkeeping members
+`attributes` and `ckRecordId` are neither read nor written, and an array attribute (`IAttributeValueList<T>`, an interface
+System.Text.Json cannot create on its own) is read as a list into the record. So a record that holds a record array, a string
+array or an int array works as a handler parameter type; write no plain look-alike classes. A missing mandatory array reads as
+an empty list (the generated getter), a missing optional one as `null`, an explicit `[]` as an empty list. A record result is
+written the same way (`{"path":...,"indexed":...}`).
+
 **The result on the wire is the bare `Value`.** The host serializes only `Value` of the result record with
 `CkMethodJson.Options`: `new AccountChangePasswordResult { Value = 12 }` becomes `resultJson` `12`, a String `"abc"`, a record
 `{"name":...}`; never `{"value": 12}`. A null `Value` is a success without `resultJson`. The registration refuses a result type
@@ -97,14 +105,33 @@ At startup (order 15, before the bus) every registration is checked against the 
 (`Methods:ValidationTenantIds` to name other tenants; ids are matched case-insensitively against the CK cache, so the default
 `OctoSystem` works as is): unknown method id, a parameter without a property on the parameters
 record, a scalar type mismatch, result vs. no-result handler. A mismatch **stops the service** with a message that names the
-method. The host then connects one shared command endpoint per method (competing consumers, faults suppressed), **waits until every
+method.
+
+**The CK cache is loaded for the check.** A CK model import at startup (this replica's own, or the reload after another
+replica imported first) unloads the tenant's CK cache, and the check runs right after it. The check therefore first loads the CK cache of
+every validation tenant that is not loaded (through the tenant context of the service), or waits for it when a load fails because another
+replica's import is still running. It retries until `Methods:CacheLoadTimeout` (default 2 min, environment variable
+`OCTO_Methods__CacheLoadTimeout`, must be positive). When the cache is unloaded again while the registrations are checked, it loads
+it again and repeats, within the same deadline. The check never treats an unloaded cache as "no such method" any more:
+
+| Situation | Result |
+|-----------|--------|
+| Cache not loaded, loads within the timeout | the check runs, the service starts |
+| Method really not in the loaded model (or the model is not installed) | start fails with the existing "... has no such method" error |
+| Cache does not load within the timeout | start fails with "The CK cache of tenant '&lt;tenant&gt;' did not load ..." (`CkMethodDefinitionCacheNotLoadedException`), naming the tenant, the last load error and the `Methods:CacheLoadTimeout` setting |
+
+So several replicas of a service with CK methods start on a fresh or freshly upgraded tenant without a service-specific reload or
+retry. Tests: `tests/Methods.Tests/Handlers/CkMethodValidationCacheLoadTests.cs` (on-demand load, wait without a loader, unknown
+method, timeout, unload between load and check, four replicas on one fresh tenant).
+
+The host then connects one shared command endpoint per method (competing consumers, faults suppressed), **waits until every
 endpoint accepts messages** (`EndpointHandle.WaitUntilReadyAsync`, at most `Methods:EndpointReadyTimeout`, default 30 s; the
 service fails to start instead of announcing a handler that cannot receive), and only then announces the handler
 (`CkMethodHandlerAnnounced`). It repeats the announcement every 15 s (TTL 45 s) and withdraws on graceful shutdown before it
 removes the queues.
 
 Options (section `Methods`): `HeartbeatInterval`, `Ttl`, `ValidateRegistrations` (default `true`, switch off only in tests),
-`ValidationTenantIds`, `EndpointReadyTimeout`.
+`ValidationTenantIds`, `CacheLoadTimeout` (default 2 min), `EndpointReadyTimeout`.
 
 **Heartbeat and TTL (final values).** The defaults are final: **`Methods:HeartbeatInterval` = 15 s, `Methods:Ttl` = 45 s**
 (environment variables `OCTO_Methods__HeartbeatInterval` and `OCTO_Methods__Ttl`, format `hh:mm:ss`). Every announcement carries its own
@@ -175,8 +202,19 @@ validation always enforces; the `LogOnly` and `Disabled` modes of the HTTP side 
 An expired token is only reported as `token-expired` if it is genuine otherwise; an expired forgery is `token-invalid`. If the signing
 keys cannot be loaded at all (identity service down and nothing cached) the call is answered `METHOD_HANDLER_FAILED`, never accepted.
 
-**Not covered.** The in-process transport does not validate a token: it runs in the process that already authenticated the caller and
-hands the principal of that process (`CkMethodPrincipalScope`) to the handler as `CallerPrincipal`. A remote service that does not call
+**In-process calls.** The in-process transport does not validate a token: it runs in the process that already authenticated the caller and
+hands the principal of that process (`CkMethodPrincipalScope`) to the handler as `CallerPrincipal`. It does apply the **tenant rule** above
+to every in-process call (`CkMethodCallerTenantFilter`): a principal mapped from a token (`CkMethodPrincipal.FromClaimsPrincipal`)
+whose `tenant_id` names another tenant than the call is refused with `METHOD_FORBIDDEN` / `tenant-not-allowed` before the handler runs, with
+the same allow-list for service tokens, whatever mode the HTTP tenant gate runs in. A handler needs no tenant check of its own.
+A host that does its own work **before** the pipeline (the method gateway of the asset repository: role check, target load,
+parameter validation) runs the same step first: `CkMethodCallerTenantCheck.IsRefused`. A foreign-tenant token that the rule
+refuses then gets `METHOD_FORBIDDEN` / `tenant-not-allowed` for every call, never `METHOD_TARGET_NOT_FOUND`, a role refusal or a validation
+error that would tell it whether a target exists. A service token of another tenant on the allow-list
+(`TenantAuthorization:CrossTenantServiceClientIds`) passes this step and is judged like a caller of the tenant: it can receive a role,
+target or validation error.
+
+**Not covered.** A remote service that does not call
 `AddCkMethodCallerTokenValidation` has no validated caller, so the host refuses every call (`METHOD_FORBIDDEN`, see "The host enforces the declared authorization"). A handler that receives the raw token can replay it
 against the APIs until it expires (about an hour by default); an unauthenticated handler announcement on the bus is a separate
 decision. Switching the validation off (`Methods:Token:DisableValidation`) is a test configuration; the service refuses to
@@ -857,6 +895,38 @@ contains the parameters, the caller token (OD-10: the principal stays in the pro
 | `MarkRunningAsync` / `ReportProgressAsync` / `HeartbeatAsync` | open records only |
 | `CompleteAsync` | first final state wins |
 | `FailLostAsync(staleBefore, now, retention)` | the sweep, across tenants (the in-memory store also drops expired records here; MongoDB uses the TTL index) |
+
+**Deleted tenants.** `ICkMethodOperationTenantPurge.DeleteTenantAsync(tenant)` removes every record of a tenant (any
+state) and returns the count. Both stores implement it, and `AddCkMethodInMemoryOperationStore()` / `AddCkMethodMongoOperationStore()`
+register it (`AddCkMethodOperationTenantPurge()`). The bot service calls it on `PosDeleteTenant` when the tenant carries the `Deleting`
+lifecycle tombstone. It is a separate interface, so `ICkMethodOperationStore` is unchanged. A **restore** replaces the tenant database,
+not the tenant, and does not purge: the records live in the system database, so the restore's own operation stays readable while the
+tenant database is replaced. Contract test `DeleteTenant_RemovesEveryRecordOfThatTenantOnly`.
+
+**Tenant generation (security).** The purge is cleanup, not the guarantee: it can fail, and a call admitted just before the
+delete can write its record after the purge. Neither may reach a new tenant created later with the same id. Therefore:
+
+- `ICkMethodOperationTenantGeneration.GetStartUtcAsync(tenant)` returns the creation time of the current tenant with that id.
+  `CkMethodTenantLifecycleGeneration` reads it from the tenant lifecycle record (`ITenantLifecycleStore`, `CreatedUtc`): a new creation
+  cycle sets it, a restore keeps it, and a recreated id gets a new one (the create endpoint refuses the id until the delete has settled,
+  about 90 s after the drop). `null` (no lifecycle record: legacy tenant, or a host without the engine) means "no filter".
+- `CkMethodTenantGenerationOperationStore` wraps the store: `GetAsync` returns `null` and `ListAsync` leaves out (via `SinceUtc`, so paging
+  and `TotalCount` stay right) every record whose `AcceptedAtUtc` is before that time. Writes pass through unchanged. A generation that
+  cannot be read throws `CkMethodOperationStoreException` (fail closed). Both store registrations wrap the store and register the generation
+  (`AddCkMethodOperationStoreWithTenantGeneration<TStore>()`, `AddCkMethodOperationTenantGeneration()`: the lifecycle generation when the host
+  has `ITenantLifecycleStore`, else `CkMethodNoOperationTenantGeneration`).
+- `ICkMethodOperationTenantPurge.DeleteTenantAcceptedBeforeAsync(tenant, acceptedBefore)` removes the earlier generations' records; the bot
+  service calls it with the generation in every tenant setup (`OperationRecordGenerationCleanup`, never blocks the setup). The default
+  interface implementation removes nothing.
+- **Custom stores.** A host that registers its own `ICkMethodOperationStore` before the store registration is **not** wrapped: it must wrap
+  the store in `CkMethodTenantGenerationOperationStore` itself, otherwise a recreated tenant can read the old tenant's records. A custom
+  store that does not implement `ICkMethodOperationTenantPurge` gets the no-op `CkMethodNoOperationTenantPurge`; its old records then stay
+  until they expire, invisible behind the generation guard.
+- Clocks: the accept time comes from the handler host, the creation time from the asset repository. Clock skew below the delete's settle
+  period does not let an old record through.
+
+Contract tests `TenantGenerationStoreContract` (in-memory and MongoDB; failed purge and late write, then recreate) and
+`DeleteTenantAcceptedBefore_RemovesOlderRecordsOfThatTenantOnly`.
 
 Every read names the tenant (an empty tenant is an `ArgumentException`); a read for tenant B never returns a record of tenant A.
 The MongoDB store (`CkMethodMongoOperationStore`) keeps one document per operation in the collection `MethodOperations` of the system

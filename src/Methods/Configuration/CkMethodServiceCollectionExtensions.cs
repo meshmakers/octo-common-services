@@ -43,6 +43,7 @@ public static class CkMethodServiceCollectionExtensions
         services.AddOptions<CkMethodLimitsOptions>().BindConfiguration(CkMethodLimitsOptions.SectionName);
         services.AddOptions<CkMethodDispatcherOptions>().BindConfiguration(CkMethodDispatcherOptions.SectionName);
         services.TryAddSingleton(TimeProvider.System);
+        services.TryAddSingleton<ICkMethodValidationCacheLoader, CkMethodValidationCacheLoader>();
         services.TryAddSingleton<ICkMethodDefinitionSource, CkCacheMethodDefinitionSource>();
         services.TryAddSingleton<CkMethodRegistrationValidator>();
         services.TryAddSingleton<CkMethodHandlerInstance>();

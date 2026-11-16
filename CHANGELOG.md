@@ -7,6 +7,77 @@ entries are grouped by work item until a release assigns the version.
 
 ### Added
 
+- **AB#8999** (security, AB#8970) — services check the access-token claim `tenant_gen` (issued by identity since AB#8997), so a
+  token of a deleted tenant is not accepted by a new tenant with the same id. `TenantAuthorizationMiddleware`, the CK method bus host
+  (`CkMethodCallerTokenValidator`) and the in-process transport (`CkMethodCallerTenantFilter`, via
+  `CkMethodCallerTenantRule.CheckGenerationAsync`) compare it with the current generation of the token's `tenant_id` (also on the
+  parent-tenant path; the system tenant and tenants without lifecycle record are never refused; allow-listed cross-tenant service
+  clients on another tenant are not checked). New option `TenantAuthorization:TenantGenerationEnforcement` = `Disabled` | `LogOnly` |
+  `Enforce`, **default `LogOnly`**: outcomes unchanged, `missing`/`mismatch` logged and counted. `Enforce` answers 403 /
+  `METHOD_FORBIDDEN` (`tenant-not-allowed`), a failed lookup 503 / `METHOD_HANDLER_FAILED`. The generation is cached per instance
+  (`TenantAuthorization:TenantGenerationCacheDuration`, default 30 s, below the delete tombstone time) and dropped by the tenant
+  events. Metric `octo.tenant_auth.generation_checks` (meter `Meshmakers.Octo.TenantAuthorization`, registered in
+  `ObservabilityBuilder`). Public for identity (AB#9017): `ITenantGenerationCheck`, `ITenantGenerationReader`,
+  `TenantGenerationClaim`, `TenantGenerationFormat`, `TenantGenerationMetrics`, `AddOctoTenantGenerationCheck()`. No interface
+  implemented in another repository changes; `CkMethodPrincipal` gets the init-only `TokenTenantGeneration`. Rollout: identity with the
+  claim first; the switch to `Enforce` per environment follows AB#9000. Docs: `docs/tenant-generation-check.md`.
+
+### Fixed
+
+- **AB#8969** — services with CK method handlers start reliably with several replicas. The startup validation of the method
+  registrations (bus and in-process, order 15) used to skip a validation tenant whose CK cache was not loaded and then failed with
+  "no such method" when a CK model import had unloaded the cache just before. It now loads the cache of every validation tenant itself
+  (through the service's tenant context), retries a failed load (e.g. another replica's import still running) and repeats the check when
+  the cache is unloaded again, all within the new option `Methods:CacheLoadTimeout` (default 2 min, `OCTO_Methods__CacheLoadTimeout`).
+  A method that really does not exist still fails with the existing error; a cache that does not load in time fails with a distinct
+  message naming the tenant and the cache load. No wire or CK model change.
+- **AB#8881** (security) — a tenant created again with the id of a deleted tenant no longer reads the deleted tenant's method
+  operation records. The store registrations (`AddCkMethodMongoOperationStore`, `AddCkMethodInMemoryOperationStore`) wrap the store in
+  `CkMethodTenantGenerationOperationStore`: `GetAsync` / `ListAsync` ignore every record accepted before the current tenant's creation
+  time (`ICkMethodOperationTenantGeneration`, from the tenant lifecycle record; unknown = no filter, unreadable = fail closed). This
+  covers a purge on delete that failed and a record a call admitted just before the delete wrote after the purge. New
+  `ICkMethodOperationTenantPurge.DeleteTenantAcceptedBeforeAsync` (default interface member, removes nothing) lets the tenant setup remove
+  those records. `ICkMethodOperationStore` is unchanged; resolving it now gives the wrapper (the concrete store is `Inner`). A host that
+  registers its own store must wrap it itself (`docs/method-handler-sdk.md`).
+- **AB#8876** — `AuditEventAggregationFlushService` resolves the engine `AggregatingAuditEventSink` once in `StartAsync`
+  instead of in `StopAsync`. A host that stops after its service provider was disposed (`WebApplicationFactory.Dispose`
+  in integration tests, shutdown races) threw `ObjectDisposedException` out of `Host.StopAsync`. `StopAsync` resolves the
+  aggregator only when `StartAsync` never ran (an earlier hosted service failed to start) and treats a disposed provider
+  as nothing to flush; an `ObjectDisposedException` during the flush is logged at debug level. The shutdown-token bound
+  is unchanged.
+
+### Added
+
+- **AB#8707** — `CkMethodJson.Options` binds generated runtime records (`Rt{Record}Record`) with their CK attributes only: a
+  record array, string array or int array attribute (`IAttributeValueList<T>`) is read as a list into the record instead of
+  failing with `NotSupportedException` (`METHOD_HANDLER_FAILED`), and the attribute bag members `attributes` / `ckRecordId` are
+  no longer written to or read from method JSON. The generated `{Type}{Method}Parameters` of a model now work as handler
+  parameter types also when a Record parameter holds a record array. Wire change for a Record *result*: only the CK attributes
+  are written (before, the bag was written as well). No change to the generated model code.
+- **AB#8776** (security) — public `CkMethodCallerTenantCheck.IsRefused(principal, callTenantId, methodId, tenantOptions, out error,
+  out verdict)`: the caller-tenant rule of AB#8711 (`CkMethodCallerTenantRule`) and its refusal (`METHOD_FORBIDDEN`, `methodId`,
+  `reason = tenant-not-allowed` / `token-invalid`) as one step for hosts that check before the invocation pipeline. The asset
+  repository's method gateway runs it first, before role check, target load and parameter validation, so a foreign-tenant token the rule refuses
+  learns nothing about the target. `CkMethodCallerTenantFilter` uses the same step (behaviour unchanged).
+- **AB#8447** — `ICkMethodOperationTenantPurge.DeleteTenantAsync(tenantId)` removes every operation record of a deleted tenant
+  (any state) from the operation store, so a new tenant with the same id never reads an operation of the old one. Implemented by
+  `CkMethodInMemoryOperationStore` and `CkMethodMongoOperationStore`, registered by `AddCkMethodInMemoryOperationStore()` /
+  `AddCkMethodMongoOperationStore()` (`AddCkMethodOperationTenantPurge()`; a no-op for a custom store). Additive:
+  `ICkMethodOperationStore` is unchanged.
+- **AB#7279** — `AddObservability()` registers the engine meter `Meshmakers.Octo.DataPermissions`
+  (`octo.datapermissions.audit.violations`, tags `tenant`, `subject`, `type`, `action`): every AuditOnly data-permission
+  violation is counted, while the audit log and the event store now only carry the first occurrence and one summary per
+  window per key (engine `AggregatingAuditEventSink`, option `AuditEventAggregation:Window`, default 15 min).
+  `AddOctoNotification()` adds `AuditEventAggregationFlushService`, which publishes the pending summaries when the host
+  stops, while `EventRepositoryAuditEventSink` can still write to the event store. `Notifications` now references
+  `Meshmakers.Octo.Runtime.Engine`.
+- **AB#8711** — Every in-process CK method call checks the caller tenant once, centrally: `CkMethodCallerTenantFilter` (band
+  `CkMethodInvocationFilterOrder.CallerTenant` = 150, registered with the local transport, always on) answers a call whose caller
+  token was issued for another tenant `METHOD_FORBIDDEN` with `reason = tenant-not-allowed` before authorization, idempotency and
+  the handler, independent of the HTTP tenant gate's `LogOnly` mode. Same rule as the bus host (`CkMethodCallerTenantRule`, now
+  shared with `CkMethodCallerTokenValidator`; clients on `TenantAuthorization:CrossTenantServiceClientIds` pass). New init-only
+  properties `CkMethodPrincipal.TokenTenantId` and `IsFromAccessToken`, set by `FromClaimsPrincipal`. Bus path unchanged.
+  Consumers: a test principal for an in-process call needs a `tenant_id` claim of the route tenant.
 - **AB#8705** — `ImportRtCommandRequest.InitiatedByPrincipalKind` (`RtPrincipalKind`, default `Unknown`): the producer (asset
   repository) sends whether the caller of an RT import is a signed-in person (`Interactive`) or a service client (`Client`), and
   the consumer (bot services) passes it to the engine's `RtImportCallerContext`, where CK types with a `writeAccess` block

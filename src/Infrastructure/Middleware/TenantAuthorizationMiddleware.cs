@@ -2,6 +2,7 @@ using System.Security.Claims;
 using Meshmakers.Octo.Services.Infrastructure.Authorization;
 using Meshmakers.Octo.Services.Infrastructure.Configuration;
 using Meshmakers.Octo.Services.Infrastructure.Services;
+using Meshmakers.Octo.Services.Infrastructure.TenantGeneration;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.Extensions.Options;
 
@@ -125,13 +126,26 @@ internal class TenantAuthorizationMiddleware(
         // and the entire tenant check is bypassed.
         var isServiceToken = !context.User.HasClaim(c =>
             c.Type == "sub" || c.Type == ClaimTypes.NameIdentifier);
+        var tokenTenantId = context.User.FindFirstValue(TenantIdClaimType);
+        var clientId = context.User.FindFirstValue(ClientIdClaimType);
         if (isServiceToken)
         {
-            if (await AllowServiceTokenAsync(context, tenantId))
+            if (!await AllowServiceTokenAsync(context, tenantId))
             {
-                await next(context);
+                return;
             }
 
+            // AB#8999: an allow-listed cross-tenant service client (route != tenant_id) keeps today's routing rule;
+            // its token tenant (normally the system tenant) is not checked.
+            var isCrossTenantClient =
+                !string.Equals(tokenTenantId, tenantId, StringComparison.OrdinalIgnoreCase) &&
+                options.Value.IsCrossTenantServiceClient(clientId);
+            if (!isCrossTenantClient && !await AllowTenantGenerationAsync(context, tokenTenantId, clientId))
+            {
+                return;
+            }
+
+            await next(context);
             return;
         }
 
@@ -144,7 +158,57 @@ internal class TenantAuthorizationMiddleware(
             return;
         }
 
+        // AB#8999: checked against the token tenant, also on the parent-tenant path (AB#5060).
+        if (!await AllowTenantGenerationAsync(context, tokenTenantId, clientId))
+        {
+            return;
+        }
+
         await next(context);
+    }
+
+    /// <summary>
+    ///     The tenant generation check (AB#8999, security item AB#8970): refuses, in <c>Enforce</c>, a token issued for an
+    ///     earlier tenant with the same id (<c>tenant_gen</c> missing or different). Runs after the tenant match, always
+    ///     against the token's <c>tenant_id</c>. Returns <c>true</c> to continue; when it returns <c>false</c> the response
+    ///     is already <c>403</c> (mismatch / missing) or <c>503</c> (lookup failed).
+    /// </summary>
+    /// <remarks>
+    ///     The check is resolved per request like <see cref="ITenantHierarchyReader" />: a host without the registration
+    ///     (<c>AddOctoServiceInfrastructure</c> / <c>AddOctoTenantGenerationCheck</c>) runs without it.
+    /// </remarks>
+    private async Task<bool> AllowTenantGenerationAsync(HttpContext context, string? tokenTenantId, string? clientId)
+    {
+        var check = context.RequestServices?.GetService<ITenantGenerationCheck>();
+        if (check == null)
+        {
+            return true;
+        }
+
+        var result = await check.CheckAsync(new TenantGenerationCheckRequest(tokenTenantId,
+            TenantGenerationClaim.FromPrincipal(context.User), TenantGenerationTransports.Http, clientId),
+            context.RequestAborted);
+        switch (result.Decision)
+        {
+            case TenantGenerationDecision.Deny:
+                await WriteForbiddenAsync(context,
+                    $"Access is denied: the token was issued for an earlier tenant '{tokenTenantId}' that was deleted " +
+                    "and created again, or before the tenant generation was issued. Sign in again.");
+                return false;
+            case TenantGenerationDecision.Unavailable:
+                context.Response.StatusCode = StatusCodes.Status503ServiceUnavailable;
+                if (!context.Response.HasStarted)
+                {
+                    await context.Response.WriteAsJsonAsync(new
+                    {
+                        message = "The tenant of the token cannot be verified right now. Try again later."
+                    });
+                }
+
+                return false;
+            default:
+                return true;
+        }
     }
 
     /// <summary>
