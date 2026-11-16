@@ -23,6 +23,13 @@ internal class PosCreatePosUpdateTenantConsumer(
 {
     private static readonly ConcurrentDictionary<string, bool> TenantsInHandling = new();
 
+    /// <summary>
+    ///     AB#6247: tenants for which a Full update arrived while the tenant was in work and was dropped. The archive
+    ///     re-check of that update is run once more when the running handling ends, so an import that committed after the
+    ///     running re-check loaded the model is not missed. Setup itself keeps the existing coalescing.
+    /// </summary>
+    private static readonly ConcurrentDictionary<string, bool> RevalidationPending = new();
+
     private void UnloadCacheIfLoaded(string tenantId)
     {
         if (ckCacheService.IsTenantLoaded(tenantId))
@@ -96,6 +103,12 @@ internal class PosCreatePosUpdateTenantConsumer(
         finally
         {
             TenantsInHandling.Remove(context.Message.TenantId, out _);
+            // An update dropped while the create was in work is re-checked here too (AB#6247).
+            if (RevalidationPending.TryRemove(context.Message.TenantId, out _))
+            {
+                await RevalidateArchiveAccessAsync(context.Message.TenantId.NormalizeString()).ConfigureAwait(false);
+            }
+
             logger.LogInformation("Pos create tenant handling done: '{TenantId}'", context.Message.TenantId);
         }
     }
@@ -110,6 +123,11 @@ internal class PosCreatePosUpdateTenantConsumer(
         if (!TenantsInHandling.TryAdd(context.Message.TenantId, true))
         {
             logger.LogWarning("Pos update or create tenant already in work: '{TenantId}'", context.Message.TenantId);
+            if (streamDataRepositoryFactory is not null && context.Message.Scope != TenantUpdateScope.CacheOnly)
+            {
+                RevalidationPending[context.Message.TenantId] = true;
+            }
+
             return;
         }
 
@@ -164,6 +182,15 @@ internal class PosCreatePosUpdateTenantConsumer(
         finally
         {
             TenantsInHandling.Remove(context.Message.TenantId, out _);
+            // Released first, then the pending flag is read: an update that is dropped from now on handles itself, one
+            // dropped before has set the flag.
+            if (RevalidationPending.TryRemove(context.Message.TenantId, out _))
+            {
+                logger.LogInformation("Re-checking archives of tenant '{TenantId}' for an update dropped while it was in work",
+                    context.Message.TenantId);
+                await RevalidateArchiveAccessAsync(context.Message.TenantId.NormalizeString()).ConfigureAwait(false);
+            }
+
             logger.LogInformation("Pos update tenant handling done: '{TenantId}'", context.Message.TenantId);
         }
     }

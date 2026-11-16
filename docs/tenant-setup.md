@@ -180,9 +180,10 @@ is an event storm that trails the delete by seconds to minutes). Four mechanisms
   service without stream data still stops an archive whose column became Hidden (the archive goes `Failed` with its
   reason; engine `docs/archive-hidden-columns.md`). Services without stream data skip it before any context lookup, so
   the registry-only probe above stays their only lookup. `CacheOnly` updates skip it. Best-effort: a failure is logged
-  as ERROR and never fails the setup. Known gaps: an update that arrives while the same tenant is in work in this service
-  is dropped (as for setup), so its re-check runs with the next update; every stream-data replica re-checks, and without a
-  compare-and-swap on the status two replicas can write the same `Failed` transition twice.
+  as ERROR and never fails the setup. A `Full` update that arrives while the same tenant is in work in this service is
+  still dropped for setup, but its re-check is remembered and runs once when the running handling ends, so an import that
+  committed after the running re-check loaded the model is not missed. Known gap: every stream-data replica re-checks, and
+  without a compare-and-swap on the status two replicas can write the same `Failed` transition twice.
 - **Terminal not-found classification.** The drain loop treats `TenantException.IsTenantNotFound` as
   terminal and drops the entry instead of hammering a tenant that cannot come back. Safe on the retry
   path: a claim happens ≥ 60 s after the failure was recorded, long after any legitimate create

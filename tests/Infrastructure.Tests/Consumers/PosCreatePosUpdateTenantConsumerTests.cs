@@ -183,4 +183,25 @@ public class PosCreatePosUpdateTenantConsumerTests
 
         A.CallTo(() => _creatorService.SetupAsync("live-tenant")).MustHaveHappenedOnceExactly();
     }
+
+    [Fact]
+    public async Task PosUpdate_DroppedWhileTheTenantIsInWork_IsReCheckedWhenTheHandlingEnds()
+    {
+        var tenantId = $"busy-{Guid.NewGuid():N}";
+        A.CallTo(() => _systemContext.IsTenantRegisteredAsync(A<string>._)).Returns(true);
+        var tenant = A.Fake<ITenantContext>();
+        A.CallTo(() => _systemContext.TryFindTenantContextAsync(tenantId)).Returns(tenant);
+        var setupGate = new TaskCompletionSource();
+        A.CallTo(() => _creatorService.SetupAsync(tenantId)).ReturnsLazily(() => setupGate.Task);
+        var sut = CreateSut(A.Fake<IStreamDataRepositoryFactory>());
+
+        var first = sut.ConsumeAsync(ContextFor(new PosUpdateTenant(tenantId, Guid.NewGuid(), DateTime.UtcNow)));
+        // A second import's event arrives while the first is still in setup: dropped, but remembered.
+        await sut.ConsumeAsync(ContextFor(new PosUpdateTenant(tenantId, Guid.NewGuid(), DateTime.UtcNow)));
+        setupGate.SetResult();
+        await first;
+
+        A.CallTo(() => _creatorService.SetupAsync(tenantId)).MustHaveHappenedOnceExactly();
+        A.CallTo(() => tenant.RevalidateArchiveAccessAsync()).MustHaveHappenedTwiceExactly();
+    }
 }
