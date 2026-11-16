@@ -173,6 +173,18 @@ is an event storm that trails the delete by seconds to minutes). Four mechanisms
   default, i.e. what every older publisher deserializes to — is unchanged. Same semantics as the
   communication controller's `TenantManagementConsumer`, which skips the adapter restart relay for
   `CacheOnly`.
+- **Archive re-check after a model import of another service (AB#6247, CK v2 N2).** After `SetupAsync` of a
+  `Full` update, a service that owns stream data (an `IStreamDataRepositoryFactory` is registered: asset repository,
+  bot services) resolves the tenant context and calls `ITenantContext.RevalidateArchiveAccessAsync`. It re-checks every
+  activated archive against Hidden attributes, so a System.Identity, System.Communication or System.UI import in a
+  service without stream data still stops an archive whose column became Hidden (the archive goes `Failed` with its
+  reason; engine `docs/archive-hidden-columns.md`). Services without stream data skip it before any context lookup, so
+  the registry-only probe above stays their only lookup. `CacheOnly` updates skip it. Best-effort: a failure is logged
+  as ERROR and never fails the setup. Like the setup, it skips a tenant with a `Deleting` tombstone, so it never resolves
+  (and re-creates) a tenant that a delete is tearing down. A `Full` update that arrives while the same tenant is in work in this service is
+  still dropped for setup, but its re-check is remembered and runs once when the running handling ends, so an import that
+  committed after the running re-check loaded the model is not missed. Known gap: every stream-data replica re-checks, and
+  without a compare-and-swap on the status two replicas can write the same `Failed` transition twice.
 - **Terminal not-found classification.** The drain loop treats `TenantException.IsTenantNotFound` as
   terminal and drops the entry instead of hammering a tenant that cannot come back. Safe on the retry
   path: a claim happens ≥ 60 s after the failure was recorded, long after any legitimate create

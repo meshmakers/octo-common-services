@@ -2,6 +2,8 @@ using FakeItEasy;
 using Meshmakers.Octo.Common.DistributionEventHub.Consumers;
 using Meshmakers.Octo.ConstructionKit.Contracts.Services;
 using Meshmakers.Octo.Runtime.Contracts.MongoDb;
+using Meshmakers.Octo.Runtime.Contracts.MongoDb.Services;
+using Meshmakers.Octo.Runtime.Contracts.MongoDb.TenantLifecycle;
 using Meshmakers.Octo.Services.Contracts.DistributionEventHub.Messages;
 using Meshmakers.Octo.Services.Infrastructure.Consumers;
 using Meshmakers.Octo.Services.Infrastructure.Services;
@@ -29,9 +31,11 @@ public class PosCreatePosUpdateTenantConsumerTests
     private readonly IDefaultConfigurationCreatorService _creatorService =
         A.Fake<IDefaultConfigurationCreatorService>();
 
-    private PosCreatePosUpdateTenantConsumer CreateSut() => new(
+    private PosCreatePosUpdateTenantConsumer CreateSut(IStreamDataRepositoryFactory? streamData = null,
+        ITenantLifecycleStore? lifecycleStore = null) => new(
         NullLogger<PosCreatePosUpdateTenantConsumer>.Instance,
-        _ckCacheService, _systemContext, _creatorService);
+        _ckCacheService, _systemContext, _creatorService, streamDataRepositoryFactory: streamData,
+        tenantLifecycleStore: lifecycleStore);
 
     private static IDistributedContext<T> ContextFor<T>(T message) where T : class
     {
@@ -65,7 +69,9 @@ public class PosCreatePosUpdateTenantConsumerTests
     {
         // Review follow-up: TryFindTenantContextAsync builds a tenant context and runs the
         // resolve-time CK model imports — per PosUpdateTenant event, i.e. once per CK import, on top
-        // of the resolve SetupAsync does anyway. The guard must use the registry-only probe.
+        // of the resolve SetupAsync does anyway. The guard must use the registry-only probe. AB#6247: a
+        // service without stream data (no IStreamDataRepositoryFactory, as here) does not resolve for the
+        // archive re-check either.
         A.CallTo(() => _systemContext.IsTenantRegisteredAsync(A<string>._)).Returns(true);
 
         await CreateSut().ConsumeAsync(ContextFor(new PosUpdateTenant("live-tenant", Guid.NewGuid(), DateTime.UtcNow)));
@@ -139,5 +145,80 @@ public class PosCreatePosUpdateTenantConsumerTests
         await CreateSut().ConsumeAsync(ContextFor(new PosCreateTenant("fresh-tenant", Guid.NewGuid(), DateTime.UtcNow)));
 
         A.CallTo(() => _creatorService.SetupAsync("fresh-tenant")).MustHaveHappenedOnceExactly();
+    }
+
+    // AB#6247 (CK v2 N2): a stream-data service re-checks the archives after another service's model import.
+
+    [Fact]
+    public async Task PosUpdate_Full_InAStreamDataService_RevalidatesTheArchives_AfterSetup()
+    {
+        A.CallTo(() => _systemContext.IsTenantRegisteredAsync(A<string>._)).Returns(true);
+        var tenant = A.Fake<ITenantContext>();
+        A.CallTo(() => _systemContext.TryFindTenantContextAsync("live-tenant")).Returns(tenant);
+
+        await CreateSut(A.Fake<IStreamDataRepositoryFactory>()).ConsumeAsync(ContextFor(
+            new PosUpdateTenant("live-tenant", Guid.NewGuid(), DateTime.UtcNow, TenantUpdateScope.Full)));
+
+        A.CallTo(() => _creatorService.SetupAsync("live-tenant")).MustHaveHappenedOnceExactly()
+            .Then(A.CallTo(() => tenant.RevalidateArchiveAccessAsync()).MustHaveHappenedOnceExactly());
+    }
+
+    [Fact]
+    public async Task PosUpdate_CacheOnly_DoesNotRevalidate()
+    {
+        A.CallTo(() => _systemContext.IsTenantRegisteredAsync(A<string>._)).Returns(true);
+
+        await CreateSut(A.Fake<IStreamDataRepositoryFactory>()).ConsumeAsync(ContextFor(
+            new PosUpdateTenant("live-tenant", Guid.NewGuid(), DateTime.UtcNow, TenantUpdateScope.CacheOnly)));
+
+        A.CallTo(() => _systemContext.TryFindTenantContextAsync(A<string>._)).MustNotHaveHappened();
+    }
+
+    [Fact]
+    public async Task PosUpdate_ARevalidationFailure_IsLogged_NotThrown()
+    {
+        A.CallTo(() => _systemContext.IsTenantRegisteredAsync(A<string>._)).Returns(true);
+        A.CallTo(() => _systemContext.TryFindTenantContextAsync("live-tenant"))
+            .Throws(new InvalidOperationException("boom"));
+
+        await CreateSut(A.Fake<IStreamDataRepositoryFactory>()).ConsumeAsync(ContextFor(
+            new PosUpdateTenant("live-tenant", Guid.NewGuid(), DateTime.UtcNow)));
+
+        A.CallTo(() => _creatorService.SetupAsync("live-tenant")).MustHaveHappenedOnceExactly();
+    }
+
+    [Fact]
+    public async Task PosUpdate_DroppedWhileTheTenantIsInWork_IsReCheckedWhenTheHandlingEnds()
+    {
+        var tenantId = $"busy-{Guid.NewGuid():N}";
+        A.CallTo(() => _systemContext.IsTenantRegisteredAsync(A<string>._)).Returns(true);
+        var tenant = A.Fake<ITenantContext>();
+        A.CallTo(() => _systemContext.TryFindTenantContextAsync(tenantId)).Returns(tenant);
+        var setupGate = new TaskCompletionSource();
+        A.CallTo(() => _creatorService.SetupAsync(tenantId)).ReturnsLazily(() => setupGate.Task);
+        var sut = CreateSut(A.Fake<IStreamDataRepositoryFactory>());
+
+        var first = sut.ConsumeAsync(ContextFor(new PosUpdateTenant(tenantId, Guid.NewGuid(), DateTime.UtcNow)));
+        // A second import's event arrives while the first is still in setup: dropped, but remembered.
+        await sut.ConsumeAsync(ContextFor(new PosUpdateTenant(tenantId, Guid.NewGuid(), DateTime.UtcNow)));
+        setupGate.SetResult();
+        await first;
+
+        A.CallTo(() => _creatorService.SetupAsync(tenantId)).MustHaveHappenedOnceExactly();
+        A.CallTo(() => tenant.RevalidateArchiveAccessAsync()).MustHaveHappenedTwiceExactly();
+    }
+
+    [Fact]
+    public async Task PosUpdate_ForATenantBeingDeleted_DoesNotResolveItForTheReCheck()
+    {
+        A.CallTo(() => _systemContext.IsTenantRegisteredAsync(A<string>._)).Returns(true);
+        var lifecycle = A.Fake<ITenantLifecycleStore>();
+        A.CallTo(() => lifecycle.GetAsync("live-tenant", A<CancellationToken>._))
+            .Returns(new TenantLifecycleRecord { TenantId = "live-tenant", State = TenantLifecycleState.Deleting });
+
+        await CreateSut(A.Fake<IStreamDataRepositoryFactory>(), lifecycle).ConsumeAsync(ContextFor(
+            new PosUpdateTenant("live-tenant", Guid.NewGuid(), DateTime.UtcNow)));
+
+        A.CallTo(() => _systemContext.TryFindTenantContextAsync(A<string>._)).MustNotHaveHappened();
     }
 }
