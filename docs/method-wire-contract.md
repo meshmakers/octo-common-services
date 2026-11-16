@@ -41,7 +41,7 @@ serialized form of every message; a wire change fails `MethodWireContractTests`.
 | `callerAccessToken` | string? | Raw JWT for the handler to re-validate. **Sensitive**, never log. |
 | `deadlineUtc` | DateTime | Absolute deadline. A handler that receives the request later answers `METHOD_TIMEOUT` without executing. |
 | `timeoutSeconds` | int? | Timeout of the method in seconds that `deadlineUtc` was derived from (informational; the deadline decides). The dispatcher fills it when the caller did not. It is reported back as the `timeoutSeconds` parameter of `METHOD_TIMEOUT`. Additive, no version bump. |
-| `idempotencyKey` | string? | Client key for safe retries of non-idempotent methods (F3.5): at most 128 characters; the idempotency filter runs a call with the same key (per tenant, method and caller) at most once and replays the first result. Refused for methods with a sensitive result. See `method-handler-sdk.md`. |
+| `idempotencyKey` | string? | Client key for safe retries of non-idempotent methods (F3.5): at most 128 characters; the idempotency filter runs a call with the same key (per tenant, method and caller) at most once and replays the first result. Refused for methods with a sensitive result. See `method-handler-sdk-idempotency.md`. |
 
 `CkMethodRequest` is sealed and overrides `ToString()` to print only method, tenant, target and invocation id; the
 members above marked sensitive must never reach a log, an exception message or an error parameter.
@@ -109,7 +109,7 @@ Well-known parameter names (`CkMethodErrorParameters`, camelCase): `methodId`, `
 `timeoutSeconds`, `requestedVersion`, `supportedVersion`, `maxBytes`, `actualBytes`. `reason` values are short kebab-case tokens such as
 `no-live-handler` or `pipeline-not-deployed`. `METHOD_FORBIDDEN` carries `not-authorized` (method authorization) or, from a remote handler
 host that validates the caller token, `token-missing`, `token-expired`, `token-invalid`, `tenant-not-allowed` or `audience-mismatch`
-(see `method-handler-sdk.md`, section 4a).
+(see `method-handler-sdk-caller.md`).
 
 ## Rules of evolution
 

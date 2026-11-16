@@ -8,7 +8,7 @@ applies_to: src/Methods/Dispatching/**
 ### Method dispatcher
 
 `ICkMethodDispatcher` (`src/Methods/Dispatching/`, registration `AddCkMethodDispatcher()` + `AddCkMethodHandlerRegistryFeed()` in the
-`AddDistributionEventHub` configuration) is the calling side of a CK method. Guide: `docs/method-handler-sdk.md` section 9.
+`AddDistributionEventHub` configuration) is the calling side of a CK method. Guide: `docs/method-handler-sdk-delivery.md`.
 
 - **Order**: resolve the declaring element (`CkCacheMethodDeclaringElementResolver`: `CkTypeGraph.AllMethods` of the tenant, rewrites
   `MethodId` to the qualified id of the declaring type; inherited and interface methods route to the declaring queue; unknown = as
