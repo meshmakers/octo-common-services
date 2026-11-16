@@ -1075,6 +1075,46 @@ public class CkMethodDispatcherTests
     }
 
     [Fact]
+    public async Task BrokerReturn_AfterACallTheInstanceAnswered_ALaterReturnStartsANewEpisode()
+    {
+        AfterWarmUp();
+        A.CallTo(() => _eventHub.GetCommandResponseAsync<CkMethodRequest, CkMethodResponse>(A<string>._,
+                A<CkMethodRequest>._, A<CommandSendOptions>._, A<CancellationToken>._))
+            .Throws(new CommandNotRoutableException()).Once()
+            .Then.Returns(CkMethodResponse.Succeeded(Guid.Empty, DefaultInstance)).Once()
+            .Then.Throws(new CommandNotRoutableException());
+        var dispatcher = Dispatcher();
+
+        await dispatcher.InvokeAsync(Request(), TestContext.Current.CancellationToken); // return 1
+        await WaitForDiscoveryRequestsAsync(1);
+        AnnounceDefaultHandler();
+        Assert.True((await dispatcher.InvokeAsync(Request(), TestContext.Current.CancellationToken)).Success); // queue bound
+
+        _time.Advance(TimeSpan.FromSeconds(5)); // within the repeat window, after the throttle interval
+        await dispatcher.InvokeAsync(Request(), TestContext.Current.CancellationToken); // return 2: a new reconnect
+        await WaitForDiscoveryRequestsAsync(2);
+        Assert.False(dispatcher.InvokeAsync(Request(), TestContext.Current.CancellationToken).IsCompleted); // hand-over again
+    }
+
+    [Fact]
+    public async Task BrokerReturn_OfAnEntryWhoseTtlRanOutDuringTheSend_StillAsksForDiscovery()
+    {
+        AfterWarmUp();
+        _registry.OnAnnounced(new CkMethodHandlerAnnounced(Guid.NewGuid(), Now)
+            { ServiceName = "device", InstanceId = "d", MethodIds = [UnannouncedMethod], TtlSeconds = 45 });
+        _time.Advance(TimeSpan.FromSeconds(44)); // live when the send starts
+        A.CallTo(() => _eventHub.GetCommandResponseAsync<CkMethodRequest, CkMethodResponse>(A<string>._,
+                A<CkMethodRequest>._, A<CommandSendOptions>._, A<CancellationToken>._))
+            .Invokes(() => _time.Advance(TimeSpan.FromSeconds(2))) // the TTL runs out while the send is in flight
+            .Throws(new CommandNotRoutableException());
+
+        await Dispatcher().InvokeAsync(Request(methodId: UnannouncedMethod), TestContext.Current.CancellationToken);
+
+        await WaitForDiscoveryRequestsAsync(1);
+        Assert.True(_registry.GetLastSeen(UnannouncedMethod)!.NoQueueBound);
+    }
+
+    [Fact]
     public async Task HandOver_AWarmUpWaitThatTurnsIntoAHandOver_IsBoundedToo()
     {
         _options.MaxWaitingCalls = 0; // no call may wait in a hand-over

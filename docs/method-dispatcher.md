@@ -65,7 +65,10 @@ applies_to: src/Methods/Dispatching/**
   re-announces and returned again. A second return of the same instance within 30 s of the previous one
   (`CkMethodHandlerRegistry.NoQueueBoundRepeatWindow`) is marked repeated (`MarkNoQueueBound` returns `false`): no hand-over wait and no
   discovery request for it, neither from the returned call nor from waiting calls; its calls are
-  refused at once until its next heartbeat, as before the hand-over existed. So such a handler costs one extra round of returned sends per
+  refused at once until its next heartbeat, as before the hand-over existed. A call the instance answers in between
+  (`MarkDelivered`, the response carries its handler instance id) ends the episode, so a later reconnect gets the hand-over and the
+  request again. An entry whose TTL ran out while the returned send was in flight counts as returned too (it was live when the send
+  started). So such a handler costs one extra round of returned sends per
   episode, never a loop of discovery requests.
 - **Registry snapshot**: with an `ICkMethodHandlerSnapshotStore` in the host (port and Mongo store live in
   `octo-construction-kit-engine-mongodb`, plain collection `ck_method_handler_snapshot` in the system DB, TTL index) the registry queues

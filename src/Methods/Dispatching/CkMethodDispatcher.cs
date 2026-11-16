@@ -248,7 +248,7 @@ internal sealed class CkMethodDispatcher(
         var sentAtUtc = timeProvider.GetUtcNow().UtcDateTime;
         try
         {
-            return await eventHub.GetCommandResponseAsync<CkMethodRequest, CkMethodResponse>(
+            var response = await eventHub.GetCommandResponseAsync<CkMethodRequest, CkMethodResponse>(
                 CkMethodQueueNames.For(request.MethodId), request,
                 new CommandSendOptions
                 {
@@ -259,6 +259,13 @@ internal sealed class CkMethodDispatcher(
                     Persistent = false
                 },
                 cancellationToken).ConfigureAwait(false);
+            if (!string.IsNullOrEmpty(response.HandlerInstanceId))
+            {
+                // a handler answered: its queue is bound, an earlier returned send of it is over
+                registry.MarkDelivered(request.MethodId, response.HandlerInstanceId);
+            }
+
+            return response;
         }
         catch (CommandNotRoutableException)
         {

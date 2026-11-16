@@ -165,12 +165,14 @@ internal sealed class CkMethodHandlerRegistry : ICkMethodHandlerRegistry
     internal static readonly TimeSpan NoQueueBoundRepeatWindow = TimeSpan.FromSeconds(30);
 
     /// <summary>
-    ///     The broker returned a mandatory send (no queue bound): expires the instances of the method that were last
-    ///     seen before the send started. An instance announced while the send was in flight (rolling update) stays live.
+    ///     The broker returned a mandatory send (no queue bound): expires the instances of the method that were live when
+    ///     the send started and last seen before it (also one whose TTL ran out while the send was in flight). An instance
+    ///     announced while the send was in flight (rolling update) stays live.
     ///     The entry becomes first-hand knowledge (source <see cref="CkMethodHandlerEntrySource.Announcement" />, also for a
     ///     row restored from the snapshot). A return within <see cref="NoQueueBoundRepeatWindow" /> of the previous one of
     ///     the same instance is marked as repeated: that handler answered the discovery request (or its heartbeat) but its
-    ///     queue is still not bound, so the dispatcher neither waits for it nor asks again.
+    ///     queue is still not bound, so the dispatcher neither waits for it nor asks again. A call the instance answered in
+    ///     between (<see cref="MarkDelivered" />) ends that episode: the next return is a first one again.
     /// </summary>
     /// <returns><c>true</c> when at least one instance was expired by a return that is not repeated.</returns>
     internal bool MarkNoQueueBound(string qualifiedMethodId, DateTime sendStartedUtc)
@@ -187,14 +189,16 @@ internal sealed class CkMethodHandlerRegistry : ICkMethodHandlerRegistry
             foreach (var key in instances.Keys.ToList())
             {
                 var state = instances[key];
-                if (state.Entry.ExpiresUtc > now && state.Entry.LastSeenUtc <= sendStartedUtc)
+                if (!state.Entry.Withdrawn && state.Entry.ExpiresUtc > sendStartedUtc &&
+                    state.Entry.LastSeenUtc <= sendStartedUtc)
                 {
                     var repeated = state.NoQueueBoundAtUtc is { } previous && now - previous <= NoQueueBoundRepeatWindow;
                     instances[key] = state with
                     {
                         Entry = state.Entry with
                         {
-                            ExpiresUtc = now, NoQueueBound = true, Source = CkMethodHandlerEntrySource.Announcement
+                            ExpiresUtc = state.Entry.ExpiresUtc < now ? state.Entry.ExpiresUtc : now, NoQueueBound = true,
+                            Source = CkMethodHandlerEntrySource.Announcement
                         },
                         NoQueueBoundAtUtc = now,
                         RepeatedNoQueueBound = repeated
@@ -206,6 +210,22 @@ internal sealed class CkMethodHandlerRegistry : ICkMethodHandlerRegistry
         }
 
         return firstReturn;
+    }
+
+    /// <summary>
+    ///     The instance answered a call of the method: its queue is bound, so a later returned send starts a new recovery
+    ///     episode (hand-over and discovery request) instead of counting as repeated.
+    /// </summary>
+    internal void MarkDelivered(string qualifiedMethodId, string instanceId)
+    {
+        lock (_lock)
+        {
+            if (_methods.TryGetValue(Normalize(qualifiedMethodId), out var instances) &&
+                instances.TryGetValue(instanceId, out var state) && state.NoQueueBoundAtUtc != null)
+            {
+                instances[instanceId] = state with { NoQueueBoundAtUtc = null, RepeatedNoQueueBound = false };
+            }
+        }
     }
 
     /// <summary>Starts queueing every change for <see cref="TakeChanges" /> (called once a snapshot store exists).</summary>
