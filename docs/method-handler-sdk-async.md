@@ -78,7 +78,8 @@ operations (the gateway) registers the store and `AddCkMethodOperationSweep()`. 
    is shutting down records nothing and answers `METHOD_HANDLER_NOT_AVAILABLE` (`reason` `host-stopping`), so the caller can retry.
 3. The caller gets `success: true` with `operation { operationId, acceptedAtUtc, retryAfterSeconds }`; `expiresAtUtc` is not known
    yet (it is set on completion) and stays empty.
-4. The work starts: `Running`, progress, heartbeats every `HeartbeatInterval`.
+4. The work runs: `Running`, progress, heartbeats every `HeartbeatInterval`. Steps 3 and 4 are **not ordered**: the work may begin
+   before the caller has the answer; both follow step 2.
 5. The work ends: `Succeeded` with the result JSON (none for a result the CK model marks `sensitive`) or `Failed` with code and
    parameters; `expiresAtUtc` = completion + `Retention`. A final record never changes again.
 6. A handler that dies (killed, crashed): no heartbeat for `StaleAfter`, the sweep of any replica ends the record `Failed` /
