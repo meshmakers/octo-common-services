@@ -304,14 +304,6 @@ public sealed class TenantAuthorizationMiddlewareMetricsTests : IDisposable
     }
 
     [Fact]
-    public void SeriesBudget_WithCollapsedCombinations_StaysBelowTheSdkDefaultLimit()
-    {
-        // 9 outcome labels x 2 token kinds x 3 modes collapsed combinations on top of the budget; the OpenTelemetry
-        // SDK default cardinality limit per metric is 2000.
-        Assert.True(TenantAuthorizationMetrics.MaxSeries + 9 * 2 * 3 < 2000);
-    }
-
-    [Fact]
     public void OutcomeLabel_UnknownOutcome_IsOther_NotADenial()
     {
         Assert.Equal(TenantAuthorizationMetrics.OtherOutcome,

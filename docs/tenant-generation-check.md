@@ -138,6 +138,8 @@ ones into an overflow series without labels. The counter therefore bounds the wh
 combinations per process a new one is recorded with `client_id` = `other` (and `route` = `other` on refusals) but keeps
 `outcome`, `token_kind` and `mode`. The collapsed combinations add at most 9 × 2 × 3, so a refusal is never lost from an
 outcome-filtered query. A per-pod series count near 1500 is the sign to look at the clients and routes.
+`TenantAuthorizationMetricsSdkTests` checks this against the OpenTelemetry SDK (1000 clients × 2 routes of refusals:
+no overflow series, every refusal counted).
 
 Never the tenant id, the user, `sub` or a token value; a unit test asserts the exact label set. Requests the middleware
 does not judge are not counted: anonymous endpoints, requests without a bearer header, cookie principals,
