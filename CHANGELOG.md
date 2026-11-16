@@ -47,6 +47,15 @@ entries are grouped by work item until a release assigns the version.
 
 ### Fixed
 
+- **AB#9100** (tests) — integration tests that failed now and then on loaded CI agents: the method bus tests
+  (`CkMethodAuthorizationBusTests`, `CkMethodReplicaSharingBusTests`) send their first call only once the gateway's handler registry
+  lists every handler instance they started (`HandlerReadiness`), and a failed call names its error code, parameters and the
+  registry state; `CkMethodTraceAndMetricsBusTests` waits until the exported span chain from the handler span to the call span is
+  complete (MassTransit ends its consume span after the handler answered); `HealthEndpointTests` binds port 0 instead of probing
+  free ports; `PrometheusEndpointTests` probes two distinct ports and repeats a start whose port was taken in between. No assertion is
+  weakened and no production code changes. The dispatcher's immediate refusal after a broker return or a withdrawal is product
+  behaviour and is followed up in AB#9159.
+
 - **AB#9117** (security) — a request to a route tenant that does not exist (deleted, or never created) no longer ends in an
   unhandled `TenantException` (HTTP 500; on the local stack, behind `UseDeveloperExceptionPage()`, `text/plain` with the stack
   trace). The gate passes such a request in `LogOnly`, for an own-tenant token and for a child deleted within the hierarchy cache

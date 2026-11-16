@@ -23,6 +23,13 @@ Tests (`tests/Methods.IntegrationTests/CkMethodReplicaSharingBusTests.cs`):
 | `ReplicaStoppedMidBurst_...` | one of three replicas is stopped gracefully while 1500 calls are in flight: no call lost, none executed twice, every failure (if any) is `METHOD_TIMEOUT` or `METHOD_OUTCOME_UNKNOWN`, the stopped replica takes no further call, a follow-up burst succeeds on the remaining two |
 | `LastReplicaStopped_...` | no replica left: new calls fail fast with `METHOD_HANDLER_NOT_AVAILABLE`; a new replica is served again |
 
+Every bus test sends its first call only once the gateway's handler registry lists all the replicas it started
+(`HandlerReadiness.WaitForLiveHandlersAsync`, at most 30 s), so a test starts from a known registry state and does not race the
+replicas' answers to the gateway's discovery request. A failed call prints its error code with its parameters (`reason=...`) and
+the registry entries (`source`, `withdrawn`, `expires`, `noQueueBound`). A fast `METHOD_HANDLER_NOT_AVAILABLE` / `no-live-handler`
+while replicas run means the registry held only withdrawn or expired entries; `noQueueBound=True` means a send was returned by the
+broker and the dispatcher expired every entry until the next announcement (see the **Registry** entry in `docs/method-dispatcher.md`).
+
 Observed (Apple M4 Pro): 2 replicas `[497, 503]` of 1000, 3 replicas `[1000, 1000, 1000]` of 3000 (RabbitMQ round-robin with a 2 ms
 handler). With the replica stopped at call 300 of 1500 the burst ended without a single failure: a graceful stop lets the
 consumer finish what it received; in a quiet moment the broker redelivers nothing (with steady traffic about 0.03 flagged deliveries per stop, see "Graceful stop: mechanism, rate, options"). `METHOD_TIMEOUT` / `METHOD_OUTCOME_UNKNOWN` appear for a

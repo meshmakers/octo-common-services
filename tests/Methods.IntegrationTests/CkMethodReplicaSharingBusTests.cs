@@ -269,14 +269,19 @@ public sealed class CkMethodReplicaSharingBusTests(RabbitMqFixture rabbitMq, ITe
     {
         var executions = new ConcurrentDictionary<Guid, int>();
         var handlers = await StartReplicasAsync(replicas, TimeSpan.FromMilliseconds(2), executions);
-        var (_, dispatcher) = await StartGatewayAsync();
+        var (gateway, dispatcher) = await StartGatewayAsync();
+        await HandlerReadiness.WaitForLiveHandlersAsync(gateway.Provider, MethodId, replicas);
 
         var results = await RunBurstAsync(dispatcher, calls, concurrency: 48);
 
         Assert.Equal(calls, results.Count);
         Assert.All(results, r =>
         {
-            Assert.True(r.Response.Success, r.Response.Error?.Code);
+            if (!r.Response.Success)
+            {
+                Assert.Fail(HandlerReadiness.DescribeFailure(r.Response, gateway.Provider));
+            }
+
             Assert.Equal(r.Request.InvocationId, r.Response.InvocationId);
         });
         Assert.Equal(calls, results.Select(r => r.Request.InvocationId).Distinct().Count());
@@ -303,7 +308,8 @@ public sealed class CkMethodReplicaSharingBusTests(RabbitMqFixture rabbitMq, ITe
         const int calls = 1500;
         var executions = new ConcurrentDictionary<Guid, int>();
         var handlers = await StartReplicasAsync(3, TimeSpan.FromMilliseconds(3), executions);
-        var (_, dispatcher) = await StartGatewayAsync();
+        var (gateway, dispatcher) = await StartGatewayAsync();
+        await HandlerReadiness.WaitForLiveHandlersAsync(gateway.Provider, MethodId, 3);
         var stopped = handlers[0];
         var stopTask = default(Task);
         var callsAtStop = -1;
@@ -333,8 +339,13 @@ public sealed class CkMethodReplicaSharingBusTests(RabbitMqFixture rabbitMq, ITe
             $"stopped replica handled {stopped.Probe.Calls} calls (at trigger {callsAtStop}); failures: " +
             (failureCodes.Count == 0 ? "none" : string.Join(", ", failureCodes.Select(kv => $"{kv.Key}={kv.Value}"))) +
             $"; per replica [{string.Join(", ", handlers.Select(h => h.Probe.Calls))}]");
-        Assert.All(failures, r => Assert.Contains(r.Response.Error!.Code,
-            new[] { CkMethodErrorCodes.MethodTimeout, CkMethodErrorCodes.MethodOutcomeUnknown }));
+        Assert.All(failures, r =>
+        {
+            if (r.Response.Error!.Code is not (CkMethodErrorCodes.MethodTimeout or CkMethodErrorCodes.MethodOutcomeUnknown))
+            {
+                Assert.Fail(HandlerReadiness.DescribeFailure(r.Response, gateway.Provider));
+            }
+        });
 
         // Never twice. A call that failed as unknown/timeout may or may not have run, but never more than once.
         Assert.All(executions, e => Assert.Equal(1, e.Value));
@@ -345,7 +356,13 @@ public sealed class CkMethodReplicaSharingBusTests(RabbitMqFixture rabbitMq, ITe
         var frozen = stopped.Probe.Calls;
         var others = handlers.Skip(1).Select(h => h.Probe.Calls).Sum();
         var after = await RunBurstAsync(dispatcher, 200, concurrency: 16);
-        Assert.All(after, r => Assert.True(r.Response.Success, r.Response.Error?.Code));
+        Assert.All(after, r =>
+        {
+            if (!r.Response.Success)
+            {
+                Assert.Fail(HandlerReadiness.DescribeFailure(r.Response, gateway.Provider));
+            }
+        });
         Assert.Equal(frozen, stopped.Probe.Calls);
         Assert.Equal(others + 200, handlers.Skip(1).Select(h => h.Probe.Calls).Sum());
     }
@@ -356,12 +373,15 @@ public sealed class CkMethodReplicaSharingBusTests(RabbitMqFixture rabbitMq, ITe
         var executions = new ConcurrentDictionary<Guid, int>();
         var handlers = await StartReplicasAsync(2, TimeSpan.Zero, executions);
         var (gateway, dispatcher) = await StartGatewayAsync();
+        await HandlerReadiness.WaitForLiveHandlersAsync(gateway.Provider, MethodId, 2);
 
         foreach (var h in handlers)
         {
             await h.Host.DisposeAsync();
         }
 
+        // the withdrawals have reached the gateway: the refusal below is the dispatcher's answer, not a send in flight
+        await HandlerReadiness.WaitForLiveHandlersAsync(gateway.Provider, MethodId, 0);
         var refused = await dispatcher.InvokeAsync(NewRequest(), TestContext.Current.CancellationToken);
         Assert.False(refused.Success);
         Assert.Equal(CkMethodErrorCodes.MethodHandlerNotAvailable, refused.Error!.Code);
@@ -369,15 +389,9 @@ public sealed class CkMethodReplicaSharingBusTests(RabbitMqFixture rabbitMq, ITe
         var again = await StartReplicasAsync(1, TimeSpan.Zero, executions);
         // AB#8634: the gateway sends only to a handler it has heard of; the new replica's announcement arrives within
         // milliseconds of its start (a call in between is refused, the safe direction)
-        var registry = gateway.Provider.GetRequiredService<ICkMethodHandlerRegistry>();
-        var deadline = DateTime.UtcNow.AddSeconds(5);
-        while (registry.GetLiveHandlers(MethodId).Count == 0 && DateTime.UtcNow < deadline)
-        {
-            await Task.Delay(20, TestContext.Current.CancellationToken);
-        }
-
-        Assert.NotEmpty(registry.GetLiveHandlers(MethodId));
-        Assert.True((await dispatcher.InvokeAsync(NewRequest(), TestContext.Current.CancellationToken)).Success);
+        await HandlerReadiness.WaitForLiveHandlersAsync(gateway.Provider, MethodId, 1);
+        var served = await dispatcher.InvokeAsync(NewRequest(), TestContext.Current.CancellationToken);
+        Assert.True(served.Success, HandlerReadiness.DescribeFailure(served, gateway.Provider));
         Assert.Equal(1, again[0].Probe.Calls);
     }
 
@@ -394,7 +408,8 @@ public sealed class CkMethodReplicaSharingBusTests(RabbitMqFixture rabbitMq, ITe
         const int measured = 3000;
         var executions = new ConcurrentDictionary<Guid, int>();
         await StartReplicasAsync(replicas, TimeSpan.Zero, executions);
-        var (_, dispatcher) = await StartGatewayAsync();
+        var (gateway, dispatcher) = await StartGatewayAsync();
+        await HandlerReadiness.WaitForLiveHandlersAsync(gateway.Provider, MethodId, replicas);
 
         for (var i = 0; i < warmUp; i++)
         {
@@ -408,7 +423,10 @@ public sealed class CkMethodReplicaSharingBusTests(RabbitMqFixture rabbitMq, ITe
             var start = Stopwatch.GetTimestamp();
             var response = await dispatcher.InvokeAsync(request, TestContext.Current.CancellationToken);
             millis[i] = Stopwatch.GetElapsedTime(start).TotalMilliseconds;
-            Assert.True(response.Success, response.Error?.Code);
+            if (!response.Success)
+            {
+                Assert.Fail(HandlerReadiness.DescribeFailure(response, gateway.Provider));
+            }
         }
 
         Array.Sort(millis);

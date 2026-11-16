@@ -33,6 +33,7 @@ public sealed class CkMethodAuthorizationBusTests(RabbitMqFixture rabbitMq) : IA
     private readonly string _instancePrefix = $"authz-{Guid.NewGuid():N}";
     private readonly List<ServiceProvider> _providers = [];
     private readonly List<IEventHubControl> _hubs = [];
+    private ServiceProvider? _gateway;
 
     public ValueTask InitializeAsync() => ValueTask.CompletedTask;
 
@@ -155,6 +156,13 @@ public sealed class CkMethodAuthorizationBusTests(RabbitMqFixture rabbitMq) : IA
         }
 
         var provider = await StartHubAsync(services);
+        _gateway = provider;
+        if (!inProcess)
+        {
+            // the first call of a test must not race the handler's announcement (readiness, not timing)
+            await HandlerReadiness.WaitForLiveHandlersAsync(provider, MethodId, instances: 1);
+        }
+
         return (provider.GetRequiredService<ICkMethodDispatcher>(), trace, probe);
     }
 
@@ -233,6 +241,10 @@ public sealed class CkMethodAuthorizationBusTests(RabbitMqFixture rabbitMq) : IA
     private static CkMethodPrincipal Caller(string sub = Other, params string[] roles) =>
         new(sub, roles, [CkMethodAuthorizationOptions.ApiScope]);
 
+    /// <summary>The error of a failed call and the gateway's handler registry, for assertion messages.</summary>
+    private string Describe(CkMethodResponse response) =>
+        _gateway is null ? HandlerReadiness.Describe(response) : HandlerReadiness.DescribeFailure(response, _gateway);
+
     public static TheoryData<bool> Transports => [false, true];
 
     [Theory]
@@ -242,7 +254,7 @@ public sealed class CkMethodAuthorizationBusTests(RabbitMqFixture rabbitMq) : IA
         var (dispatcher, _, probe) = await StartAsync(inProcess, new CkMethodAuthorizationDto { Roles = ["AssetManagement"] });
 
         var allowed = await CallAsync(dispatcher, Caller(Other, "assetmanagement"));
-        Assert.True(allowed.Success, allowed.Error?.Code);
+        Assert.True(allowed.Success, Describe(allowed));
         Assert.Equal("21", allowed.ResultJson);
         Assert.Equal(1, probe.Calls);
 
@@ -262,7 +274,8 @@ public sealed class CkMethodAuthorizationBusTests(RabbitMqFixture rabbitMq) : IA
     {
         var (dispatcher, trace, probe) = await StartAsync(inProcess, new CkMethodAuthorizationDto { Roles = ["R"] });
 
-        Assert.True((await CallAsync(dispatcher, Caller(Other, "R"))).Success);
+        var allowed = await CallAsync(dispatcher, Caller(Other, "R"));
+        Assert.True(allowed.Success, Describe(allowed));
         Assert.Equal(["audit>", "idempotency>", "idempotency< ok", "audit< ok"], trace.ToArray());
 
         trace.Clear();
@@ -278,8 +291,10 @@ public sealed class CkMethodAuthorizationBusTests(RabbitMqFixture rabbitMq) : IA
     {
         var (dispatcher, _, probe) = await StartAsync(inProcess, new CkMethodAuthorizationDto { AllowSelf = true });
 
-        Assert.True((await CallAsync(dispatcher, Caller(OwnerUpper), Owner)).Success);
-        Assert.True((await CallAsync(dispatcher, Caller(Owner), OwnerUpper)).Success);
+        var upper = await CallAsync(dispatcher, Caller(OwnerUpper), Owner);
+        Assert.True(upper.Success, Describe(upper));
+        var lower = await CallAsync(dispatcher, Caller(Owner), OwnerUpper);
+        Assert.True(lower.Success, Describe(lower));
         Assert.Equal(CkMethodErrorCodes.MethodForbidden, (await CallAsync(dispatcher, Caller(Other), Owner)).Error!.Code);
         Assert.Equal(2, probe.Calls);
     }
@@ -292,7 +307,8 @@ public sealed class CkMethodAuthorizationBusTests(RabbitMqFixture rabbitMq) : IA
 
         Assert.Equal(CkMethodErrorCodes.MethodForbidden, (await CallAsync(dispatcher, Caller(Owner), Owner)).Error!.Code);
         Assert.Equal(0, probe.Calls);
-        Assert.True((await CallAsync(dispatcher, Caller(Other, "AdminPanelManagement"), Owner)).Success);
+        var administrator = await CallAsync(dispatcher, Caller(Other, "AdminPanelManagement"), Owner);
+        Assert.True(administrator.Success, Describe(administrator));
         Assert.Equal(1, probe.Calls);
     }
 
@@ -303,7 +319,8 @@ public sealed class CkMethodAuthorizationBusTests(RabbitMqFixture rabbitMq) : IA
         var (dispatcher, _, probe) = await StartAsync(inProcess,
             new CkMethodAuthorizationDto { Roles = ["R"], Scopes = ["accounts:write"] });
 
-        Assert.True((await CallAsync(dispatcher, new CkMethodPrincipal(Other, ["R"], ["octo_api", "accounts:write"]))).Success);
+        var allowed = await CallAsync(dispatcher, new CkMethodPrincipal(Other, ["R"], ["octo_api", "accounts:write"]));
+        Assert.True(allowed.Success, Describe(allowed));
         Assert.False((await CallAsync(dispatcher, new CkMethodPrincipal(Other, ["R"], ["octo_api"]))).Success);
         Assert.False((await CallAsync(dispatcher, new CkMethodPrincipal(Other, ["R"], ["accounts:write"]))).Success);
         Assert.Equal(1, probe.Calls);

@@ -28,7 +28,9 @@ check runs inside the endpoint (`WebApplicationExtensions.IsAuthenticatedAsync`)
 it fails closed (401) on hosts that register no `Bearer` scheme (EDA and FinAPI adapters). The browser
 consumers (Studio / MeshBoard `HealthService`) send the user's token. `/healthz/live` and
 `/healthz/ready` stay anonymous endpoints that return a plain-text status body for the kubelet probes. `HealthEndpointTests` fails
-if `/health` becomes anonymous again.
+if `/health` becomes anonymous again. Its Kestrel listeners bind port 0 (the operating system picks a free port at bind time);
+`PrometheusEndpointTests` needs the metrics port in the configuration before the host is built, so it probes two distinct free
+ports and repeats the start with fresh ports when another process took one of them in between ("address already in use").
 
 ## Multi-Tenancy Middleware
 

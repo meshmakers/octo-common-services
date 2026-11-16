@@ -1,9 +1,9 @@
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using System.Net;
 using System.Net.Http;
 using System.Net.Http.Headers;
-using System.Net.Sockets;
 using System.Security.Claims;
 using System.Text.Encodings.Web;
 using System.Threading.Tasks;
@@ -13,6 +13,9 @@ using Meshmakers.Octo.Services.Observability;
 using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Hosting;
+using Microsoft.AspNetCore.Hosting.Server;
+using Microsoft.AspNetCore.Hosting.Server.Features;
+using Microsoft.AspNetCore.Http.Features;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
@@ -151,11 +154,10 @@ public class HealthEndpointTests
 
     private static async Task<TestHost> StartAsync(bool withBearerScheme)
     {
-        var publicPort = FreePort();
-        var internalPort = FreePort();
-
+        // Both listeners bind port 0, so the operating system picks two free ports at bind time. Probing a free
+        // port first and binding it later raced with other processes on loaded CI agents ("address already in use").
         var builder = WebApplication.CreateBuilder();
-        builder.WebHost.UseUrls($"http://127.0.0.1:{publicPort}", $"http://127.0.0.1:{internalPort}");
+        builder.WebHost.UseUrls("http://127.0.0.1:0", "http://127.0.0.1:0");
         builder.Logging.ClearProviders();
         if (withBearerScheme)
         {
@@ -168,22 +170,16 @@ public class HealthEndpointTests
         app.MapObservability();
         await app.StartAsync();
 
-        return new TestHost(app, $"http://127.0.0.1:{publicPort}", $"http://127.0.0.1:{internalPort}", internalPort);
+        var ports = BoundPorts(app);
+        Assert.Equal(2, ports.Count);
+        return new TestHost(app, $"http://127.0.0.1:{ports[0]}", $"http://127.0.0.1:{ports[1]}", ports[1]);
     }
 
-    private static int FreePort()
-    {
-        var listener = new TcpListener(IPAddress.Loopback, 0);
-        listener.Start();
-        try
-        {
-            return ((IPEndPoint)listener.LocalEndpoint).Port;
-        }
-        finally
-        {
-            listener.Stop();
-        }
-    }
+    /// <summary>The ports Kestrel actually bound, in the order of the configured URLs.</summary>
+    private static List<int> BoundPorts(WebApplication app) =>
+        app.Services.GetRequiredService<IServer>().Features.GetRequiredFeature<IServerAddressesFeature>().Addresses
+            .Select(a => new Uri(a).Port)
+            .ToList();
 
     private sealed class StubBearerHandler(
         IOptionsMonitor<AuthenticationSchemeOptions> options, ILoggerFactory logger, UrlEncoder encoder)
