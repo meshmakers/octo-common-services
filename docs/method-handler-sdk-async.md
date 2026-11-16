@@ -45,7 +45,7 @@ public sealed class BackupDumpHandler(IDumpService dumps)
 
 `CkMethodOutcome.Accepted(work)` is the same for a method without a result. Rules:
 
-* The work runs **once**, after the answer has left, in a detached flow (no ambient state of the caller), in the handler's DI scope,
+* The work runs **at most once**, after the answer has left, in a detached flow (no ambient state of the caller), in the handler's DI scope,
   which stays open until the work ends. Its token is cancelled when the host stops; the operation then ends as
   `METHOD_OUTCOME_UNKNOWN` (`reason` `handler-lost`). There is no resume and no retry.
 * The work answers success (result) or a declared error. An undeclared code is `METHOD_HANDLER_FAILED`, an exception is
@@ -126,7 +126,8 @@ delete can write its record after the purge. Neither may reach a new tenant crea
 - **Custom stores.** A host that registers its own `ICkMethodOperationStore` before the store registration is **not** wrapped: it must wrap
   the store in `CkMethodTenantGenerationOperationStore` itself, otherwise a recreated tenant can read the old tenant's records. A custom
   store that does not implement `ICkMethodOperationTenantPurge` gets the no-op `CkMethodNoOperationTenantPurge`; its old records then stay
-  until they expire, invisible behind the generation guard.
+  until they expire. Reads hide them only when the store is wrapped in `CkMethodTenantGenerationOperationStore` and the registered
+  generation returns a creation time, which needs `ITenantLifecycleStore` or a custom `ICkMethodOperationTenantGeneration`.
 - Clocks: the accept time comes from the handler host, the creation time from the asset repository. Clock skew below the delete's settle
   period does not let an old record through.
 
