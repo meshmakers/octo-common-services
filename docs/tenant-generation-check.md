@@ -1,5 +1,5 @@
 ---
-description: Tenant generation check: tenant_gen claim against the tenant's creation time, outcomes, enforcement option, cache, metric and public API.
+description: Tenant generation check: tenant_gen claim vs. the tenant's creation time, outcomes, enforcement mode, cache, metrics (also tenant check decisions), public API.
 applies_to: src/Infrastructure/TenantGeneration/**, tests/Infrastructure.Tests/TenantGeneration/**, src/Methods/Authorization/CkMethodCallerTenantCheck.cs
 ---
 
@@ -116,6 +116,56 @@ registered in `ObservabilityBuilder`). Labels:
 | `grant_type` | only when identity passes one, a fixed set (`TenantGenerationMetrics.GrantTypes`): `token_exchange`, `on_behalf_of`, `refresh_token`, `authorization_code`, `device_code`, `client_credentials`, `password`; anything else `other` |
 
 Never the tenant id, the user, `sub`, `tenant_gen` or a token value. A unit test asserts the exact label set.
+
+### Decisions of the tenant check
+
+Counter `octo.tenant_auth.decisions` on the same meter (`TenantAuthorizationMetrics`, `src/Infrastructure/Middleware/`)
+counts every decision of the tenant check of `TenantAuthorizationMiddleware` that runs before this one (token tenant
+against route tenant, [tenant-authorization.md](tenant-authorization.md)), next to its log line. The `LogOnly` inventory
+of the user and the service path can so be read per service, client and endpoint without searching log text. Both
+counters share the `client_id` bounds (`ClientIdLabelBudget`, `MetricLabels`).
+
+| Label | Values |
+|---|---|
+| `outcome` | `match` (token tenant = route tenant, also for an allow-listed client on its own tenant), `allowed_parent_admin` (parent-tenant rule), `allowed_cross_tenant_client` (service allow-list, another tenant), `not_checked` (service path in `Disabled`), `would_deny` / `would_deny_missing_tenant_id` (`LogOnly`: `Enforce` would refuse it; the second when the token has no `tenant_id`), `denied` / `denied_missing_tenant_id` (`Enforce`: 403) |
+| `token_kind` | `user` (token with `sub`), `service` (client credentials) |
+| `mode` | the mode of that token kind: `UserTokenEnforcement` (`log_only`, `enforce`) or `ServiceTokenEnforcement` (`disabled`, `log_only`, `enforce`) |
+| `client_id` | the token's `client_id`; `unknown` when absent or not printable ASCII / longer than 128 characters; `other` after 1000 distinct values per process (same bounds as `octo.tenant_auth.generation_checks`) |
+| `route` | on `would_deny…` and `denied…` only: the route **template** of the endpoint with a leading slash (e.g. `/{tenantId}/graphql`), never the request path; `unknown` without a route template, `other` when it is longer than 128 characters or not printable ASCII. On every other outcome `any`: allowed requests are the bulk of the traffic, and client × route on them would multiply the series without serving any gate |
+
+**Series budget.** The OpenTelemetry SDK keeps at most 2000 label combinations per metric by default and folds further
+ones into an overflow series without labels. The counter therefore bounds the whole combination: after 1500 distinct
+combinations per process a new one is recorded with `client_id` = `other` (and `route` = `other` on refusals) but keeps
+`outcome`, `token_kind` and `mode`. The collapsed combinations add at most 9 × 2 × 3, so a refusal is never lost from an
+outcome-filtered query. A per-pod series count near 1500 is the sign to look at the clients and routes.
+`TenantAuthorizationMetricsSdkTests` checks this against the OpenTelemetry SDK (1000 clients × 2 routes of refusals:
+no overflow series, every refusal counted).
+
+Never the tenant id, the user, `sub` or a token value; a unit test asserts the exact label set. Requests the middleware
+does not judge are not counted: anonymous endpoints, requests without a bearer header, cookie principals,
+unauthenticated requests and routes without a tenant. A request that passes the tenant check is then judged by the tenant
+generation check, which has its own counter (above).
+
+The counter is registered by `AddOctoServiceInfrastructure()` and by both `AddOctoTenantAuthorization(...)` overloads and
+resolved per request. A host without the registration runs without it and logs one warning (`No TenantAuthorizationMetrics
+is registered …`), so a missing counter does not read as a clean inventory.
+
+Typical queries (PromQL):
+
+```promql
+# LogOnly inventory: who would be refused, on which endpoint
+sum by (service_name, token_kind, outcome, client_id, route) (
+  increase({otel_metric_name="octo.tenant_auth.decisions", outcome=~"would_deny.*"}[1d])
+)
+
+# Enforce: refusals per caller
+sum by (service_name, token_kind, outcome, client_id, route) (
+  increase({otel_metric_name="octo.tenant_auth.decisions", outcome=~"denied.*"}[1h])
+)
+```
+
+Tests: `tests/Infrastructure.Tests/Middleware/TenantAuthorizationMiddlewareMetricsTests.cs` (one case per outcome and
+mode, label set and bounds, no counting without a route tenant or without the registration).
 
 The gates, Dash0 queries and log lines for the switch to `Enforce` are in
 [tenant-generation-enforce-plan.md](tenant-generation-enforce-plan.md).

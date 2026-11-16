@@ -62,6 +62,8 @@ public static class ServiceCollectionExtensions
         services.TryAddSingleton<ITenantHierarchyReader, TenantHierarchyReader>();
         // AB#8999: the tenant generation (tenant_gen) check of TenantAuthorizationMiddleware, with its cache.
         services.AddOctoTenantGenerationCheck();
+        // The decision counter of TenantAuthorizationMiddleware (octo.tenant_auth.decisions).
+        services.AddTenantAuthorizationMetrics();
         services.AddOptions<OctoCorsOptions>();
         services.AddSingletonMultipleInterfaces<CorsPolicyProvider, ICorsPolicyProvider>();
         services.AddExceptionHandler<OctoExceptionHandler>();
@@ -159,13 +161,14 @@ public static class ServiceCollectionExtensions
     /// <remarks>
     ///     Optional. Without this call the middleware runs on the defaults, which reproduce the request
     ///     behaviour of every release before AB#5032 (service tokens pass) and only add the audit log.
+    ///     Also registers <see cref="TenantAuthorizationMetrics" /> (counter <c>octo.tenant_auth.decisions</c>).
     /// </remarks>
     public static IServiceCollection AddOctoTenantAuthorization(this IServiceCollection services,
         IConfiguration configuration)
     {
         services.Configure<TenantAuthorizationOptions>(
             configuration.GetSection(TenantAuthorizationOptions.SectionName));
-        return services;
+        return services.AddTenantAuthorizationMetrics();
     }
 
     /// <summary>
@@ -185,13 +188,14 @@ public static class ServiceCollectionExtensions
     }
 
     /// <summary>
-    ///     Configures <see cref="TenantAuthorizationOptions" /> in code (AB#5032).
+    ///     Configures <see cref="TenantAuthorizationOptions" /> in code (AB#5032) and registers
+    ///     <see cref="TenantAuthorizationMetrics" /> (counter <c>octo.tenant_auth.decisions</c>).
     /// </summary>
     public static IServiceCollection AddOctoTenantAuthorization(this IServiceCollection services,
         Action<TenantAuthorizationOptions> configure)
     {
         services.Configure(configure);
-        return services;
+        return services.AddTenantAuthorizationMetrics();
     }
 
     /// <summary>
@@ -225,5 +229,12 @@ public static class ServiceCollectionExtensions
     {
         builder.Services.AddSingleton<IUserInfoCache, UserInfoCache>();
         builder.Services.AddSingleton<IAuthorizationClient, AuthorizationClient>();
+    }
+
+    /// <summary>The decision counter of <c>TenantAuthorizationMiddleware</c>, a singleton, added once.</summary>
+    private static IServiceCollection AddTenantAuthorizationMetrics(this IServiceCollection services)
+    {
+        services.TryAddSingleton<TenantAuthorizationMetrics>();
+        return services;
     }
 }

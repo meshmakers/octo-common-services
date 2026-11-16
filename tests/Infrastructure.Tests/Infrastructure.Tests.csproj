@@ -18,6 +18,8 @@
         <PackageReference Include="Microsoft.AspNetCore.TestHost" Version="10.0.13" />
         <PackageReference Include="Microsoft.Extensions.TimeProvider.Testing" Version="10.9.0" />
         <PackageReference Include="Microsoft.NET.Test.Sdk" Version="18.9.0" />
+        <!-- SDK-level check of the octo.tenant_auth.decisions series budget (TenantAuthorizationMetricsSdkTests). -->
+        <PackageReference Include="OpenTelemetry.Exporter.InMemory" Version="1.18.0" />
         <PackageReference Include="xunit.v3.mtp-off" Version="4.0.0" />
         <PackageReference Include="xunit.runner.visualstudio" Version="4.0.0">
             <PrivateAssets>all</PrivateAssets>
