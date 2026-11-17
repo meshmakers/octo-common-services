@@ -162,14 +162,23 @@ public sealed class OctoDataProtectionKeyRingTests : IDisposable
     }
 
     [Fact]
-    public void BeforeTheSystemTenantExists_NothingIsStored()
+    public void BeforeTheSystemTenantExists_NothingIsStored_AndTheHostRecoversAfterwards()
     {
         _store.CanPersist = false;
-        var host = CreateHost(AssetRepository, NewPlatformKeys());
+        var keys = NewPlatformKeys();
+        var host = CreateHost(AssetRepository, keys);
 
         var error = Assert.ThrowsAny<Exception>(() => host.GetDataProtector(Purpose).Protect("cookie"));
         Assert.Contains("system tenant", error.ToString(), StringComparison.Ordinal);
         Assert.Empty(_store.Records);
+
+        // Once the system tenant exists, the same host recovers without a restart.
+        _store.CanPersist = true;
+        var payload = host.GetDataProtector(Purpose).Protect("cookie");
+
+        Assert.Single(_store.Records);
+        Assert.Equal("cookie", CreateHost(AssetRepository, keys).GetDataProtector(Purpose)
+            .Unprotect(payload));
     }
 
     [Theory]
