@@ -34,10 +34,42 @@ applies_to: src/Methods/Dispatching/**
   time + TTL (dispatcher clock), withdrawal beats older announcements, `MarkNoQueueBound` spares instances announced during the send. No
   live entry = `METHOD_HANDLER_NOT_AVAILABLE` / `no-live-handler` **without a send** (the request carries passwords and the caller token);
   inside `Methods:Dispatcher:RegistryWarmUp` (20 s, restarted by the discovery request) a call for a method the registry has not heard of
-  (or knows only from the snapshot) waits for an announcement first; a withdrawal/expiry it received refuses at once. The send stays
+  (or knows only from the snapshot) waits for an announcement first. The send stays
   mandatory (crash inside the TTL = one returned send, then expired). Emergency switch `Methods:Dispatcher:RefuseWithoutLiveHandler=false`
   restores the old advisory behaviour. Also used for the tenant check (`tenant-not-served`) and the contract version check.
   `CkMethodDispatcherStartupService` (order 30) publishes a discovery request at start. Diagnostics: see below.
+- **Hand-over** (`Methods:Dispatcher:HandlerHandOver`, default 3 s, at most 30 s, zero = off): after a withdrawal, an expiry or a
+  returned send (`MarkNoQueueBound`) the registry has an answer, but a successor may be about to announce itself (single-replica
+  restart, `Recreate` rollout, scale 0 -> 1, crash with a restart, handler re-binding its queue after a broker reconnect). A call that
+  arrives within the hand-over **counted from the moment the last received entry of the method ended** (`GetLastEnded`: newest
+  `ExpiresUtc` of the entries with source `Announcement`; such an end decides over a restored snapshot row, the warm-up applies only
+  without one) waits for an announcement, at most until the window ends or the request deadline,
+  then it is sent or refused with `METHOD_HANDLER_NOT_AVAILABLE` / `no-live-handler` exactly as before (same WARN line, same
+  `ck.method.calls` / `ck.method.no_handler` counting; nothing is counted for the wait itself). A call after the window is refused at once,
+  so a handler that is gone for good adds no latency. A late or repeated withdrawal of an entry that had already ended keeps its end, so
+  it does not start a new window. The time the wait used is taken from the deadline the send sees.
+  Bounds: the wait holds no thread (one shared `TaskCompletionSource` per registry change plus a `Task.Delay` on the `TimeProvider`),
+  follows the caller's token, and at most `Methods:Dispatcher:MaxWaitingCalls` (1000) calls wait in a hand-over at a time, over all
+  methods (`CkMethodHandlerRegistry.TryEnterWait`/`LeaveWait`; the warm-up wait after a start is not counted and unchanged, a warm-up wait
+  that turns into a hand-over is admitted then); a call beyond it is refused at once with a WARN that names the method only. Zero lets no call wait in a hand-over.
+- **Discovery after a returned send** (`CkMethodHandlerDiscoveryRequester`, singleton of `AddCkMethodDispatcher`): when the broker returns
+  a send the registry still listed, the dispatcher expires the entries (`MarkNoQueueBound`) and publishes a `CkMethodHandlerDiscoveryRequested`,
+  so live handlers re-announce within milliseconds instead of with their next heartbeat (up to 15 s). The returned call itself is not sent
+  again (no retry); the next calls wait in the hand-over and find the re-announced handler. While a call waits in the hand-over of an entry
+  that ended with a returned send, it asks again once per second (a handler that was still reconnecting missed the first request; the
+  wait wakes at least every second for it). Fire and forget on the thread pool, at most one request in flight and at most one per second
+  per dispatcher, a publish abandoned after 10 s; a failing publish is logged with the exception type only and never changes an answer. A
+  withdrawal does not ask: a stopped instance's successor announces itself on start. `MarkNoQueueBound` makes a restored snapshot row
+  first-hand (`Source` `Announcement`), so a returned send gets the hand-over also right after a dispatcher restart.
+  **A handler that answers but stays unbound** (its process runs, its method queue does not): the waiting calls are sent once when it
+  re-announces and returned again. A second return of the same instance within 30 s of the previous one
+  (`CkMethodHandlerRegistry.NoQueueBoundRepeatWindow`) is marked repeated (`MarkNoQueueBound` returns `false`): no hand-over wait and no
+  discovery request for it, neither from the returned call nor from waiting calls; its calls are
+  refused at once until its next heartbeat, as before the hand-over existed. A call the instance answers in between
+  (`MarkDelivered`, the response carries its handler instance id) ends the episode, so a later reconnect gets the hand-over and the
+  request again. An entry whose TTL ran out while the returned send was in flight counts as returned too (it was live when the send
+  started). So such a handler costs one extra round of returned sends per
+  episode, never a loop of discovery requests.
 - **Registry snapshot**: with an `ICkMethodHandlerSnapshotStore` in the host (port and Mongo store live in
   `octo-construction-kit-engine-mongodb`, plain collection `ck_method_handler_snapshot` in the system DB, TTL index) the registry queues
   every change (`CkMethodHandlerRegistry.TakeChanges`) and `CkMethodHandlerSnapshotFlushService` writes it every
@@ -54,4 +86,9 @@ applies_to: src/Methods/Dispatching/**
   exception **type name only**) and the method ids of `ICkInProcessMethodTransport` (transport `in-process`). Service data only (allow-list
   test). Tests: `tests/Methods.Tests/Dispatching/CkMethodHandlerRegistryDiagnosticsTests.cs`. The GraphQL query lives in asset-repo.
 - **Tests**: `tests/Methods.Tests/Dispatching`, `tests/Methods.IntegrationTests/CkMethodDispatcherBusTests.cs` (the integration project
-  now references FakeItEasy for a fake `ICkCacheService`).
+  now references FakeItEasy for a fake `ICkCacheService`). Hand-over and discovery: `CkMethodDispatcherTests` (`HandOver_*`,
+  `BrokerReturn_*`, `MaxWaitingCalls*`: single-replica restart, crash expiry, window counted from the end of the entry, deadline and cap,
+  cancellation, waiter bound, throttled and repeated discovery, failing publish) and `CkMethodDispatcherBusTests.HandOver.cs` (private
+  RabbitMQ: restart of the only replica while a call waits; no successor; the handler's broker connection closed with a heartbeat of
+  2 min, the first call after the reconnect succeeds within seconds — 1.4 to 2.3 s measured on a developer machine, never with the
+  hand-over off).

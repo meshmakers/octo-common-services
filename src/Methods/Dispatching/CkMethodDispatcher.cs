@@ -17,6 +17,9 @@ namespace Meshmakers.Octo.Services.Methods.Dispatching;
 ///     <see cref="ICkMethodInvocationPipeline" />. Filters (audit, authorization, idempotency) are the pipeline's job.
 ///     The bus send happens only when the handler registry knows a live handler for the method (AB#8634); otherwise the
 ///     call is refused as <c>METHOD_HANDLER_NOT_AVAILABLE</c> / <c>no-live-handler</c> without touching the broker.
+///     Right after the last handler of a method went away the call first waits a bounded hand-over time for a new
+///     announcement (<see cref="CkMethodDispatcherOptions.HandlerHandOver" />), and a send the broker returned asks every
+///     handler to announce itself again (<see cref="CkMethodHandlerDiscoveryRequester" />).
 /// </summary>
 internal sealed class CkMethodDispatcher(
     ICkMethodDeclaringElementResolver resolver,
@@ -27,7 +30,8 @@ internal sealed class CkMethodDispatcher(
     ICkMethodSensitivityResolver sensitivity,
     IOptions<CkMethodDispatcherOptions> options,
     TimeProvider timeProvider,
-    ILogger<CkMethodDispatcher> logger) : ICkMethodDispatcher
+    ILogger<CkMethodDispatcher> logger,
+    CkMethodHandlerDiscoveryRequester? discovery = null) : ICkMethodDispatcher
 {
     internal const string ReasonNoLiveHandler = "no-live-handler";
     internal const string ReasonTenantNotServed = "tenant-not-served";
@@ -200,7 +204,8 @@ internal sealed class CkMethodDispatcher(
         {
             // AB#8634: the request carries the parameters (passwords) and the caller's token. Without a live handler it is
             // refused here, before anything reaches the broker; a mandatory send that the broker returns has already
-            // carried it there. Right after a start the registry may still fill, so wait for the warm-up first.
+            // carried it there. Right after a start the registry may still fill, and right after the last handler went
+            // away a new one may take over, so wait for the warm-up or the hand-over first.
             live = await WaitForLiveHandlerAsync(request, cancellationToken).ConfigureAwait(false);
             if (live.Count == 0)
             {
@@ -243,7 +248,7 @@ internal sealed class CkMethodDispatcher(
         var sentAtUtc = timeProvider.GetUtcNow().UtcDateTime;
         try
         {
-            return await eventHub.GetCommandResponseAsync<CkMethodRequest, CkMethodResponse>(
+            var response = await eventHub.GetCommandResponseAsync<CkMethodRequest, CkMethodResponse>(
                 CkMethodQueueNames.For(request.MethodId), request,
                 new CommandSendOptions
                 {
@@ -254,10 +259,24 @@ internal sealed class CkMethodDispatcher(
                     Persistent = false
                 },
                 cancellationToken).ConfigureAwait(false);
+            if (!string.IsNullOrEmpty(response.HandlerInstanceId))
+            {
+                // a handler answered: its queue is bound, an earlier returned send of it is over
+                registry.MarkDelivered(request.MethodId, response.HandlerInstanceId);
+            }
+
+            return response;
         }
         catch (CommandNotRoutableException)
         {
-            registry.MarkNoQueueBound(request.MethodId, sentAtUtc);
+            // The registry listed a handler, the broker had no queue for it: a handler may be re-binding its queue (broker
+            // reconnect). Live handlers answer the discovery request at once, so the next calls (which wait for the
+            // hand-over) find them instead of being refused until the next heartbeat. This call is not sent again. A
+            // repeated return (the handler answered but its queue is still not bound) does not ask again.
+            if (registry.MarkNoQueueBound(request.MethodId, sentAtUtc))
+            {
+                discovery?.Request();
+            }
             return NotAvailable(request, ReasonNoLiveHandler);
         }
         catch (DistributionTimeoutException)
@@ -283,45 +302,121 @@ internal sealed class CkMethodDispatcher(
     }
 
     /// <summary>
-    ///     Waits for a live handler of the method while the registry warm-up runs (at most until it ends or the request
-    ///     deadline passes), but only while the registry has not heard of the method yet or knows it only from the restored
-    ///     snapshot. Returns the live handlers, or an empty list when none announced itself in time.
+    ///     Waits for a live handler of the method (at most until the window below ends or the request deadline passes) and
+    ///     returns the live handlers, or an empty list when none announced itself in time. The window is
+    ///     <list type="bullet">
+    ///         <item>the registry warm-up while the registry has not heard of the method yet or knows it only from the
+    ///         restored snapshot;</item>
+    ///         <item>otherwise the hand-over: <see cref="CkMethodDispatcherOptions.HandlerHandOver" /> from the moment the
+    ///         last entry of the method ended (withdrawal, expiry, returned send). A call after it is refused at once.</item>
+    ///     </list>
+    ///     The wait holds no thread and follows the caller's token; hand-over waits are limited to
+    ///     <see cref="CkMethodDispatcherOptions.MaxWaitingCalls" /> calls at a time, a call beyond it is refused at once.
     /// </summary>
     private async Task<IReadOnlyList<CkMethodHandlerEntry>> WaitForLiveHandlerAsync(CkMethodRequest request,
         CancellationToken cancellationToken)
     {
-        while (true)
+        // Admission to the bounded hand-over is taken when the wait is (or becomes) a hand-over; the warm-up wait after a
+        // start is not counted. A warm-up wait that turns into a hand-over (a withdrawal arrived) is admitted then.
+        var admitted = false;
+        try
         {
-            // take the signal before the check, so an announcement between the check and the wait is not missed
-            var changed = registry.WaitForChangeAsync();
-            var live = registry.GetLiveHandlers(request.MethodId);
-            if (live.Count > 0)
+            while (true)
             {
-                return live;
-            }
+                // take the signal before the check, so an announcement between the check and the wait is not missed
+                var changed = registry.WaitForChangeAsync();
+                var live = registry.GetLiveHandlers(request.MethodId);
+                if (live.Count > 0)
+                {
+                    return live;
+                }
 
-            // A withdrawal or an expiry this registry received itself is an answer: refuse at once. Only a method the
-            // registry has not heard of yet, or knows only from the restored snapshot, may still be announced.
-            var lastSeen = registry.GetLastSeen(request.MethodId);
-            if (lastSeen != null && lastSeen.Source != CkMethodHandlerEntrySource.Snapshot)
+                var now = timeProvider.GetUtcNow().UtcDateTime;
+                var (until, askingForDiscovery, handOver) = WaitUntil(request);
+                if (until <= now)
+                {
+                    return [];
+                }
+
+                if (handOver && !admitted)
+                {
+                    if (!registry.TryEnterWait(options.Value.MaxWaitingCalls))
+                    {
+                        logger.LogWarning("CK method {MethodId}: too many calls wait for a handler, the call is refused at once",
+                            request.MethodId);
+                        return [];
+                    }
+
+                    admitted = true;
+                }
+
+                // while the handlers are asked to announce themselves, wake up to ask again (the request is throttled)
+                var step = until - now;
+                if (askingForDiscovery && step > CkMethodHandlerDiscoveryRequester.MinInterval)
+                {
+                    step = CkMethodHandlerDiscoveryRequester.MinInterval;
+                }
+
+                using var delayCancellation = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+                var delay = Task.Delay(step, timeProvider, delayCancellation.Token);
+                await Task.WhenAny(changed, delay).ConfigureAwait(false);
+                await delayCancellation.CancelAsync().ConfigureAwait(false);
+                cancellationToken.ThrowIfCancellationRequested();
+            }
+        }
+        finally
+        {
+            if (admitted)
             {
-                return [];
+                registry.LeaveWait();
             }
-
-            var now = timeProvider.GetUtcNow().UtcDateTime;
-            var until = registry.WarmUpEndsUtc < request.DeadlineUtc ? registry.WarmUpEndsUtc : request.DeadlineUtc;
-            if (until <= now)
-            {
-                return [];
-            }
-
-            using var delayCancellation = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-            var delay = Task.Delay(until - now, timeProvider, delayCancellation.Token);
-            await Task.WhenAny(changed, delay).ConfigureAwait(false);
-            await delayCancellation.CancelAsync().ConfigureAwait(false);
-            cancellationToken.ThrowIfCancellationRequested();
         }
     }
+
+    /// <summary>
+    ///     End of the wait for a live handler (see <see cref="WaitForLiveHandlerAsync" />), never after the request deadline.
+    ///     A method whose last entry ended because the broker returned a send asks the handlers to announce themselves
+    ///     again while its hand-over runs (at most one request per second, see <see cref="CkMethodHandlerDiscoveryRequester" />):
+    ///     a handler that was still re-binding when the first request went out answers a later one.
+    ///     <c>AskingForDiscovery</c> is <c>true</c> while that runs. A return that repeated an earlier one (the handler
+    ///     answered but its queue is still not bound) gets neither a wait nor a request: its calls are refused at once until
+    ///     the handler's next announcement, as before the hand-over existed. <c>HandOver</c> is <c>true</c> for the
+    ///     hand-over window, <c>false</c> for the warm-up.
+    /// </summary>
+    private (DateTime Until, bool AskingForDiscovery, bool HandOver) WaitUntil(CkMethodRequest request)
+    {
+        // An end this registry observed itself (withdrawal, expiry or returned send of an entry it received) decides;
+        // only a method it has not heard of, or knows only from the restored snapshot, gets the warm-up.
+        var ended = registry.GetLastEnded(request.MethodId);
+        if (ended == null)
+        {
+            return (Earliest(registry.WarmUpEndsUtc, request.DeadlineUtc), false, false);
+        }
+
+        var handOver = HandOverOf(options.Value);
+        if (handOver <= TimeSpan.Zero || ended.Value.RepeatedNoQueueBound)
+        {
+            return (DateTime.MinValue, false, true);
+        }
+
+        var until = ended.Value.EndedUtc + handOver;
+        var asking = false;
+        if (discovery != null && ended.Value.NoQueueBound && until > timeProvider.GetUtcNow().UtcDateTime)
+        {
+            discovery.Request();
+            asking = true;
+        }
+
+        return (Earliest(until, request.DeadlineUtc), asking, true);
+    }
+
+    private static DateTime Earliest(DateTime a, DateTime b) => a < b ? a : b;
+
+    /// <summary>The configured hand-over, at most <see cref="CkMethodDispatcherOptions.MaxHandlerHandOver" />.</summary>
+    internal static TimeSpan HandOverOf(CkMethodDispatcherOptions options) =>
+        options.HandlerHandOver > CkMethodDispatcherOptions.MaxHandlerHandOver
+            ? CkMethodDispatcherOptions.MaxHandlerHandOver
+            : options.HandlerHandOver;
 
     /// <summary>Masks the token and the sensitive parameters in exceptions of the bus or the resolver (AB#6914).</summary>
     private CkMethodRedactor Redactor(CkMethodRequest request) =>

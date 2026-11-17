@@ -56,6 +56,7 @@ nothing dispatched.
 | C14 | canary (sensitive parameter, token, claim value) over gateway, bus, host and all attacks | logs, audit view, activities, responses | no plaintext found | none |
 | C15 | valid message of A replayed with the Caller DTO of administrator B; for another tenant | bus / handler host | runs as A, never as B; other tenant tenant-not-allowed | none |
 | C16 | valid token without the declared role published on the bus | bus / handler host | **REFUSED**: METHOD_FORBIDDEN / not-authorized, handler not called (F-1 fixed) | none |
+| C17 | burst of calls for a method whose only handler just went away (inside the hand-over); caller cancels while waiting | dispatcher (`CkMethodDispatcherTests.HandOver_*`, `MaxWaitingCalls*`) | at most `MaxWaitingCalls` calls wait (no thread held), every further call METHOD_HANDLER_NOT_AVAILABLE / no-live-handler at once; a cancelled call frees its place; nothing is sent without a live handler | none |
 
 ## Findings (F-1, F-2, F-3 and L-4 fixed)
 

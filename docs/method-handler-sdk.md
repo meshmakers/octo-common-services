@@ -159,8 +159,9 @@ interval and TTL, and a dispatcher expires an entry at *receipt time plus the an
 * **Why 15 s / 45 s.** 45 s tolerates two lost heartbeats; shorter values only add bus traffic. The registry is the gate of
   the bus send ([the dispatcher](method-handler-sdk-delivery.md#calling-a-method-the-dispatcher)): a method without a live entry is refused before the send, a gracefully stopped handler withdraws at once, and a
   handler that crashed stays live for at most its TTL, during which the broker's mandatory flag still detects it (one returned send, then
-  the entry is expired). A dispatcher's registry warm-up (`Methods:Dispatcher:RegistryWarmUp`, 20 s) must stay longer than the heartbeat
-  interval of the hosts.
+  the entry is expired and the dispatcher asks every handler to announce itself again). A dispatcher's registry warm-up
+  (`Methods:Dispatcher:RegistryWarmUp`, 20 s) must stay longer than the heartbeat interval of the hosts. After the last handler of a
+  method went away, calls wait `Methods:Dispatcher:HandlerHandOver` (3 s) for a successor before they are refused.
 
 ## 5. Unit-testing a handler
 

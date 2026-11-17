@@ -93,6 +93,29 @@ public sealed class CkMethodDispatcherOptions
     /// </summary>
     public TimeSpan RegistryWarmUp { get; set; } = TimeSpan.FromSeconds(20);
 
+    /// <summary>Upper bound of <see cref="HandlerHandOver" />; a larger value is cut to it.</summary>
+    public static readonly TimeSpan MaxHandlerHandOver = TimeSpan.FromSeconds(30);
+
+    /// <summary>
+    ///     Hand-over time after the last handler of a method went away: a withdrawal, an expiry or a send the broker
+    ///     returned (no queue bound). A call that arrives inside this window, counted from the moment the last entry of the
+    ///     method ended, waits for a new announcement (a restarted single replica, or a live handler answering the
+    ///     discovery request the dispatcher publishes after a returned send) instead of being refused at once. The wait
+    ///     ends at the window's end or at the request deadline, whichever comes first; without an announcement the call is
+    ///     refused with <c>METHOD_HANDLER_NOT_AVAILABLE</c> / <c>no-live-handler</c> as before. A call after the window is
+    ///     refused at once, so a handler that is gone for good costs no latency. Zero or negative turns the wait off; at
+    ///     most <see cref="MaxHandlerHandOver" />. Default 3 s.
+    /// </summary>
+    public TimeSpan HandlerHandOver { get; set; } = TimeSpan.FromSeconds(3);
+
+    /// <summary>
+    ///     Upper bound of the calls that wait at the same time in a hand-over (<see cref="HandlerHandOver" />), over all
+    ///     methods of this dispatcher. A call beyond it is refused at once instead of waiting, so a burst of calls for a
+    ///     missing handler cannot pile up requests (parameters and tokens) in memory. The wait itself holds no thread. The
+    ///     registry warm-up after a start is not counted. Zero or negative = no call waits in a hand-over. Default 1000.
+    /// </summary>
+    public int MaxWaitingCalls { get; set; } = 1000;
+
     /// <summary>
     ///     Keep the handler registry as a snapshot in the system database (AB#5671) so a restarted host answers without
     ///     waiting for the next heartbeat round. Takes effect only when the host registers the snapshot store

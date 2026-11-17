@@ -142,7 +142,10 @@ Handlers consume the method queue as a shared (competing-consumer) endpoint. A r
 the dispatcher), and a handler is announced only after its endpoint accepts messages, so an announced handler is routable.
 The dispatcher sends only when its handler registry knows a live handler for the method; otherwise it answers
 `METHOD_HANDLER_NOT_AVAILABLE` / `no-live-handler` without sending, so the request (parameters, caller token) never reaches the broker
-for a method nobody serves. The mandatory flag remains the safety net for a handler that crashed inside its TTL.
+for a method nobody serves. The mandatory flag remains the safety net for a handler that crashed inside its TTL. Right after the last
+handler of a method went away the dispatcher waits a bounded hand-over (`Methods:Dispatcher:HandlerHandOver`) for a successor before it
+refuses, and after a returned send it asks the handlers to announce themselves again; neither sends a request without a live handler
+(see `docs/method-dispatcher.md`).
 The plain `GetCommandResponseAsync` overload addresses a different (temporary, exclusive) exchange and does not reach a handler.
 
 ## Security notes
