@@ -178,7 +178,8 @@ is an event storm that trails the delete by seconds to minutes). Four mechanisms
   bot services) resolves the tenant context and calls `ITenantContext.RevalidateArchiveAccessAsync`. It re-checks every
   activated archive against Hidden attributes, so a System.Identity, System.Communication or System.UI import in a
   service without stream data still stops an archive whose column became Hidden (the archive goes `Failed` with its
-  reason; engine `docs/archive-hidden-columns.md`). Services without stream data skip it before any context lookup, so
+  reason; see the engine guide
+  [archive-hidden-columns.md](https://github.com/meshmakers/octo-construction-kit-engine/blob/main/docs/archive-hidden-columns.md)). Services without stream data skip it before any context lookup, so
   the registry-only probe above stays their only lookup. `CacheOnly` updates skip it. Best-effort: a failure is logged
   as ERROR and never fails the setup. Like the setup, it skips a tenant with a `Deleting` tombstone, so it never resolves
   (and re-creates) a tenant that a delete is tearing down. A `Full` update that arrives while the same tenant is in work in this service is
