@@ -14,6 +14,7 @@ for the published package list. Targets .NET 10, DebugL for local development.
 | When you change | Read first |
 |---|---|
 | `src/ArtifactStorage/**`, `tests/ArtifactStorage.Tests/**`, `src/Infrastructure/DistributionEventHub/**` | `docs/artifact-storage.md` |
+| `src/Infrastructure/DataProtection/**`, `tests/Infrastructure.Tests/DataProtection/**` | `docs/data-protection.md` |
 | `src/Observability/**`, `src/Infrastructure/Routing/**`, `src/Infrastructure/Cors/**`, `src/**/TenantMiddleware.cs`, `src/Infrastructure/Middleware/Cookie*.cs` | `docs/http-pipeline.md` |
 | `src/Methods/Audit/**` | `docs/method-audit.md` |
 | `src/Methods/Dispatching/**` | `docs/method-dispatcher.md` |
