@@ -31,7 +31,7 @@ builder.Services.AddOctoDataProtectionKeyRing("OctoAssetRepositoryServices");
 | Encryption at rest | The secret part of every key (`masterKey`) is wrapped with the platform key ring `SecretEncryption` (AES-256-GCM through `ISecretAttributeProtector`, envelope `enc:v2:<kid>:…`), in the same envelope element the identity service uses. `decryptorType` is version-free (`DataProtectionKeyXml.DecryptorTypeName`); never rename or move `PlatformKeyRingXmlDecryptor`. |
 | No key ring configured | The shared store is **not used**: keys are never written unencrypted into it. The service keeps the ASP.NET default (local directory, one ring per process) and logs a warning naming `OCTO_SECRETENCRYPTION__KEYS__<id>` / `OCTO_SECRETENCRYPTION__ACTIVEKEYID`. The repository itself also refuses a write without a key ring. |
 | Key ring rotation | Any key id of the platform key ring decrypts, so a rotation with the old key kept leaves every stored key readable. A stored key whose platform key id is gone (or whose key material differs, e.g. a database restored from another installation) is unusable; ASP.NET ignores it and creates a new key (users sign in again). |
-| Fresh installation | Nothing is written before the system tenant exists. The key ring preload at host start may fail then; the key is created on first real use after the bootstrap. |
+| Fresh installation | Nothing is read or written before the system tenant exists and has the `System.Identity` construction kit (installed by the identity service). Until then the key ring preload fails, and so does every Data Protection use (cookie sign-in answers 500); the key is created on the first use after identity bootstrapped the system tenant. |
 | Concurrency | Elements are inserted once per name (unique index); a replica that loses the race verifies the element is stored and goes on. |
 
 ## Requirements
@@ -55,4 +55,6 @@ directory warning at start, which is harmless there.
 `tests/Infrastructure.Tests/DataProtection/OctoDataProtectionKeyRingTests.cs`: two replicas of a service unprotect
 each other's payloads, keys survive a restart, different application names cannot unprotect each other's payloads and
 keep separate keys, prefix collisions (identity names, common application name prefixes), new keys always encrypted
-with a key ring, no write to the shared store without a key ring, nothing stored before the system tenant exists.
+with a key ring, no write to the shared store without a key ring, nothing stored before the system tenant exists, one
+registration per host. The MongoDB store itself is covered on a real system database by the identity service's
+integration tests (`DataProtectionKeyEncryptionIntegrationTests`), which run this helper next to the identity key ring.

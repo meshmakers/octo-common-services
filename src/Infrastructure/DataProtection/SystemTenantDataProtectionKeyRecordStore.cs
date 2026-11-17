@@ -18,8 +18,9 @@ namespace Meshmakers.Octo.Services.Infrastructure.DataProtection;
 /// </summary>
 /// <remarks>
 ///     Data Protection runs outside any HTTP request, so the per-request tenant resolver cannot be used. Nothing is
-///     written before the system tenant exists: a write into a system database the bootstrap has not created yet would
-///     materialize a collection the bootstrap does not expect.
+///     written before the system tenant exists (a write into a system database the bootstrap has not created yet would
+///     materialize a collection the bootstrap does not expect), and nothing is read or written while the system tenant
+///     has no <c>System.Identity</c> construction kit yet.
 /// </remarks>
 internal sealed class SystemTenantDataProtectionKeyRecordStore(
     IServiceScopeFactory serviceScopeFactory,
@@ -31,7 +32,13 @@ internal sealed class SystemTenantDataProtectionKeyRecordStore(
     public async Task<bool> CanPersistAsync()
     {
         using var scope = serviceScopeFactory.CreateScope();
-        return await scope.ServiceProvider.GetRequiredService<ISystemContext>().IsSystemTenantExistingAsync();
+        var systemContext = scope.ServiceProvider.GetRequiredService<ISystemContext>();
+        if (!await systemContext.IsSystemTenantExistingAsync().ConfigureAwait(false))
+        {
+            return false;
+        }
+
+        return await IsKeyTypeAvailableAsync(systemContext.GetSystemTenantRepositoryAsAdmin()).ConfigureAwait(false);
     }
 
     /// <inheritdoc />
@@ -39,16 +46,22 @@ internal sealed class SystemTenantDataProtectionKeyRecordStore(
     {
         using var scope = serviceScopeFactory.CreateScope();
         var systemContext = scope.ServiceProvider.GetRequiredService<ISystemContext>();
-        if (!await systemContext.IsSystemTenantExistingAsync())
+        if (!await systemContext.IsSystemTenantExistingAsync().ConfigureAwait(false))
         {
             return [];
         }
 
         var repository = systemContext.GetSystemTenantRepositoryAsAdmin();
-        using var session = await repository.GetSessionAsync();
+        if (!await IsKeyTypeAvailableAsync(repository).ConfigureAwait(false))
+        {
+            return [];
+        }
+
+        using var session = await repository.GetSessionAsync().ConfigureAwait(false);
         session.StartTransaction();
-        var result = await repository.GetRtEntitiesByTypeAsync(session, KeyCkTypeId, RtEntityQueryOptions.Create());
-        await session.CommitTransactionAsync();
+        var result = await repository.GetRtEntitiesByTypeAsync(session, KeyCkTypeId, RtEntityQueryOptions.Create())
+            .ConfigureAwait(false);
+        await session.CommitTransactionAsync().ConfigureAwait(false);
 
         return result.Items
             .Select(entity => new DataProtectionKeyRecord(
@@ -65,7 +78,7 @@ internal sealed class SystemTenantDataProtectionKeyRecordStore(
 
         using var scope = serviceScopeFactory.CreateScope();
         var systemContext = scope.ServiceProvider.GetRequiredService<ISystemContext>();
-        if (!await systemContext.IsSystemTenantExistingAsync())
+        if (!await systemContext.IsSystemTenantExistingAsync().ConfigureAwait(false))
         {
             throw new InvalidOperationException(
                 $"Data Protection key '{record.StoredName}' cannot be persisted before the system tenant exists.");
@@ -74,11 +87,11 @@ internal sealed class SystemTenantDataProtectionKeyRecordStore(
         var repository = systemContext.GetSystemTenantRepositoryAsAdmin();
         try
         {
-            using var session = await repository.GetSessionAsync();
+            using var session = await repository.GetSessionAsync().ConfigureAwait(false);
             session.StartTransaction();
-            if (await ExistsAsync(repository, session, record.StoredName))
+            if (await ExistsAsync(repository, session, record.StoredName).ConfigureAwait(false))
             {
-                await session.CommitTransactionAsync();
+                await session.CommitTransactionAsync().ConfigureAwait(false);
                 return;
             }
 
@@ -89,24 +102,61 @@ internal sealed class SystemTenantDataProtectionKeyRecordStore(
                 record.XmlData);
             entity.SetAttributeValue(DataProtectionKeyXml.CreationDateTimeAttributeName,
                 AttributeValueTypesDto.DateTime, DateTime.UtcNow);
-            await repository.InsertOneRtEntityAsync(session, KeyCkTypeId, entity);
-            await session.CommitTransactionAsync();
+            await repository.InsertOneRtEntityAsync(session, KeyCkTypeId, entity).ConfigureAwait(false);
+            await session.CommitTransactionAsync().ConfigureAwait(false);
         }
-        catch (Exception ex)
+        catch (Exception ex) when (ex is not OperationCanceledException)
         {
             // Unique index on the name: a concurrent replica won the race and the element IS stored, which is all
-            // Data Protection needs. Anything else is a real error.
-            logger.LogWarning("Storing Data Protection key '{StoredName}' hit a conflict ({Message}); verifying",
+            // Data Protection needs. Anything else is a real error and is rethrown unchanged.
+            logger.LogWarning("Storing Data Protection key '{StoredName}' failed ({Message}); verifying",
                 record.StoredName, ex.Message);
-
-            using var session = await repository.GetSessionAsync();
-            session.StartTransaction();
-            var stored = await ExistsAsync(repository, session, record.StoredName);
-            await session.CommitTransactionAsync();
-            if (!stored)
+            if (!await IsStoredAsync(repository, record.StoredName).ConfigureAwait(false))
             {
                 throw;
             }
+        }
+    }
+
+    private async Task<bool> IsStoredAsync(ITenantRepository repository, string storedName)
+    {
+        try
+        {
+            using var session = await repository.GetSessionAsync().ConfigureAwait(false);
+            session.StartTransaction();
+            var stored = await ExistsAsync(repository, session, storedName).ConfigureAwait(false);
+            await session.CommitTransactionAsync().ConfigureAwait(false);
+            return stored;
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            logger.LogWarning("Verifying Data Protection key '{StoredName}' failed ({Message})", storedName,
+                ex.Message);
+            return false;
+        }
+    }
+
+    /// <summary>
+    ///     False while the system tenant has no <c>System.Identity</c> construction kit (a fresh installation before
+    ///     the identity service bootstrapped it): nothing can be read or written then.
+    /// </summary>
+    private async Task<bool> IsKeyTypeAvailableAsync(ITenantRepository repository)
+    {
+        try
+        {
+            using var session = await repository.GetSessionAsync().ConfigureAwait(false);
+            session.StartTransaction();
+            await repository.CountRtEntitiesByTypeAsync(session, KeyCkTypeId, RtEntityQueryOptions.Create())
+                .ConfigureAwait(false);
+            await session.CommitTransactionAsync().ConfigureAwait(false);
+            return true;
+        }
+        catch (CkCacheException)
+        {
+            logger.LogWarning(
+                "Data Protection keys cannot be stored yet: the system tenant has no {CkTypeId} (the identity service " +
+                "installs it)", DataProtectionKeyXml.KeyCkTypeId);
+            return false;
         }
     }
 
@@ -114,7 +164,8 @@ internal sealed class SystemTenantDataProtectionKeyRecordStore(
     {
         var existing = await repository.GetRtEntitiesByTypeAsync(session, KeyCkTypeId,
             RtEntityQueryOptions.Create()
-                .FieldFilter(DataProtectionKeyXml.FriendlyNameAttributeName, FieldFilterOperator.Equals, storedName));
+                .FieldFilter(DataProtectionKeyXml.FriendlyNameAttributeName, FieldFilterOperator.Equals, storedName))
+            .ConfigureAwait(false);
         return existing.Items.Any();
     }
 }

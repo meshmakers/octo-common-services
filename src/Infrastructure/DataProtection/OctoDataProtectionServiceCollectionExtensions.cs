@@ -40,11 +40,17 @@ public static class OctoDataProtectionServiceCollectionExtensions
     ///     </para>
     /// </remarks>
     /// <exception cref="ArgumentException"><paramref name="applicationName" /> is not a valid key ring name</exception>
+    /// <exception cref="InvalidOperationException">The host already registered a key ring</exception>
     public static IServiceCollection AddOctoDataProtectionKeyRing(this IServiceCollection services,
         string applicationName)
     {
         ArgumentNullException.ThrowIfNull(services);
         DataProtectionKeyNames.ValidateApplicationName(applicationName);
+        if (services.Any(d => d.ServiceType == typeof(OctoDataProtectionKeyRingOptions)))
+        {
+            throw new InvalidOperationException(
+                "AddOctoDataProtectionKeyRing was already called for this host; a host has exactly one key ring.");
+        }
 
         services.AddSingleton(new OctoDataProtectionKeyRingOptions(applicationName));
         services.TryAddSingleton<IDataProtectionKeyRecordStore, SystemTenantDataProtectionKeyRecordStore>();

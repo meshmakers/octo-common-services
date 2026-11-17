@@ -68,6 +68,8 @@ public sealed class OctoDataProtectionKeyRingTests : IDisposable
 
         var payload = assetRepository.GetDataProtector(Purpose).Protect("oidc-state");
 
+        // The application name alone already makes the payload unreadable for the other service; the separate key
+        // rings are proven by the stored names and key ids below.
         Assert.ThrowsAny<CryptographicException>(() => bot.GetDataProtector(Purpose).Unprotect(payload));
         bot.GetDataProtector(Purpose).Protect("bot-cookie");
         Assert.Equal(2, _store.Records.Count);
@@ -132,6 +134,7 @@ public sealed class OctoDataProtectionKeyRingTests : IDisposable
 
         Assert.ThrowsAny<CryptographicException>(() => other.GetDataProtector(Purpose).Unprotect(payload));
         Assert.Equal("fresh", other.GetDataProtector(Purpose).Unprotect(other.GetDataProtector(Purpose).Protect("fresh")));
+        Assert.Equal(2, _store.Records.Count);
     }
 
     [Fact]
@@ -164,7 +167,8 @@ public sealed class OctoDataProtectionKeyRingTests : IDisposable
         _store.CanPersist = false;
         var host = CreateHost(AssetRepository, NewPlatformKeys());
 
-        Assert.ThrowsAny<Exception>(() => host.GetDataProtector(Purpose).Protect("cookie"));
+        var error = Assert.ThrowsAny<Exception>(() => host.GetDataProtector(Purpose).Protect("cookie"));
+        Assert.Contains("system tenant", error.ToString(), StringComparison.Ordinal);
         Assert.Empty(_store.Records);
     }
 
@@ -178,6 +182,15 @@ public sealed class OctoDataProtectionKeyRingTests : IDisposable
         var services = new ServiceCollection();
 
         Assert.Throws<ArgumentException>(() => services.AddOctoDataProtectionKeyRing(applicationName));
+    }
+
+    [Fact]
+    public void ASecondRegistration_InTheSameHost_IsRefused()
+    {
+        var services = new ServiceCollection();
+        services.AddOctoDataProtectionKeyRing(AssetRepository);
+
+        Assert.Throws<InvalidOperationException>(() => services.AddOctoDataProtectionKeyRing(Bot));
     }
 
     [Fact]
