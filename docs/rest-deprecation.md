@@ -231,7 +231,7 @@ both reference it). Full reference: `docs/rest-deprecation.md`.
 | `SecretDiagnostics.MeterName` | engine | SECRET attribute access |
 | `Meshmakers.Octo.TenantSetup` | Infrastructure | tenant setup retry |
 | `Meshmakers.Octo.Methods` | Methods | CK method calls (see below) |
-| `Meshmakers.Octo.TenantAuthorization` | Infrastructure | `octo.tenant_auth.generation_checks` — tenant generation check (`docs/tenant-generation-check.md`); labels `outcome`, `mode`, `transport`, `client_id` (+ `grant_type` from identity); never tenant, user, `sub` or `tenant_gen` |
+| `Meshmakers.Octo.TenantAuthorization` | Infrastructure | `octo.tenant_auth.generation_checks` — tenant generation check (`docs/tenant-generation-check.md`); labels `outcome`, `mode`, `transport`, `client_id` (+ `grant_type` from identity); never tenant, user, `sub` or `tenant_gen`; `octo.tenant_auth.decisions` — decisions of the tenant check of `TenantAuthorizationMiddleware` (`docs/tenant-generation-check.md`, `docs/tenant-authorization.md`); labels `outcome`, `token_kind`, `mode`, `client_id`, `route` (route **template** on `would_deny…`/`denied…` only, `any` otherwise); never tenant, user, `sub` or a token value |
 | `Meshmakers.Octo.RestDeprecation` | RestDeprecation | `octo.rest.deprecated.calls` — labels `endpoint` (method + route **template**), `client_id` (validated token, `anonymous` otherwise, `octo-pipeline-sa-{adapterRtId|configurationRtId}` → `octo-pipeline-sa` (custom standalone ids outside the prefix: as themselves), budget 1000 → `other`), `status_class`; never tenant, user or `sub` |
 
 A meter that is not on this list is silently dropped; `tests/Observability.Tests/MeterRegistrationTests.cs`
