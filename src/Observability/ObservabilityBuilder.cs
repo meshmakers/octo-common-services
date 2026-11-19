@@ -236,6 +236,10 @@ internal class ObservabilityBuilder(
         // (AB#8421); the attribute is the only thing a service adds. Unmarked endpoints are unchanged.
         Services.AddOctoRestDeprecation();
 
+        // IHttpClientFactory logs every request and response header with its value at Trace; bearer tokens,
+        // cookies and transfer keys must never reach a log, whatever level a host or an operator sets.
+        Services.AddOctoHttpClientHeaderRedaction();
+
         Services.AddHostedService<StartupBackgroundService>();
         Services.AddSingleton<StartupHealthCheck>();
 
