@@ -7,6 +7,16 @@ entries are grouped by work item until a release assigns the version.
 
 ### Added
 
+- **AB#9399** (security) — outgoing HTTP client logs carry no header values. `AddObservability()` now replaces the
+  framework's `IHttpClientFactory` logging handlers (categories `System.Net.Http.HttpClient.<name>.LogicalHandler` /
+  `.ClientHandler`, same event ids, levels and messages) with a redacting handler: every request, response and content
+  header value is written as `*` in the formatted message **and** in the structured properties (the framework redacts only
+  the message, so JSON layouts with event properties shipped bearer tokens, cookies and transfer keys at Trace), and the
+  query string as `?*`. A `PostConfigureAll` keeps `ShouldRedactHeaderValue` at "redact every header". `RemoveAllLoggers()`
+  stays silent, `AddDefaultLogger()` gets the redacting handler; a client with its own `IHttpClientLogger` is not covered.
+  New public: `HttpClientHeaderRedaction.AddOctoHttpClientHeaderRedaction(IServiceCollection)`. Hosts take effect with the
+  package bump. Docs: `docs/http-pipeline.md`.
+
 - **AB#9159** — CK method callers are no longer refused while a handler restarts or the broker reconnects. New dispatcher
   options `Methods:Dispatcher:HandlerHandOver` (default 3 s, at most 30 s, zero = off) and `Methods:Dispatcher:MaxWaitingCalls`
   (default 1000): after a withdrawal, an expiry or a returned send a call waits, counted from the moment the last entry of the method

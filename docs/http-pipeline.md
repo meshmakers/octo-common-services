@@ -32,6 +32,34 @@ if `/health` becomes anonymous again. Its Kestrel listeners bind port 0 (the ope
 `PrometheusEndpointTests` needs the metrics port in the configuration before the host is built, so it probes two distinct free
 ports and repeats the start with fresh ports when another process took one of them in between ("address already in use").
 
+## Outgoing HTTP client logs carry no header values
+
+`AddObservability()` calls `AddOctoHttpClientHeaderRedaction()` (`HttpClientHeaderRedaction.cs`). Invariant: for every
+client created through `IHttpClientFactory` in the host, no request or response header value and no query string reaches a
+log at any level, neither in the formatted message nor in the structured properties; header names stay.
+
+The framework's logging handlers (`System.Net.Http.HttpClient.<name>.LogicalHandler` / `.ClientHandler`) write the headers
+at Trace and redact only the formatted message: the structured state of the same event carries every raw value, and the
+JSON layout of the reference `nlog.config` (`includeEventProperties="true"`) ships them, bearer tokens included.
+`ShouldRedactHeaderValue` / `RedactLoggedHeaders` do not change the structured state. So an `IHttpMessageHandlerBuilderFilter`,
+registered first in the service collection so it wraps every other filter, swaps those two framework handlers for a
+redacting handler with the same categories, event ids (100-104), levels and messages:
+
+- every header value (request, response and content headers) is written as `*`, in the message and in the properties;
+- the URI is logged without user info and with a query string as `?*`;
+- a `PostConfigureAll` sets `ShouldRedactHeaderValue` to redact every header, so a host cannot narrow it.
+
+| Client configuration | Result |
+|---|---|
+| default, `RedactLoggedHeaders(...)`, `ConfigureHttpClientDefaults(...)` | redacting handler |
+| `RemoveAllLoggers()` | no HTTP client log at all (allowed, e.g. a client that carries a secret in the body) |
+| `RemoveAllLoggers().AddDefaultLogger()` | redacting handler (the framework handlers come back and are swapped) |
+| own `IHttpClientLogger` (`AddLogger`, `AddExtendedHttpClientLogging`) | **not covered**: that logger writes what it decides and must redact on its own |
+| `new HttpClient(...)` outside the factory | no logging handler at all |
+
+Hosts that do not call `AddObservability()` do not get the redaction. `HttpClientHeaderRedactionTests` pins all rows of the
+table, including a control that shows the raw values without the redaction.
+
 ## Multi-Tenancy Middleware
 
 `UseOctoTenants()` (`src/Infrastructure/Configuration/ApplicationBuilderExtensions.cs`) registers
