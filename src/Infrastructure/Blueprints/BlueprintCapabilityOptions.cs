@@ -13,12 +13,12 @@ public class BlueprintCapabilityOptions
     /// <summary>How often the tenant and the installation row are looked up before the event is refused.</summary>
     public int LookupAttempts { get; set; } = 12;
 
-    /// <summary>Wait between two lookups.</summary>
+    /// <summary>Wait between two lookups. A negative value counts as zero.</summary>
     public TimeSpan LookupDelay { get; set; } = TimeSpan.FromSeconds(5);
 
     /// <summary>AI only: how often the Communication flag of the tenant is read before AI gives up.</summary>
     public int PrerequisiteAttempts { get; set; } = 36;
 
-    /// <summary>AI only: wait between two reads of the Communication flag.</summary>
+    /// <summary>AI only: wait between two reads of the Communication flag. A negative value counts as zero.</summary>
     public TimeSpan PrerequisiteDelay { get; set; } = TimeSpan.FromSeconds(5);
 }

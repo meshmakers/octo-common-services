@@ -6,7 +6,8 @@ using Meshmakers.Octo.Runtime.Contracts.MongoDb.Repositories;
 using Meshmakers.Octo.Services.Contracts.DistributionEventHub.Messages;
 using Meshmakers.Octo.Services.Infrastructure.Blueprints;
 using Meshmakers.Octo.Services.Infrastructure.Services;
-using Microsoft.Extensions.Logging.Abstractions;
+using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Logging.Testing;
 using Microsoft.Extensions.Options;
 using Xunit;
 
@@ -80,8 +81,10 @@ public class BlueprintCapabilityReconcilerTests
                 TenantCapabilityConfigurationKeys.Communication, A<DefaultConfigurationEnabled?>._))
             .Returns(new DefaultConfigurationEnabled { IsEnabled = enabled });
 
+    private readonly FakeLogger<BlueprintCapabilityReconciler> _logger = new();
+
     private BlueprintCapabilityReconciler CreateReconciler() => new(_systemContext, _installations, _configuration,
-        Options.Create(_options), NullLogger<BlueprintCapabilityReconciler>.Instance);
+        Options.Create(_options), _logger);
 
     private static BlueprintCapabilityRequest Request(string? tenantId = TenantA, string? blueprintId = Starter,
         params string[]? dependencies) =>
@@ -206,7 +209,8 @@ public class BlueprintCapabilityReconcilerTests
     {
         var request = Request(dependencies: ["System.Communication"]) with { Trigger = nameof(BlueprintUpdated) };
 
-        // Not enabled (e.g. disabled by hand) and the installed blueprint still needs it: enabled, logged as warning.
+        // Not enabled (e.g. disabled by hand) and the installed blueprint still needs it: enabled, logged at Information
+        // like every automatic enable.
         Assert.Equal(BlueprintCapabilityOutcome.Enabled, await ReconcileAsync(request, BlueprintCapability.Communication));
     }
 
@@ -381,6 +385,48 @@ public class BlueprintCapabilityReconcilerTests
             BlueprintCapability.Communication);
 
         Assert.Equal(BlueprintCapabilityOutcome.AlreadyEnabled, outcome);
+    }
+
+    [Fact]
+    public async Task EnableWritesTheFlagAndALaterStepFails_TheCauseIsLoggedAsWarning()
+    {
+        A.CallTo(() => _configuration.EnableAsync(TenantA))
+            .Invokes((string t) => _enabled.Add(t))
+            .Throws(new InvalidOperationException("tenant start failed"));
+
+        var outcome = await ReconcileAsync(Request(dependencies: ["System.Communication"]),
+            BlueprintCapability.Communication);
+
+        Assert.Equal(BlueprintCapabilityOutcome.AlreadyEnabled, outcome);
+        var warning = Assert.Single(_logger.Collector.GetSnapshot(), r => r.Level == LogLevel.Warning);
+        Assert.IsType<InvalidOperationException>(warning.Exception);
+        Assert.Contains(TenantA, warning.Message, StringComparison.Ordinal);
+        Assert.Contains("tenant start failed", warning.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task AutomaticEnable_IsLoggedAtInformationNotWarning()
+    {
+        var outcome = await ReconcileAsync(Request(dependencies: ["System.Communication"]),
+            BlueprintCapability.Communication);
+
+        Assert.Equal(BlueprintCapabilityOutcome.Enabled, outcome);
+        var records = _logger.Collector.GetSnapshot();
+        Assert.Contains(records, r => r.Level == LogLevel.Information && r.Message.Contains(TenantA, StringComparison.Ordinal));
+        Assert.DoesNotContain(records, r => r.Level >= LogLevel.Warning);
+    }
+
+    [Fact]
+    public async Task NegativeLookupDelay_CountsAsZeroAndNeverBlocks()
+    {
+        _options.LookupDelay = Timeout.InfiniteTimeSpan;
+        _options.LookupAttempts = 3;
+
+        var outcome = await ReconcileAsync(Request(tenantId: "unknown", dependencies: ["System.Communication"]),
+            BlueprintCapability.Communication).WaitAsync(TimeSpan.FromSeconds(10), TestContext.Current.CancellationToken);
+
+        Assert.Equal(BlueprintCapabilityOutcome.Refused, outcome);
+        AssertNothingEnabled();
     }
 
     [Fact]

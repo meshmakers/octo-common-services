@@ -98,9 +98,15 @@ public sealed class BlueprintCapabilityReconciler : IBlueprintCapabilityReconcil
         }
         catch (Exception e)
         {
-            // Another replica of the service may have enabled it in the meantime (broadcast consumers).
+            // The flag is on although the enable threw: another replica of the service enabled it meanwhile
+            // (broadcast consumers), or the enable wrote the flag and a later step (tenant start, refresh) failed.
+            // Both cannot be told apart here, so the cause is logged and never swallowed.
             if (await IsEnabledQuietlyAsync(resolvedTenantId).ConfigureAwait(false))
             {
+                _logger.LogWarning(e,
+                    "{Capability} is enabled for tenant '{TenantId}' after {Trigger} for blueprint '{BlueprintId}' (correlation {CorrelationId}), but the enable reported an error: {Cause}. If no other replica enabled it, check that the capability works for the tenant",
+                    capability, resolvedTenantId, request.Trigger, request.BlueprintId, request.CorrelationId,
+                    e.Message);
                 return BlueprintCapabilityOutcome.AlreadyEnabled;
             }
 
@@ -144,12 +150,13 @@ public sealed class BlueprintCapabilityReconciler : IBlueprintCapabilityReconcil
 
         var options = _options.Value;
         var attempts = Math.Max(1, options.LookupAttempts);
+        var lookupDelay = NonNegative(options.LookupDelay);
         var lastReason = "the tenant does not exist";
         for (var attempt = 1; attempt <= attempts; attempt++)
         {
             if (attempt > 1)
             {
-                await Task.Delay(options.LookupDelay, cancellationToken).ConfigureAwait(false);
+                await Task.Delay(lookupDelay, cancellationToken).ConfigureAwait(false);
             }
 
             ITenantRepository? tenantRepository;
@@ -211,11 +218,12 @@ public sealed class BlueprintCapabilityReconciler : IBlueprintCapabilityReconcil
     {
         var options = _options.Value;
         var attempts = Math.Max(1, options.PrerequisiteAttempts);
+        var prerequisiteDelay = NonNegative(options.PrerequisiteDelay);
         for (var attempt = 1; attempt <= attempts; attempt++)
         {
             if (attempt > 1)
             {
-                await Task.Delay(options.PrerequisiteDelay, cancellationToken).ConfigureAwait(false);
+                await Task.Delay(prerequisiteDelay, cancellationToken).ConfigureAwait(false);
             }
 
             try
@@ -240,6 +248,10 @@ public sealed class BlueprintCapabilityReconciler : IBlueprintCapabilityReconcil
 
         return false;
     }
+
+    // A negative delay from configuration (-1 ms is Timeout.InfiniteTimeSpan) would block the consumer for good or
+    // throw on every event; it counts as no delay.
+    private static TimeSpan NonNegative(TimeSpan delay) => delay < TimeSpan.Zero ? TimeSpan.Zero : delay;
 
     private async Task<bool> IsEnabledQuietlyAsync(string? tenantId)
     {

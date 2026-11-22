@@ -63,7 +63,9 @@ and cause; the blueprint operation is already committed and stays as it is. An e
 (idempotent), also when another replica of the broadcast consumer won the race. Every automatic enable is logged at
 Information level with structured fields (tenant, blueprint id with version, capability, trigger event, correlation id);
 a warning on every tenant created with a starter blueprint would be noise. Only a failure to enable is a warning (refused,
-prerequisite missing) or an error.
+prerequisite missing) or an error. When the enable throws but the flag reads enabled afterwards (another replica won, or
+the flag was written and a later step such as the tenant start failed), the outcome is "already enabled" and the cause is
+logged as a warning with the exception.
 
 Re-enable after a manual disable (decided): an install, force re-apply or update of a blueprint that still needs the
 capability enables it again. All three are explicit actions of a caller allowed to change the data model; remembering a
@@ -86,6 +88,10 @@ the event's is refused at once: the row is written before the event is published
 
 AI waits for Communication (`PrerequisiteAttempts`, default 36, `PrerequisiteDelay` 5 s), then gives up with a warning
 that names the tenant and the commands to run.
+
+A refused event therefore holds the consumer for up to `LookupAttempts` x `LookupDelay` (60 s by default), and the AI
+path up to `PrerequisiteAttempts` x `PrerequisiteDelay` more (about 4 minutes in total); in the Communication Controller
+the sweep of that event waits as long. A negative delay counts as zero, attempts below 1 count as 1.
 
 Options section: `BlueprintCapabilities` (e.g. `OCTO_BlueprintCapabilities__LookupAttempts`).
 
