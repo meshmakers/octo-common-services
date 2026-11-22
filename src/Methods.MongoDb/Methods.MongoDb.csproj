@@ -32,7 +32,7 @@
     </ItemGroup>
 
     <ItemGroup>
-        <PackageReference Include="MongoDB.Driver" Version="3.11.1" />
+        <PackageReference Include="MongoDB.Driver" Version="3.14.1" />
         <PackageReference Include="Meshmakers.Octo.Runtime.Contracts.MongoDb" Version="$(OctoCoreLibVersion)" />
     </ItemGroup>
 
