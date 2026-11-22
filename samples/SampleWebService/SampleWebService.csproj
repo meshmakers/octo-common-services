@@ -13,7 +13,7 @@
 
     <ItemGroup>
         <PackageReference Include="Microsoft.AspNetCore.Authentication.JwtBearer" Version="10.0.15" />
-        <PackageReference Include="NLog.Web.AspNetCore" Version="6.2.0" />
+        <PackageReference Include="NLog.Web.AspNetCore" Version="6.3.0" />
     </ItemGroup>
 
     <ItemGroup>
