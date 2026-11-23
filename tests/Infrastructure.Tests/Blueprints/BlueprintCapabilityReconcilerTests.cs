@@ -430,6 +430,20 @@ public class BlueprintCapabilityReconcilerTests
     }
 
     [Fact]
+    public async Task NegativePrerequisiteDelay_CountsAsZeroAndNeverBlocks()
+    {
+        GivenCommunicationFlag(false);
+        _options.PrerequisiteDelay = Timeout.InfiniteTimeSpan;
+        _options.PrerequisiteAttempts = 3;
+
+        var outcome = await ReconcileAsync(Request(dependencies: ["System.Ai"]), BlueprintCapability.Ai)
+            .WaitAsync(TimeSpan.FromSeconds(10), TestContext.Current.CancellationToken);
+
+        Assert.Equal(BlueprintCapabilityOutcome.PrerequisiteMissing, outcome);
+        AssertNothingEnabled();
+    }
+
+    [Fact]
     public async Task TenantLookupThrows_IsRetriedAndThenRefused()
     {
         A.CallTo(() => _systemContext.TryFindTenantRepositoryAsync(TenantA))
