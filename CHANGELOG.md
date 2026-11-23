@@ -7,6 +7,21 @@ entries are grouped by work item until a release assigns the version.
 
 ### Added
 
+- **AB#9578** (security) — capabilities a blueprint needs are switched on by the platform. `BlueprintApplied` and
+  `BlueprintUpdated` get the optional, init-only `CkModelDependencies` (names of the CK models the blueprint depends on, as
+  the blueprint engine computed them; `null` from older publishers). New `IBlueprintCapabilityReconciler`
+  (`Meshmakers.Octo.Services.Infrastructure.Blueprints`, `AddBlueprintCapabilityReconciler(configuration)`, options section
+  `BlueprintCapabilities`): enables the hosting service's capability for the tenant of the event only when the tenant
+  resolves (not the system tenant), the named blueprint is installed there in exactly that version and the dependencies
+  contain `System.Communication` (Communication) or `System.Ai` (AI and Communication); no dependencies = nothing; AI waits
+  for Communication and never enables it; never disables, never throws, idempotent; an automatic enable is logged at
+  Information (tenant, blueprint, capability, trigger), only a failure to enable as warning/error; the tenant lookup is retried because a
+  tenant created with a blueprint publishes the event before the registry commits. **Compatibility:** additive - the
+  record constructors and `Deconstruct` are unchanged, older consumers ignore the property, a message of an older
+  publisher reads as `null` and enables nothing. Consumers: octo-communication-controller-services, octo-ai-services.
+  Known limitation: CK-to-CK dependencies are not followed; the blueprint declares `System.Ai` / `System.Communication`
+  directly. Docs: `docs/blueprint-capabilities.md`.
+
 - **AB#9399** (security) — outgoing HTTP client logs carry no header values. `AddObservability()` now replaces the
   framework's `IHttpClientFactory` logging handlers (categories `System.Net.Http.HttpClient.<name>.LogicalHandler` /
   `.ClientHandler`, same event ids, levels and messages) with a redacting handler: every request, response and content
