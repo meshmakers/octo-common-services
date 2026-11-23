@@ -12,13 +12,13 @@
 
     <ItemGroup>
         <PackageReference Include="Meshmakers.Octo.Runtime.Engine.MongoDb" Version="$(OctoCoreLibVersion)" />
-        <PackageReference Include="OpenTelemetry.Exporter.Console" Version="1.18.0" />
-        <PackageReference Include="OpenTelemetry.Exporter.OpenTelemetryProtocol" Version="1.18.0" />
-        <PackageReference Include="OpenTelemetry.Exporter.Prometheus.AspNetCore" Version="1.18.0-beta.1" />
-        <PackageReference Include="OpenTelemetry.Extensions.Hosting" Version="1.18.0" />
-        <PackageReference Include="OpenTelemetry.Instrumentation.AspNetCore" Version="1.18.0" />
-        <PackageReference Include="OpenTelemetry.Instrumentation.Http" Version="1.18.0" />
-        <PackageReference Include="Microsoft.Extensions.Diagnostics.HealthChecks.ResourceUtilization" Version="10.9.0" />
+        <PackageReference Include="OpenTelemetry.Exporter.Console" Version="1.21.0" />
+        <PackageReference Include="OpenTelemetry.Exporter.OpenTelemetryProtocol" Version="1.21.0" />
+        <PackageReference Include="OpenTelemetry.Exporter.Prometheus.AspNetCore" Version="1.21.0-beta.1" />
+        <PackageReference Include="OpenTelemetry.Extensions.Hosting" Version="1.21.0" />
+        <PackageReference Include="OpenTelemetry.Instrumentation.AspNetCore" Version="1.21.0" />
+        <PackageReference Include="OpenTelemetry.Instrumentation.Http" Version="1.21.0" />
+        <PackageReference Include="Microsoft.Extensions.Diagnostics.HealthChecks.ResourceUtilization" Version="10.11.1" />
         <!--
             AB#5478 section 2.3: the otel-trace-id / otel-span-id layout renderers. They live in
             Meshmakers.Common.Observability rather than here because three deployed processes

@@ -67,6 +67,14 @@ entries are grouped by work item until a release assigns the version.
   implemented in another repository changes; `CkMethodPrincipal` gets the init-only `TokenTenantGeneration`. Rollout: identity with the
   claim first; the switch to `Enforce` per environment follows AB#9000. Docs: `docs/tenant-generation-check.md`.
 
+### Changed
+
+- **AB#9595** — NuGet dependencies raised to the newest versions of the .NET 10 line (Microsoft.* stays on 10.0.15; 11.x
+  moves with AB#9580): OpenTelemetry 1.21.0 (Prometheus exporter 1.21.0-beta.1), NLog 6.2.2, NLog.Web 6.3.0,
+  Microsoft.IdentityModel 8.23.0, Microsoft.OpenApi 2.13.1, Swashbuckle.AspNetCore.SwaggerUI 11.0.1 (generated OpenAPI
+  documents unchanged), Snappier 1.3.2, AWSSDK.S3 4.1.2, Azure.Storage.Blobs 12.30.2, Markdig 1.6.0, the Microsoft.Extensions
+  Diagnostics/TimeProvider testing packages 10.11.1 and the test tooling. No API change.
+
 ### Fixed
 
 - **AB#9100** (tests) — integration tests that failed now and then on loaded CI agents: the method bus tests
