@@ -95,6 +95,30 @@ the sweep of that event waits as long. A negative delay counts as zero, attempts
 
 Options section: `BlueprintCapabilities` (e.g. `OCTO_BlueprintCapabilities__LookupAttempts`).
 
+## Seed data that points at what the capability seeds
+
+Enabling Communication applies the service-managed `System.Communication` blueprint, whose seed brings the Mesh Adapter
+(`System.Communication/Adapter` `670000000000000000000002`). A blueprint whose seed links its pipelines to that adapter
+(`System.Communication/Executes`) is applied **before** the platform enables Communication: its seed runs, the asset
+repository publishes `BlueprintApplied`, and only then does the Communication Controller enable the capability. The
+adapter therefore does not exist yet when the seed is imported (AB#9651, found on test-2: "Skipped 3 association
+edge(s) ... missing target System.Communication/Adapter@670000000000000000000002").
+
+Mechanism (decided in AB#9651): the blueprint engine keeps such edges instead of losing them, and writes them once both
+ends exist. The install result reports them as a warning (message 73); the `System.Communication` seed of the enable
+writes them (message 74, logged by the Communication Controller as "Wrote <n> deferred seed association edge(s) ...").
+The reconciler and the order of the events are unchanged: nothing waits, and the blueprint operation never blocks on a
+capability. The same holds when Communication is enabled by hand later or stays disabled after a manual disable (the
+edges wait in the tenant). Rules (to-one roles, identity roles, uninstall, limits): octo-construction-kit-engine
+`docs/blueprints.md`, "Associations to entities the tenant does not hold yet". The asset repository and the Communication
+Controller need an engine with the change; until then the edges are dropped as before and `EnableCommunication` before
+the install is the workaround.
+
+Chosen over enabling the capability before the seed: the blueprint engine runs in the asset repository and cannot switch
+on another service's capability without a call to it (and without the toggle policy the reconciler deliberately avoids,
+AB#9644); waiting for the asynchronous enable inside the install would hold the install up to the reconciler's lookup
+time and still lose the edges when the enable fails.
+
 ## Consumers
 
 - octo-communication-controller-services: `BlueprintAppliedConsumer` (Communication), before its reconcile sweep.
