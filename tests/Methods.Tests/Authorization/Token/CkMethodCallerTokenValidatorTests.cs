@@ -46,6 +46,30 @@ public class CkMethodCallerTokenValidatorTests
         Assert.Equal(["octo_api", "openid"], result.Principal!.Scopes.Order().ToArray());
     }
 
+    [Theory]
+    [InlineData("octo_agent")]
+    [InlineData("octo_agent octo_api")]
+    public async Task AgentClientToken_IsRefused_AgentTokenNotAccepted(string scope)
+    {
+        // AB#6054: an agent acts only through its MCP mandate; its token never calls a CK method on the bus, also not
+        // when it carries octo_api beside the agent scope.
+        using var f = new ValidatorFixture();
+
+        var result = await f.Validate(TokenFactory.Create(f.Key, c => c["scope"] = scope, user: false));
+
+        AssertRefused(result, CkMethodTokenReasons.AgentTokenNotAccepted);
+    }
+
+    [Fact]
+    public async Task UserTokenWithTheAgentScope_IsRefused_AgentTokenNotAccepted()
+    {
+        using var f = new ValidatorFixture();
+
+        var result = await f.Validate(TokenFactory.Create(f.Key, c => c["scope"] = new[] { "octo_api", "octo_agent" }));
+
+        AssertRefused(result, CkMethodTokenReasons.AgentTokenNotAccepted);
+    }
+
     [Fact]
     public async Task ServiceTokenWithoutSub_IsAcceptedViaClientId_AndTheSubjectIsTheClient()
     {

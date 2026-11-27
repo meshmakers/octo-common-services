@@ -26,6 +26,12 @@ public static class CkMethodTokenReasons
 
     /// <summary>An audience is configured and the token carries none of them.</summary>
     public const string AudienceMismatch = "audience-mismatch";
+
+    /// <summary>
+    ///     The token is an agent token (scope <c>octo_agent</c>, AB#6054). An agent acts only through its MCP mandate;
+    ///     CK methods never accept its token. Do not retry with the same token.
+    /// </summary>
+    public const string AgentTokenNotAccepted = "agent-token-not-accepted";
 }
 
 /// <summary>Outcome of <see cref="ICkMethodCallerTokenValidator" />: a validated principal or a language-neutral failure.</summary>

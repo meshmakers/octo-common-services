@@ -7,6 +7,19 @@ entries are grouped by work item until a release assigns the version.
 
 ### Added
 
+- **AB#6054** (security) — agent tokens are accepted only by the MCP agent endpoint. `UseOctoTenantAuthorization()` now
+  starts with `AgentTokenRefusalMiddleware`: a token whose `scope` contains `octo_agent` gets `403` with the error code
+  `AgentTokenNotAccepted` (`{"statusCode":403,"statusDescription":"Forbidden","code":"AgentTokenNotAccepted","message":...}`)
+  on every endpoint without `IAllowAgentTokens`, before every early exit of the tenant gate (anonymous endpoints, cookie
+  principals, routes without a tenant); with bearer credentials present (header or `?access_token=`) it authenticates the
+  `Bearer` scheme itself; an endpoint policy that refuses the token first answers with the same body through
+  `ForbiddenReasonAuthorizationResultHandler` (hosts with `AddOctoTenantRoleAuthorization()`). New: `AgentTokens` (`AgentScope`, `NotAcceptedErrorCode`, `IsAgentToken`, `WriteRefusalAsync`),
+  `IAllowAgentTokens` / `[AllowAgentTokens]` / `.AllowAgentTokens()`, `UseOctoAgentTokenRefusal()` for hosts without the
+  tenant gate; the CK method caller token check on the bus refuses agent tokens with reason `agent-token-not-accepted`
+  (`CkMethodTokenReasons.AgentTokenNotAccepted`). **Compatibility:** tokens without `octo_agent` are not affected; the
+  MCP service must mark its `MapMcp` routes `.AllowAgentTokens()` when it takes this version. Docs:
+  `docs/tenant-authorization.md`.
+
 - **AB#9578** (security) — capabilities a blueprint needs are switched on by the platform. `BlueprintApplied` and
   `BlueprintUpdated` get the optional, init-only `CkModelDependencies` (names of the CK models the blueprint depends on, as
   the blueprint engine computed them; `null` from older publishers). New `IBlueprintCapabilityReconciler`
