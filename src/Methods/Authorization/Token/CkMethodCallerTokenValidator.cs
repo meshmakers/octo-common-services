@@ -164,6 +164,11 @@ internal sealed class CkMethodCallerTokenValidator : ICkMethodCallerTokenValidat
     private async ValueTask<(string? Failure, Category Category)> CheckClaimsAsync(ClaimsPrincipal principal,
         string expectedTenantId, string? methodId)
     {
+        // AB#6054: an agent acts only through its MCP mandate; its token never calls a CK method, whatever else it carries.
+        if (Infrastructure.Authorization.AgentTokens.IsAgentToken(principal))
+        {
+            return (CkMethodTokenReasons.AgentTokenNotAccepted, Category.AgentToken);
+        }
 
         if (!string.IsNullOrWhiteSpace(_options.RequiredScope) && !principal
                 .FindAll(Infrastructure.InfrastructureCommon.ClaimScope)
@@ -424,7 +429,8 @@ internal sealed class CkMethodCallerTokenValidator : ICkMethodCallerTokenValidat
         UserTenant,
         ServiceTenant,
         NoIdentity,
-        TenantGeneration
+        TenantGeneration,
+        AgentToken
     }
 }
 

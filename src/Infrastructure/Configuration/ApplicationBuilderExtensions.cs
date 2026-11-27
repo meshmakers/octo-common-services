@@ -83,10 +83,29 @@ public static class ApplicationBuilderExtensions
     ///     against the user's tenant_id claim from the access token.
     ///     Must be placed after UseAuthentication() and UseAuthorization().
     /// </summary>
+    /// <remarks>
+    ///     Before the tenant gate it adds <see cref="UseOctoAgentTokenRefusal" />: an agent token (scope
+    ///     <c>octo_agent</c>, AB#6054) gets <c>403 AgentTokenNotAccepted</c> on every endpoint not marked
+    ///     <see cref="Authorization.IAllowAgentTokens" />, whatever the route.
+    /// </remarks>
     /// <param name="app"></param>
     /// <returns></returns>
     public static IApplicationBuilder UseOctoTenantAuthorization(this IApplicationBuilder app)
     {
+        app.UseOctoAgentTokenRefusal();
         return app.UseMiddleware<TenantAuthorizationMiddleware>();
+    }
+
+    /// <summary>
+    ///     Refuses agent tokens (scope <c>octo_agent</c>, AB#6054) with <c>403</c> and the error code
+    ///     <c>AgentTokenNotAccepted</c> on every endpoint not marked <see cref="Authorization.IAllowAgentTokens" />.
+    ///     <see cref="UseOctoTenantAuthorization" /> includes it; call it on its own only in a host without the tenant
+    ///     gate. Must be placed after UseAuthentication() and UseAuthorization().
+    /// </summary>
+    /// <param name="app"></param>
+    /// <returns></returns>
+    public static IApplicationBuilder UseOctoAgentTokenRefusal(this IApplicationBuilder app)
+    {
+        return app.UseMiddleware<AgentTokenRefusalMiddleware>();
     }
 }

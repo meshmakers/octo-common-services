@@ -1,9 +1,39 @@
 ---
-description: Tenant authorization middleware: service- and user-token enforcement, parent-tenant rule, denial bodies, decision metric, tenant role policies.
-applies_to: src/Infrastructure/**/TenantAuthorization*.cs, src/Infrastructure/Authorization/**, src/Infrastructure/Services/*TenantHierarchyReader.cs
+description: Tenant authorization middleware: agent-token refusal, service- and user-token enforcement, parent-tenant rule, denial bodies, decision metric, tenant role policies.
+applies_to: src/Infrastructure/**/TenantAuthorization*.cs, src/Infrastructure/**/AgentTokenRefusal*.cs, src/Infrastructure/Authorization/**, src/Infrastructure/Services/*TenantHierarchyReader.cs
 ---
 
 # Tenant authorization
+
+## Agent tokens are refused everywhere but the MCP agent endpoint
+
+An access token whose `scope` contains `octo_agent` belongs to an agent (AB#6054). An agent acts only through its MCP
+mandate, so `UseOctoTenantAuthorization()` first registers `AgentTokenRefusalMiddleware`
+(`src/Infrastructure/Middleware/AgentTokenRefusalMiddleware.cs`): on every endpoint that does not carry
+`IAllowAgentTokens` it answers an agent token with
+
+```json
+HTTP 403
+{"statusCode": 403, "statusDescription": "Forbidden", "code": "AgentTokenNotAccepted",
+ "message": "Agent tokens (scope octo_agent) are accepted only by the MCP agent endpoint. An agent acts only through its MCP mandate."}
+```
+
+- **Deny by default, not "octo_api everywhere".** Some read paths require no scope (the GraphQL queries of the asset
+  repository check `octo_api` only for mutations), so an agent token used to read tenant data there directly. The rule
+  refuses the agent scope instead of making `octo_api` mandatory, which would break existing clients. A token that
+  carries `octo_agent` beside other scopes is refused too; user and client tokens alike.
+- **Before every early exit of the tenant gate**: anonymous endpoints, cookie principals and routes without a tenant
+  segment (system routes, `operatorHub`, `adapterPoolHub`) are covered.
+- **The bearer principal is found also when it is not `HttpContext.User`**: when bearer credentials are present (the
+  `Authorization` header or SignalR's `?access_token=`) and the host has the `Bearer` scheme, the middleware
+  authenticates that scheme itself (cached per request). Hosts whose default scheme is the cookie (identity, bot) are
+  covered that way.
+- **The only opt-out** is `.AllowAgentTokens()` (or `[AllowAgentTokens]`) on the two `MapMcp` routes of the MCP service.
+  Never put it on another endpoint.
+- A host without the tenant gate calls `UseOctoAgentTokenRefusal()` on its own (platform services).
+- CK methods on the bus: the caller token check of the method host refuses an agent token with `METHOD_FORBIDDEN`,
+  reason `agent-token-not-accepted`.
+- Each refusal is logged as a Warning with method, path, error code and `client_id` (never the token).
 
 ## Tenant Authorization — the service-token exemption
 
