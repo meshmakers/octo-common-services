@@ -1,6 +1,8 @@
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Authorization.Policy;
 using Microsoft.AspNetCore.Http;
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Logging;
 
 namespace Meshmakers.Octo.Services.Infrastructure.Authorization;
 
@@ -25,6 +27,10 @@ public sealed class ForbiddenReasonAuthorizationResultHandler : IAuthorizationMi
         {
             if (AgentTokens.IsAgentToken(context.User))
             {
+                context.RequestServices?.GetService<ILogger<ForbiddenReasonAuthorizationResultHandler>>()?.LogWarning(
+                    "Agent token refused on {Method} {Path}: {ErrorCode} (client {ClientId}, by the endpoint policy)",
+                    context.Request.Method, context.Request.Path, AgentTokens.NotAcceptedErrorCode,
+                    context.User.FindFirst("client_id")?.Value);
                 await AgentTokens.WriteRefusalAsync(context);
                 return;
             }

@@ -100,7 +100,9 @@ public static class ApplicationBuilderExtensions
     ///     Refuses agent tokens (scope <c>octo_agent</c>, AB#6054) with <c>403</c> and the error code
     ///     <c>AgentTokenNotAccepted</c> on every endpoint not marked <see cref="Authorization.IAllowAgentTokens" />.
     ///     <see cref="UseOctoTenantAuthorization" /> includes it; call it on its own only in a host without the tenant
-    ///     gate. Must be placed after UseAuthentication() and UseAuthorization().
+    ///     gate, or between UseAuthentication() and UseAuthorization() in a host whose controller policies would otherwise
+    ///     refuse an agent token first with a plain <c>403</c> (it is idempotent next to the tenant gate). Place it after
+    ///     UseRouting() and UseAuthentication(): it reads the endpoint's metadata and the principal.
     /// </summary>
     /// <param name="app"></param>
     /// <returns></returns>
