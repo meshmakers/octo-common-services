@@ -8,7 +8,10 @@ namespace Meshmakers.Octo.Services.Infrastructure.Authorization;
 ///     Writes the reason of a refused <see cref="TenantRoleRequirement" /> into the <c>403</c> response (AB#7319), in the
 ///     shape of the tenant gate's denials (AB#5227): a JSON body <c>{"message": "..."}</c>, which the frontends' HTTP error
 ///     interceptor renders. A requirement with an error code (AB#8529, e.g. <c>DataModelManagementRequired</c>) adds it as
-///     <c>{"message": "...", "code": "..."}</c>. Every other outcome is left to the framework's default handler.
+///     <c>{"message": "...", "code": "..."}</c>. A policy that refuses an agent token (scope <c>octo_agent</c>) answers
+///     with the agent refusal of <see cref="AgentTokens.WriteRefusalAsync" /> instead, so the code
+///     <see cref="AgentTokens.NotAcceptedErrorCode" /> also reaches the caller where authorization runs before the refusal
+///     middleware. Every other outcome is left to the framework's default handler.
 /// </summary>
 public sealed class ForbiddenReasonAuthorizationResultHandler : IAuthorizationMiddlewareResultHandler
 {
@@ -20,6 +23,12 @@ public sealed class ForbiddenReasonAuthorizationResultHandler : IAuthorizationMi
     {
         if (authorizeResult.Forbidden && !context.Response.HasStarted)
         {
+            if (AgentTokens.IsAgentToken(context.User))
+            {
+                await AgentTokens.WriteRefusalAsync(context);
+                return;
+            }
+
             var reason = authorizeResult.AuthorizationFailure?.FailureReasons
                 .FirstOrDefault(r => r.Handler is TenantRoleAuthorizationHandler);
             if (reason != null)

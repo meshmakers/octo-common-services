@@ -69,12 +69,12 @@ public static class AgentTokens
     public static async Task WriteRefusalAsync(HttpContext context)
     {
         ArgumentNullException.ThrowIfNull(context);
-        context.Response.StatusCode = StatusCodes.Status403Forbidden;
         if (context.Response.HasStarted)
         {
             return;
         }
 
+        context.Response.StatusCode = StatusCodes.Status403Forbidden;
         await context.Response.WriteAsJsonAsync(new AgentTokenRefusalBody(StatusCodes.Status403Forbidden, "Forbidden",
             NotAcceptedErrorCode, NotAcceptedMessage));
     }

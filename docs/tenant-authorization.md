@@ -31,8 +31,15 @@ HTTP 403
 - **The only opt-out** is `.AllowAgentTokens()` (or `[AllowAgentTokens]`) on the two `MapMcp` routes of the MCP service.
   Never put it on another endpoint.
 - A host without the tenant gate calls `UseOctoAgentTokenRefusal()` on its own (platform services).
-- CK methods on the bus: the caller token check of the method host refuses an agent token with `METHOD_FORBIDDEN`,
-  reason `agent-token-not-accepted`.
+- **Endpoints whose policy refuses the token first**: `UseAuthorization()` runs before the tenant gate, so a REST action
+  whose scope policy needs `octo_api` refuses an agent token before this middleware sees it. Hosts that register
+  `AddOctoTenantRoleAuthorization()` (its `ForbiddenReasonAuthorizationResultHandler`) answer that refusal with the same
+  `403 AgentTokenNotAccepted` body; other hosts call `UseOctoAgentTokenRefusal()` between `UseAuthentication()` and
+  `UseAuthorization()`.
+- **Hosts that validate the audience** `octoAPI` reject an agent token (audience: the MCP resource only) at
+  authentication with `401`; the code above appears where the token authenticates.
+- CK methods on the bus: in hosts that validate caller tokens, the caller token check refuses an agent token with
+  `METHOD_FORBIDDEN`, reason `agent-token-not-accepted`; the in-process path is covered by the HTTP refusal before it.
 - Each refusal is logged as a Warning with method, path, error code and `client_id` (never the token).
 
 ## Tenant Authorization — the service-token exemption

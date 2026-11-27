@@ -12,7 +12,8 @@ entries are grouped by work item until a release assigns the version.
   `AgentTokenNotAccepted` (`{"statusCode":403,"statusDescription":"Forbidden","code":"AgentTokenNotAccepted","message":...}`)
   on every endpoint without `IAllowAgentTokens`, before every early exit of the tenant gate (anonymous endpoints, cookie
   principals, routes without a tenant); with bearer credentials present (header or `?access_token=`) it authenticates the
-  `Bearer` scheme itself. New: `AgentTokens` (`AgentScope`, `NotAcceptedErrorCode`, `IsAgentToken`, `WriteRefusalAsync`),
+  `Bearer` scheme itself; an endpoint policy that refuses the token first answers with the same body through
+  `ForbiddenReasonAuthorizationResultHandler` (hosts with `AddOctoTenantRoleAuthorization()`). New: `AgentTokens` (`AgentScope`, `NotAcceptedErrorCode`, `IsAgentToken`, `WriteRefusalAsync`),
   `IAllowAgentTokens` / `[AllowAgentTokens]` / `.AllowAgentTokens()`, `UseOctoAgentTokenRefusal()` for hosts without the
   tenant gate; the CK method caller token check on the bus refuses agent tokens with reason `agent-token-not-accepted`
   (`CkMethodTokenReasons.AgentTokenNotAccepted`). **Compatibility:** tokens without `octo_agent` are not affected; the

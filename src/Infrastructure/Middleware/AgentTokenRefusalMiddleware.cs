@@ -1,3 +1,4 @@
+using System.Security.Claims;
 using Meshmakers.Octo.Services.Infrastructure.Authorization;
 using Microsoft.AspNetCore.Authentication;
 
@@ -31,11 +32,11 @@ internal sealed class AgentTokenRefusalMiddleware(RequestDelegate next, ILogger<
     public async Task InvokeAsync(HttpContext context)
     {
         if (context.GetEndpoint()?.Metadata.GetMetadata<IAllowAgentTokens>() == null &&
-            await PresentsAgentTokenAsync(context))
+            await FindAgentPrincipalAsync(context) is { } agent)
         {
             logger.LogWarning("Agent token refused on {Method} {Path}: {ErrorCode} (client {ClientId})",
                 context.Request.Method, context.Request.Path, AgentTokens.NotAcceptedErrorCode,
-                context.User.FindFirst("client_id")?.Value);
+                agent.FindFirst("client_id")?.Value);
             await AgentTokens.WriteRefusalAsync(context);
             return;
         }
@@ -43,26 +44,27 @@ internal sealed class AgentTokenRefusalMiddleware(RequestDelegate next, ILogger<
         await next(context);
     }
 
-    private static async Task<bool> PresentsAgentTokenAsync(HttpContext context)
+    /// <summary>The principal that carries the agent token (the request's user or the bearer principal), or null.</summary>
+    private static async Task<ClaimsPrincipal?> FindAgentPrincipalAsync(HttpContext context)
     {
         if (AgentTokens.IsAgentToken(context.User))
         {
-            return true;
+            return context.User;
         }
 
         if (!HasBearerCredentials(context.Request))
         {
-            return false;
+            return null;
         }
 
         var schemes = context.RequestServices?.GetService<IAuthenticationSchemeProvider>();
         if (schemes == null || await schemes.GetSchemeAsync(BearerScheme) == null)
         {
-            return false;
+            return null;
         }
 
         var result = await context.AuthenticateAsync(BearerScheme);
-        return result.Succeeded && AgentTokens.IsAgentToken(result.Principal);
+        return result.Succeeded && AgentTokens.IsAgentToken(result.Principal) ? result.Principal : null;
     }
 
     private static bool HasBearerCredentials(HttpRequest request)

@@ -28,6 +28,9 @@ public class AgentTokenRefusalPipelineTests
 {
     private const string Tenant = "meshtest";
 
+    /// <summary>A scope policy like the services' REST policies: authenticated by the bearer scheme, needs octo_api.</summary>
+    private const string ApiScopePolicy = "ApiScope";
+
     /// <summary>
     ///     A host like asset-repo: the bearer scheme is the default, so <c>UseAuthentication()</c> puts the token's
     ///     principal on <c>HttpContext.User</c>.
@@ -53,7 +56,11 @@ public class AgentTokenRefusalPipelineTests
                     s.AddAuthentication(defaultScheme)
                         .AddScheme<AuthenticationSchemeOptions, TestBearerHandler>(TestBearerHandler.SchemeName, _ => { })
                         .AddScheme<AuthenticationSchemeOptions, TestCookieHandler>(TestCookieHandler.SchemeName, _ => { });
-                    s.AddAuthorization();
+                    s.AddAuthorization(o => o.AddPolicy(ApiScopePolicy, p => p
+                        .AddAuthenticationSchemes(TestBearerHandler.SchemeName)
+                        .RequireAuthenticatedUser()
+                        .RequireClaim("scope", "octo_api")));
+                    s.AddOctoTenantRoleAuthorization();
                     s.AddOctoTenantAuthorization(_ => { });
                 });
                 web.Configure(app =>
@@ -66,6 +73,8 @@ public class AgentTokenRefusalPipelineTests
                     {
                         e.MapPost("/tenants/{tenantId}/graphQl", () => Results.Ok(new { data = "tenant data" }));
                         e.MapGet("/{tenantId}/v1/entities", () => Results.Ok(new { data = "tenant data" }));
+                        e.MapGet("/{tenantId}/v1/features/status", () => Results.Ok(new { data = "tenant data" }))
+                            .RequireAuthorization(ApiScopePolicy);
                         e.MapGet("/system/v1/diagnostics", () => Results.Ok("system"));
                         e.MapGet("/operatorHub/negotiate", () => Results.Ok("hub"));
                         e.MapGet("/{tenantId}/_configuration", () => Results.Ok("public")).WithMetadata(new AllowAnonymousAttribute());
@@ -197,6 +206,38 @@ public class AgentTokenRefusalPipelineTests
             TestContext.Current.CancellationToken);
 
         await AssertRefusedAsync(response);
+    }
+
+    /// <summary>
+    ///     An endpoint whose policy the agent token fails is refused by <c>UseAuthorization()</c>, before the refusal
+    ///     middleware runs; the result handler still answers with the agent code, on both kinds of host.
+    /// </summary>
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task AgentToken_RefusedByAnEndpointPolicy_StillGetsAgentTokenNotAccepted(bool cookieDefault)
+    {
+        using var host = cookieDefault ? await StartCookieDefaultHostAsync() : await StartBearerDefaultHostAsync();
+        var client = host.GetTestClient();
+
+        var response = await client.SendAsync(
+            Request(HttpMethod.Get, $"/{Tenant}/v1/features/status", TestBearerHandler.AgentToken),
+            TestContext.Current.CancellationToken);
+
+        await AssertRefusedAsync(response);
+    }
+
+    [Fact]
+    public async Task PlatformToken_PassesTheEndpointPolicy_Unchanged()
+    {
+        using var host = await StartBearerDefaultHostAsync();
+        var client = host.GetTestClient();
+
+        var response = await client.SendAsync(
+            Request(HttpMethod.Get, $"/{Tenant}/v1/features/status", TestBearerHandler.ApiToken),
+            TestContext.Current.CancellationToken);
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
     }
 
     [Fact]
